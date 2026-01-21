@@ -1,0 +1,75 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  leads       Lead[]
+  aiLogs      AiLog[]
+
+  @@map("users")
+}
+
+model Lead {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  name           String
+  contact        String?
+  notes          String?
+  status         String    @default("new")
+  lastActivityAt DateTime? @map("last_activity_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminders  Reminder[]
+  aiLogs     AiLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("leads")
+}
+
+model Reminder {
+  id        String   @id @default(uuid())
+  leadId    String   @map("lead_id")
+  type      String   // follow_up / payment
+  triggerAt DateTime @map("trigger_at")
+  isDone    Boolean  @default(false) @map("is_done")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([triggerAt])
+  @@index([isDone])
+  @@map("reminders")
+}
+
+model AiLog {
+  id        String   @id @default(uuid())
+  leadId    String   @map("lead_id")
+  userId    String   @map("user_id")
+  purpose   String   // follow_up / payment
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([userId])
+  @@index([purpose])
+  @@map("ai_logs")
+}
+

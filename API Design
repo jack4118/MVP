@@ -1,0 +1,32 @@
+API Design
+
+
+Lead
+
+POST /leads
+
+GET /leads
+
+PUT /leads/:id
+
+PUT /leads/:id/status
+
+
+Reminder
+
+GET /reminders/today
+
+POST /reminders/:id/done
+
+AI
+
+POST /ai/follow-up
+
+POST /ai/payment
+
+Example : {
+  "leadName": "Jason",
+  "status": "waiting_reply",
+  "daysPassed": 4,
+  "tone": "polite"
+}
