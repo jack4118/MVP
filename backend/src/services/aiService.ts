@@ -51,6 +51,7 @@ export const generateFollowUpText = async (
     userPrompt = `用中文写一封跟进消息。
 
 上下文：
+- 客户姓名：${data.leadName}
 - 距离上次回复的天数：${daysPassed}
 - 关系：现有客户
 - 语气：${mappedTone === 'soft' ? '温和' : mappedTone === 'professional' ? '专业' : '坚定'}
@@ -58,12 +59,14 @@ export const generateFollowUpText = async (
 规则：
 - 简短自然
 - 不要施加压力
-- 以简单的问题结尾`;
+- 以简单的问题结尾
+- 使用客户姓名，不要使用占位符如 XXX`;
   } else {
     systemPrompt = 'You are a professional sales assistant helping a small business owner follow up with a client. Your goal is to sound polite, human, and professional — not pushy. The message should reduce pressure and increase reply probability.';
     userPrompt = `Write a follow-up message in English.
 
 Context:
+- Customer Name: ${data.leadName}
 - Days since last reply: ${daysPassed}
 - Relationship: existing client
 - Tone: ${mappedTone}
@@ -71,7 +74,8 @@ Context:
 Rules:
 - Short and natural
 - No pressure
-- End with an easy question`;
+- End with an easy question
+- Use the customer name, do not use placeholders like XXX`;
   }
 
   try {
@@ -173,6 +177,7 @@ export const generatePaymentText = async (
     userPrompt = `用中文写一封付款提醒。
 
 上下文：
+- 客户姓名：${data.leadName}
 - 项目已完成
 - 付款待处理
 - 逾期天数：${daysOverdue}
@@ -182,12 +187,14 @@ ${amount ? `- 金额：${amount.toFixed(2)}` : ''}
 规则：
 - 保持尊重
 - 提及完成情况
-- 清晰但友好`;
+- 清晰但友好
+- 使用客户姓名，不要使用占位符如 XXX`;
   } else {
     systemPrompt = 'You help a business owner request payment politely but clearly. The message must protect the relationship while reminding about payment.';
     userPrompt = `Write a payment reminder in English.
 
 Context:
+- Customer Name: ${data.leadName}
 - Project is completed
 - Payment is pending
 - Days overdue: ${daysOverdue}
@@ -197,7 +204,8 @@ ${amount ? `- Amount: $${amount.toFixed(2)}` : ''}
 Rules:
 - Be respectful
 - Mention completion
-- Clear but friendly`;
+- Clear but friendly
+- Use the customer name, do not use placeholders like XXX`;
   }
 
   try {
