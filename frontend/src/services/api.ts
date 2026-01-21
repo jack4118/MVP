@@ -173,6 +173,7 @@ export const aiApi = {
     status?: string;
     daysPassed?: number;
     tone?: string;
+    language?: 'en' | 'zh-CN';
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/follow-up', data);
     return response.data;
@@ -184,6 +185,7 @@ export const aiApi = {
     amount?: number;
     dueDate?: string;
     tone?: string;
+    language?: 'en' | 'zh-CN';
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/payment', data);
     return response.data;

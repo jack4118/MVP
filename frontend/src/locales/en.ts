@@ -50,8 +50,8 @@ export const en = {
   // Dashboard
   dashboard: {
     title: 'Dashboard',
-    welcome: 'Welcome to MVP SaaS',
-    welcomeMessage: 'Manage your leads, track reminders, and generate AI-powered messages to streamline your workflow.',
+    welcome: 'Get Started',
+    welcomeMessage: 'Track your customer leads and never miss a follow-up. Get AI-generated messages when you need them most. Set reminders to stay on top of your business.',
     welcomeBack: 'Welcome back, {email}',
     leads: 'Leads',
     leadsDescription: 'Manage your customer leads',
@@ -59,6 +59,8 @@ export const en = {
     remindersDescription: "View today's reminders",
     aiGenerator: 'AI Generator',
     aiGeneratorDescription: 'Generate AI-powered messages',
+    unfollowedWarning: '⚠️ You have {count} clients not followed up for over 3 days',
+    unpaidWarning: '💰 There are {count} completed projects still unpaid',
   },
 
   // Leads
@@ -91,6 +93,10 @@ export const en = {
     ascending: 'Ascending',
     descending: 'Descending',
     searchPlaceholder: 'Search by name, contact, or notes...',
+    helpFollowUp: 'Help me follow up',
+    helpCollectPayment: 'Help me collect payment',
+    aiModalTitle: 'Generated Message',
+    copyMessage: 'Copy Message',
   },
 
   // Reminders

@@ -50,8 +50,8 @@ export const zhCN = {
   // Dashboard
   dashboard: {
     title: '仪表板',
-    welcome: '欢迎使用 MVP SaaS',
-    welcomeMessage: '管理您的潜在客户，跟踪提醒事项，并生成 AI 驱动的消息以简化您的工作流程。',
+    welcome: '开始使用',
+    welcomeMessage: '跟踪客户线索，不错过任何跟进机会。在需要时获得 AI 生成的专业消息。设置提醒，让业务管理更轻松。',
     welcomeBack: '欢迎回来，{email}',
     leads: '潜在客户',
     leadsDescription: '管理您的客户潜在客户',
@@ -59,6 +59,8 @@ export const zhCN = {
     remindersDescription: '查看今日提醒',
     aiGenerator: 'AI 生成器',
     aiGeneratorDescription: '生成 AI 驱动的消息',
+    unfollowedWarning: '⚠️ 你有 {count} 个客户超过 3 天未跟进',
+    unpaidWarning: '💰 有 {count} 个已完成项目仍未付款',
   },
 
   // Leads
@@ -91,6 +93,10 @@ export const zhCN = {
     ascending: '升序',
     descending: '降序',
     searchPlaceholder: '按姓名、联系方式或备注搜索...',
+    helpFollowUp: '帮我跟进',
+    helpCollectPayment: '帮我催款',
+    aiModalTitle: '生成的消息',
+    copyMessage: '复制消息',
   },
 
   // Reminders

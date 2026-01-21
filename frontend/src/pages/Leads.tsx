@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { leadsApi, Lead } from '../services/api';
+import { leadsApi, aiApi, Lead } from '../services/api';
 import { useLanguage, translate } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
 
 const Leads = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +25,13 @@ const Leads = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'status'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // AI Modal states
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [generatedText, setGeneratedText] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [currentLead, setCurrentLead] = useState<Lead | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     loadLeads();
@@ -140,6 +147,84 @@ const Leads = () => {
     setStatusFilter('all');
     setSortBy('date');
     setSortOrder('desc');
+  };
+
+  const calculateDaysPassed = (lead: Lead): number => {
+    const lastActivity = lead.lastActivityAt || lead.createdAt;
+    const now = Date.now();
+    const activityTime = new Date(lastActivity).getTime();
+    return Math.floor((now - activityTime) / (1000 * 60 * 60 * 24));
+  };
+
+  const handleAiFollowUp = async (lead: Lead) => {
+    setCurrentLead(lead);
+    setShowAiModal(true);
+    setGeneratedText('');
+    setAiLoading(true);
+    setError('');
+
+    try {
+      const daysPassed = calculateDaysPassed(lead);
+      const response = await aiApi.generateFollowUp({
+        leadId: lead.id,
+        leadName: lead.name,
+        status: lead.status,
+        daysPassed,
+        tone: 'polite',
+        language: language as 'en' | 'zh-CN',
+      });
+
+      if (response.success && response.data) {
+        setGeneratedText(response.data.text);
+      } else {
+        setError(response.error?.message || t.ai.failedToGenerate);
+        setShowAiModal(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.common.error);
+      setShowAiModal(false);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAiPayment = async (lead: Lead) => {
+    setCurrentLead(lead);
+    setShowAiModal(true);
+    setGeneratedText('');
+    setAiLoading(true);
+    setError('');
+
+    try {
+      const response = await aiApi.generatePayment({
+        leadId: lead.id,
+        leadName: lead.name,
+        tone: 'polite',
+        language: language as 'en' | 'zh-CN',
+      });
+
+      if (response.success && response.data) {
+        setGeneratedText(response.data.text);
+      } else {
+        setError(response.error?.message || t.ai.failedToGenerate);
+        setShowAiModal(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.common.error);
+      setShowAiModal(false);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleCopyText = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      setError(t.common.error);
+    }
   };
 
   const statusColors: Record<string, string> = {
@@ -429,18 +514,131 @@ const Leads = () => {
                       : new Date(lead.createdAt).toLocaleDateString()}
                   </td>
                   <td>
-                    <button
-                      onClick={() => handleEdit(lead)}
-                      className="btn btn-secondary"
-                      style={{ padding: '6px 12px', fontSize: '12px' }}
-                    >
-                      {t.common.edit}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {lead.status === 'waiting_reply' && (
+                        <button
+                          onClick={() => handleAiFollowUp(lead)}
+                          className="btn btn-primary"
+                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                        >
+                          {t.leads.helpFollowUp}
+                        </button>
+                      )}
+                      {lead.status === 'closed' && (
+                        <button
+                          onClick={() => handleAiPayment(lead)}
+                          className="btn btn-primary"
+                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                        >
+                          {t.leads.helpCollectPayment}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleEdit(lead)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px 12px', fontSize: '12px' }}
+                      >
+                        {t.common.edit}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* AI Modal */}
+      {showAiModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => {
+            if (!aiLoading) {
+              setShowAiModal(false);
+              setGeneratedText('');
+              setCurrentLead(null);
+            }
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              maxWidth: '600px',
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              position: 'relative',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2>{t.leads.aiModalTitle}</h2>
+              <button
+                onClick={() => {
+                  setShowAiModal(false);
+                  setGeneratedText('');
+                  setCurrentLead(null);
+                }}
+                className="btn btn-secondary"
+                style={{ padding: '6px 12px' }}
+                disabled={aiLoading}
+              >
+                {t.common.close}
+              </button>
+            </div>
+
+            {currentLead && (
+              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                <strong>{t.leads.name}:</strong> {currentLead.name}
+                {currentLead.contact && (
+                  <>
+                    <br />
+                    <strong>{t.leads.contact}:</strong> {currentLead.contact}
+                  </>
+                )}
+              </div>
+            )}
+
+            {aiLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <div className="spinner" style={{ margin: '0 auto' }}></div>
+                <p style={{ marginTop: '16px' }}>{t.ai.generating}</p>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={generatedText}
+                  readOnly
+                  className="input"
+                  style={{
+                    minHeight: '200px',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                  }}
+                  placeholder={t.ai.generatedTextPlaceholder}
+                />
+                {generatedText && (
+                  <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button onClick={handleCopyText} className="btn btn-success">
+                      {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

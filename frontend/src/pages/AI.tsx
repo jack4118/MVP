@@ -13,7 +13,7 @@ const AI = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [formData, setFormData] = useState({
     daysPassed: 0,
     tone: 'polite',
@@ -55,6 +55,7 @@ const AI = () => {
           status: selectedLead.status,
           daysPassed: formData.daysPassed,
           tone: formData.tone,
+          language: language as 'en' | 'zh-CN',
         });
       } else {
         response = await aiApi.generatePayment({
@@ -63,6 +64,7 @@ const AI = () => {
           amount: formData.amount > 0 ? formData.amount : undefined,
           dueDate: formData.dueDate || undefined,
           tone: formData.tone,
+          language: language as 'en' | 'zh-CN',
         });
       }
 
