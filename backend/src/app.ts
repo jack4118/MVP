@@ -6,6 +6,7 @@ import authRoutes from './routes/auth';
 import leadRoutes from './routes/leads';
 import reminderRoutes from './routes/reminders';
 import aiRoutes from './routes/ai';
+import usageRoutes from './routes/usage';
 
 dotenv.config();
 
@@ -48,6 +49,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/usage', usageRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

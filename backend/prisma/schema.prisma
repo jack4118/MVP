@@ -14,6 +14,7 @@ model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String   @map("password_hash")
+  plan         String   @default("free") // "free" | "pro"
   createdAt    DateTime @default(now()) @map("created_at")
 
   leads       Lead[]

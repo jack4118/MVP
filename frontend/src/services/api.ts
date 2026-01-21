@@ -3,12 +3,26 @@ import { storage } from '../utils/storage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+export type UserPlan = 'free' | 'pro';
+
+export interface UsageInfo {
+  plan: UserPlan;
+  leadCount: number;
+  leadLimit: number | null;
+  aiUsageThisMonth: number;
+  aiLimit: number | null;
+  canCreateLead: boolean;
+  canUseAi: boolean;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: {
     message: string;
+    code?: string;
   };
+  usage?: UsageInfo;
 }
 
 const api: AxiosInstance = axios.create({
@@ -83,6 +97,18 @@ export interface Reminder {
     contact?: string;
     status: string;
   };
+}
+
+export type UserPlan = 'free' | 'pro';
+
+export interface UsageInfo {
+  plan: UserPlan;
+  leadCount: number;
+  leadLimit: number | null;
+  aiUsageThisMonth: number;
+  aiLimit: number | null;
+  canCreateLead: boolean;
+  canUseAi: boolean;
 }
 
 export const authApi = {
@@ -188,6 +214,17 @@ export const aiApi = {
     language?: 'en' | 'zh-CN';
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/payment', data);
+    return response.data;
+  },
+};
+
+export const usageApi = {
+  getUsage: async (): Promise<ApiResponse<UsageInfo>> => {
+    const response = await api.get<ApiResponse<UsageInfo>>('/usage');
+    return response.data;
+  },
+  upgradeToPro: async (): Promise<ApiResponse<UsageInfo>> => {
+    const response = await api.post<ApiResponse<UsageInfo>>('/usage/upgrade');
     return response.data;
   },
 };

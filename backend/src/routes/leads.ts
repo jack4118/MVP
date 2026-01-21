@@ -12,6 +12,7 @@ import {
   updateLeadSchema,
   updateLeadStatusSchema,
 } from '../utils/validation';
+import { getUserPlan, checkLeadLimit, getUsageInfo } from '../services/planService';
 
 const router = express.Router();
 
@@ -23,6 +24,22 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return res.status(401).json({
         success: false,
         error: { message: 'Unauthorized' },
+      });
+    }
+
+    // Check lead limit
+    const plan = await getUserPlan(req.userId);
+    const canCreateLead = await checkLeadLimit(req.userId, plan);
+
+    if (!canCreateLead) {
+      const usageInfo = await getUsageInfo(req.userId);
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'Lead limit reached. Please upgrade to Pro for unlimited leads.',
+          code: 'LEAD_LIMIT_REACHED',
+        },
+        usage: usageInfo,
       });
     }
 

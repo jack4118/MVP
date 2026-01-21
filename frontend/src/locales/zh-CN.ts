@@ -148,5 +148,28 @@ export const zhCN = {
     notInterested: '不感兴趣',
     closed: '已关闭',
   },
+
+  // Pricing/Plan
+  pricing: {
+    freePlan: '免费版',
+    proPlan: '专业版',
+    aiMessagesLeft: '免费用户：本月还剩 {count} 次 AI 消息',
+    aiMessagesLeftUnlimited: '无限 AI 消息',
+    leadsLimitReached: '潜在客户数量已达上限。请升级到专业版以获取无限潜在客户。',
+    aiLimitReached: 'AI 使用次数已达上限。请升级到专业版以获取无限 AI 消息。',
+    upgradeToPro: '升级到专业版',
+    upgradeModalTitle: '升级到专业版',
+    upgradeModalDescription: '通过无限 AI 消息和潜在客户，保持您的现金流运转。',
+    unlimitedLeads: '无限潜在客户',
+    unlimitedAi: '无限 AI 跟进和催款',
+    oneClickCopy: '一键复制',
+    futureFeatures: '未来功能自动解锁',
+    pricing: '定价',
+    pricePerMonth: 'RM 29 / 月',
+    pricePerMonthUsd: '或 USD 7',
+    upgradeNow: '立即升级',
+    copyRestricted: '复制功能仅限专业版用户。升级以解锁此功能。',
+    upgradePrompt: '升级到专业版，保持您的现金流运转',
+  },
 };
 

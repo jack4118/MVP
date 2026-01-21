@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { aiApi, leadsApi, Lead } from '../services/api';
-import { useLanguage } from '../contexts/LanguageContext';
+import { aiApi, leadsApi, usageApi, Lead, UsageInfo } from '../services/api';
+import { useLanguage, translate } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
+import UpgradeModal from '../components/UpgradeModal';
 
 const AI = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -13,6 +14,8 @@ const AI = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const { t, language } = useLanguage();
   const [formData, setFormData] = useState({
     daysPassed: 0,
@@ -23,6 +26,7 @@ const AI = () => {
 
   useEffect(() => {
     loadLeads();
+    loadUsageInfo();
   }, []);
 
   const loadLeads = async () => {
@@ -33,6 +37,17 @@ const AI = () => {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
+    }
+  };
+
+  const loadUsageInfo = async () => {
+    try {
+      const response = await usageApi.getUsage();
+      if (response.success && response.data) {
+        setUsageInfo(response.data);
+      }
+    } catch (err) {
+      // Silently fail - usage info is optional
     }
   };
 
@@ -70,10 +85,30 @@ const AI = () => {
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
+        // Update usage info from response
+        if ((response as any).usage) {
+          setUsageInfo((response as any).usage);
+        } else {
+          await loadUsageInfo();
+        }
       } else {
+        // Check if it's a limit error
+        if (response.error?.code === 'AI_LIMIT_REACHED') {
+          setShowUpgradeModal(true);
+          if ((response as any).usage) {
+            setUsageInfo((response as any).usage);
+          }
+        }
         setError(response.error?.message || t.ai.failedToGenerate);
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Check if it's a limit error from axios response
+      if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
+        setShowUpgradeModal(true);
+        if (err?.response?.data?.usage) {
+          setUsageInfo(err.response.data.usage);
+        }
+      }
       setError(err instanceof Error ? err.message : t.common.error);
     } finally {
       setLoading(false);
@@ -81,6 +116,12 @@ const AI = () => {
   };
 
   const handleCopy = async () => {
+    // Check if user is on free plan
+    if (usageInfo && usageInfo.plan === 'free') {
+      setShowUpgradeModal(true);
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(generatedText);
       setCopied(true);
@@ -130,6 +171,22 @@ const AI = () => {
       <div className="ai-generator-grid">
         <div className="card">
           <h2>{t.ai.configuration}</h2>
+          
+          {usageInfo && usageInfo.plan === 'free' && (
+            <div style={{ 
+              marginBottom: '16px', 
+              padding: '12px', 
+              backgroundColor: 'var(--warning)', 
+              color: 'var(--bg-primary)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              textAlign: 'center',
+            }}>
+              {usageInfo.aiLimit !== null
+                ? translate(t.pricing.aiMessagesLeft, { count: Math.max(0, usageInfo.aiLimit - usageInfo.aiUsageThisMonth) })
+                : t.pricing.aiMessagesLeftUnlimited}
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">{t.ai.selectLead} *</label>
             <select
@@ -238,7 +295,13 @@ const AI = () => {
           <div className="generated-text-header">
             <h2>{t.ai.generatedText}</h2>
             {generatedText && (
-              <button onClick={handleCopy} className="btn btn-success">
+              <button 
+                onClick={handleCopy} 
+                className="btn btn-success"
+                style={{
+                  opacity: usageInfo && usageInfo.plan === 'free' ? 0.7 : 1,
+                }}
+              >
                 {copied ? `✓ ${t.common.copied}` : `📋 ${t.common.copy}`}
               </button>
             )}
@@ -252,6 +315,15 @@ const AI = () => {
           />
         </div>
       </div>
+
+      {/* Upgrade Modal */}
+      <UpgradeModal 
+        isOpen={showUpgradeModal} 
+        onClose={() => setShowUpgradeModal(false)}
+        onUpgradeSuccess={() => {
+          loadUsageInfo();
+        }}
+      />
     </div>
   );
 };

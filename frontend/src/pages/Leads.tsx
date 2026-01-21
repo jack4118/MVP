@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { leadsApi, aiApi, Lead } from '../services/api';
+import { leadsApi, aiApi, usageApi, Lead, UsageInfo } from '../services/api';
 import { useLanguage, translate } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
+import UpgradeModal from '../components/UpgradeModal';
 
 const Leads = () => {
   const { t, language } = useLanguage();
@@ -32,10 +33,24 @@ const Leads = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [currentLead, setCurrentLead] = useState<Lead | null>(null);
   const [copied, setCopied] = useState(false);
+  const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   useEffect(() => {
     loadLeads();
+    loadUsageInfo();
   }, []);
+
+  const loadUsageInfo = async () => {
+    try {
+      const response = await usageApi.getUsage();
+      if (response.success && response.data) {
+        setUsageInfo(response.data);
+      }
+    } catch (err) {
+      // Silently fail - usage info is optional
+    }
+  };
 
   const loadLeads = async () => {
     try {
@@ -176,11 +191,31 @@ const Leads = () => {
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
+        // Update usage info from response
+        if ((response as any).usage) {
+          setUsageInfo((response as any).usage);
+        } else {
+          await loadUsageInfo();
+        }
       } else {
+        // Check if it's a limit error
+        if (response.error?.code === 'AI_LIMIT_REACHED') {
+          setShowUpgradeModal(true);
+          if ((response as any).usage) {
+            setUsageInfo((response as any).usage);
+          }
+        }
         setError(response.error?.message || t.ai.failedToGenerate);
         setShowAiModal(false);
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Check if it's a limit error from axios response
+      if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
+        setShowUpgradeModal(true);
+        if (err?.response?.data?.usage) {
+          setUsageInfo(err.response.data.usage);
+        }
+      }
       setError(err instanceof Error ? err.message : t.common.error);
       setShowAiModal(false);
     } finally {
@@ -205,11 +240,31 @@ const Leads = () => {
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
+        // Update usage info from response
+        if ((response as any).usage) {
+          setUsageInfo((response as any).usage);
+        } else {
+          await loadUsageInfo();
+        }
       } else {
+        // Check if it's a limit error
+        if (response.error?.code === 'AI_LIMIT_REACHED') {
+          setShowUpgradeModal(true);
+          if ((response as any).usage) {
+            setUsageInfo((response as any).usage);
+          }
+        }
         setError(response.error?.message || t.ai.failedToGenerate);
         setShowAiModal(false);
       }
-    } catch (err) {
+    } catch (err: any) {
+      // Check if it's a limit error from axios response
+      if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
+        setShowUpgradeModal(true);
+        if (err?.response?.data?.usage) {
+          setUsageInfo(err.response.data.usage);
+        }
+      }
       setError(err instanceof Error ? err.message : t.common.error);
       setShowAiModal(false);
     } finally {
@@ -218,6 +273,12 @@ const Leads = () => {
   };
 
   const handleCopyText = async () => {
+    // Check if user is on free plan
+    if (usageInfo && usageInfo.plan === 'free') {
+      setShowUpgradeModal(true);
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(generatedText);
       setCopied(true);
@@ -533,13 +594,13 @@ const Leads = () => {
                           {t.leads.helpCollectPayment}
                         </button>
                       )}
-                      <button
-                        onClick={() => handleEdit(lead)}
-                        className="btn btn-secondary"
-                        style={{ padding: '6px 12px', fontSize: '12px' }}
-                      >
-                        {t.common.edit}
-                      </button>
+                    <button
+                      onClick={() => handleEdit(lead)}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                    >
+                      {t.common.edit}
+                    </button>
                     </div>
                   </td>
                 </tr>
@@ -611,6 +672,22 @@ const Leads = () => {
               </div>
             )}
 
+            {usageInfo && usageInfo.plan === 'free' && (
+              <div style={{ 
+                marginBottom: '16px', 
+                padding: '12px', 
+                backgroundColor: 'var(--warning)', 
+                color: 'var(--bg-primary)',
+                borderRadius: '8px',
+                fontSize: '14px',
+                textAlign: 'center',
+              }}>
+                {usageInfo.aiLimit !== null
+                  ? translate(t.pricing.aiMessagesLeft, { count: Math.max(0, usageInfo.aiLimit - usageInfo.aiUsageThisMonth) })
+                  : t.pricing.aiMessagesLeftUnlimited}
+              </div>
+            )}
+
             {aiLoading ? (
               <div style={{ textAlign: 'center', padding: '40px' }}>
                 <div className="spinner" style={{ margin: '0 auto' }}></div>
@@ -631,7 +708,13 @@ const Leads = () => {
                 />
                 {generatedText && (
                   <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button onClick={handleCopyText} className="btn btn-success">
+                    <button 
+                      onClick={handleCopyText} 
+                      className="btn btn-success"
+                      style={{
+                        opacity: usageInfo && usageInfo.plan === 'free' ? 0.7 : 1,
+                      }}
+                    >
                       {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
                     </button>
                   </div>
@@ -641,6 +724,15 @@ const Leads = () => {
           </div>
         </div>
       )}
+
+      {/* Upgrade Modal */}
+      <UpgradeModal 
+        isOpen={showUpgradeModal} 
+        onClose={() => setShowUpgradeModal(false)}
+        onUpgradeSuccess={() => {
+          loadUsageInfo();
+        }}
+      />
     </div>
   );
 };

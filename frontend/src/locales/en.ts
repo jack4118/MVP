@@ -148,5 +148,28 @@ export const en = {
     notInterested: 'Not Interested',
     closed: 'Closed',
   },
+
+  // Pricing/Plan
+  pricing: {
+    freePlan: 'Free',
+    proPlan: 'Pro',
+    aiMessagesLeft: 'Free users: {count} AI messages left this month',
+    aiMessagesLeftUnlimited: 'Unlimited AI messages',
+    leadsLimitReached: 'Lead limit reached. Please upgrade to Pro for unlimited leads.',
+    aiLimitReached: 'AI usage limit reached. Please upgrade to Pro for unlimited AI messages.',
+    upgradeToPro: 'Upgrade to Pro',
+    upgradeModalTitle: 'Upgrade to Pro',
+    upgradeModalDescription: 'Keep your cash flow moving with unlimited AI messages and leads.',
+    unlimitedLeads: 'Unlimited Leads',
+    unlimitedAi: 'Unlimited AI Follow-up & Payment Reminders',
+    oneClickCopy: 'One-click Copy',
+    futureFeatures: 'Future Features Auto-unlock',
+    pricing: 'Pricing',
+    pricePerMonth: 'RM 29 / month',
+    pricePerMonthUsd: 'or USD 7',
+    upgradeNow: 'Upgrade Now',
+    copyRestricted: 'Copy is available for Pro users. Upgrade to unlock this feature.',
+    upgradePrompt: 'Upgrade to Pro to keep your cash flow moving',
+  },
 };
 
