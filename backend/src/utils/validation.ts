@@ -31,8 +31,9 @@ export const updateLeadStatusSchema = z.object({
 export const aiFollowUpSchema = z.object({
   leadName: z.string().min(1, 'Lead name is required'),
   status: z.string().optional(),
-  daysPassed: z.number().int().positive().optional(),
+  daysPassed: z.number().int().nonnegative().optional(),
   tone: z.string().optional(),
+  language: z.enum(['en', 'zh-CN']).optional().default('en'),
 });
 
 export const aiPaymentSchema = z.object({
@@ -40,5 +41,6 @@ export const aiPaymentSchema = z.object({
   amount: z.number().positive().optional(),
   dueDate: z.string().optional(),
   tone: z.string().optional(),
+  language: z.enum(['en', 'zh-CN']).optional().default('en'),
 });
 
