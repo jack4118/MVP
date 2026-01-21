@@ -84,6 +84,9 @@ Rules:
     }
 
     console.log('Calling OpenAI API for follow-up message...');
+    console.log('OpenAI API Key exists:', !!process.env.OPENAI_API_KEY);
+    console.log('OpenAI API Key length:', process.env.OPENAI_API_KEY?.length || 0);
+    
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
@@ -100,7 +103,8 @@ Rules:
       throw new Error('OpenAI API returned empty response');
     }
 
-    console.log('OpenAI API success, generated text length:', generatedText.length);
+    console.log('✅ OpenAI API success, generated text length:', generatedText.length);
+    console.log('✅ OpenAI API usage:', JSON.stringify(completion.usage, null, 2));
 
     await prisma.aiLog.create({
       data: {
@@ -128,6 +132,7 @@ Rules:
       ? `尊敬的 ${data.leadName}，\n\n希望您一切顺利。${daysPassed > 0 ? `距离我们上次联系已经过去 ${daysPassed} 天了。` : ''}\n\n我想跟进一下我们之前的对话，看看您是否有任何问题或需要我帮助的地方。\n\n如有任何疑问，请随时联系我。\n\n此致\n敬礼`
       : `Dear ${data.leadName},\n\nI hope this message finds you well. ${daysPassed > 0 ? `It's been ${daysPassed} day${daysPassed > 1 ? 's' : ''} since we last connected.` : ''}\n\nI wanted to follow up on our previous conversation and see if you have any questions or if there's anything I can help you with.\n\nPlease feel free to reach out at your convenience. I'm here to help.\n\nBest regards`;
 
+    console.log('⚠️ Saving fallback text to aiLog (this counts as usage)');
     await prisma.aiLog.create({
       data: {
         userId,
@@ -214,6 +219,9 @@ Rules:
     }
 
     console.log('Calling OpenAI API for payment reminder...');
+    console.log('OpenAI API Key exists:', !!process.env.OPENAI_API_KEY);
+    console.log('OpenAI API Key length:', process.env.OPENAI_API_KEY?.length || 0);
+    
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
@@ -230,7 +238,8 @@ Rules:
       throw new Error('OpenAI API returned empty response');
     }
 
-    console.log('OpenAI API success, generated text length:', generatedText.length);
+    console.log('✅ OpenAI API success, generated text length:', generatedText.length);
+    console.log('✅ OpenAI API usage:', JSON.stringify(completion.usage, null, 2));
 
     await prisma.aiLog.create({
       data: {
@@ -243,21 +252,28 @@ Rules:
 
     return generatedText;
   } catch (error: any) {
-    console.error('OpenAI API error:', error);
+    console.error('❌ OpenAI API error:', error);
+    console.error('❌ Error type:', error?.constructor?.name);
+    console.error('❌ Error code:', error?.code);
     if (error instanceof Error) {
-      console.error('Error message:', error.message);
+      console.error('❌ Error message:', error.message);
       if (error.message.includes('API key')) {
-        console.error('Please check your OPENAI_API_KEY in .env file');
+        console.error('⚠️ Please check your OPENAI_API_KEY in .env file');
       }
     }
     if (error?.code === 'insufficient_quota' || error?.message?.includes('quota')) {
       console.error('⚠️ OpenAI API quota exceeded. Please check your billing at https://platform.openai.com/account/billing');
     }
+    if (error?.response) {
+      console.error('❌ OpenAI API response error:', JSON.stringify(error.response, null, 2));
+    }
+    console.log('⚠️ Using fallback template instead of OpenAI API');
     // Fallback to simple template if API fails
     const fallbackText = isChinese
       ? `尊敬的 ${data.leadName}，\n\n希望您一切顺利。${amount ? `这是一封关于 ${amount.toFixed(2)} 元付款的友好提醒。` : '这是一封关于未付款项的友好提醒。'}\n\n${dueDate ? `付款到期日为 ${dueDate}。` : '我想跟进一下目前未付的款项。'}\n\n如果您已经付款，请忽略此消息。如有任何问题或疑虑，请随时联系我。\n\n感谢您的关注。\n\n此致\n敬礼`
       : `Dear ${data.leadName},\n\nI hope you're doing well. ${amount ? `This is a friendly reminder regarding the payment of $${amount.toFixed(2)}.` : 'This is a friendly reminder regarding your pending payment.'}\n\n${dueDate ? `The payment was due on ${dueDate}.` : 'I wanted to follow up on the payment that is currently pending.'}\n\nIf you've already made the payment, please disregard this message. If you have any questions or concerns, please don't hesitate to reach out.\n\nThank you for your attention to this matter.\n\nBest regards`;
 
+    console.log('⚠️ Saving fallback text to aiLog (this counts as usage)');
     await prisma.aiLog.create({
       data: {
         userId,

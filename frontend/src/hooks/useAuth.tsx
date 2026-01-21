@@ -18,12 +18,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = storage.getToken();
-    if (token) {
+    const loadUser = async () => {
+      const token = storage.getToken();
+      if (token) {
+        try {
+          const response = await authApi.getCurrentUser();
+          if (response.success && response.data) {
+            setUser(response.data);
+          } else {
+            // Token is invalid, remove it
+            storage.removeToken();
+          }
+        } catch (error) {
+          // Token is invalid or expired, remove it
+          storage.removeToken();
+        }
+      }
       setLoading(false);
-    } else {
-      setLoading(false);
-    }
+    };
+
+    loadUser();
   }, []);
 
   const login = async (email: string, password: string) => {

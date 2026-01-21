@@ -25,7 +25,9 @@ export const getUserPlan = async (userId: string): Promise<Plan> => {
     throw new Error('User not found');
   }
 
-  return (user.plan as Plan) || 'free';
+  const plan = (user.plan as Plan) || 'free';
+  console.log(`[getUserPlan] User: ${userId}, Plan from DB: ${user.plan}, Returned: ${plan}`);
+  return plan;
 };
 
 export const getLeadCount = async (userId: string): Promise<number> => {
@@ -65,7 +67,9 @@ export const checkAiUsageLimit = async (userId: string, plan: Plan): Promise<boo
   }
 
   const aiUsage = await getMonthlyAiUsage(userId);
-  return aiUsage < FREE_PLAN_AI_LIMIT;
+  const canUse = aiUsage < FREE_PLAN_AI_LIMIT;
+  console.log(`[checkAiUsageLimit] User: ${userId}, Plan: ${plan}, AI Usage: ${aiUsage}, Limit: ${FREE_PLAN_AI_LIMIT}, Can Use: ${canUse}`);
+  return canUse;
 };
 
 export const getUsageInfo = async (userId: string): Promise<UsageInfo> => {
@@ -94,6 +98,13 @@ export const upgradeToPro = async (userId: string): Promise<void> => {
   await prisma.user.update({
     where: { id: userId },
     data: { plan: 'pro' },
+  });
+};
+
+export const downgradeToFree = async (userId: string): Promise<void> => {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { plan: 'free' },
   });
 };
 

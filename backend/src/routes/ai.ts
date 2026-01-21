@@ -90,10 +90,13 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
 
     // Check AI usage limit
     const plan = await getUserPlan(req.userId);
+    console.log(`[AI Limit Check] User ID: ${req.userId}, Plan: ${plan}`);
     const canUseAi = await checkAiUsageLimit(req.userId, plan);
+    console.log(`[AI Limit Check] Can use AI: ${canUseAi}`);
 
     if (!canUseAi) {
       const usageInfo = await getUsageInfo(req.userId);
+      console.log(`[AI Limit Check] Usage info:`, JSON.stringify(usageInfo, null, 2));
       return res.status(403).json({
         success: false,
         error: {

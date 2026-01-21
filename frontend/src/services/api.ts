@@ -51,10 +51,18 @@ api.interceptors.response.use(
   },
   (error: AxiosError<ApiResponse<unknown>>) => {
     // Only redirect to login if we're not already on the login page
-    // and the error is not from a login/register request
+    // and the error is not from a login/register/me request
     if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
-      const isAuthRequest = error.config?.url?.includes('/auth/');
-      if (!isAuthRequest) {
+      const url = error.config?.url || '';
+      const isAuthRequest = url.includes('/auth/');
+      const isMeRequest = url.includes('/auth/me');
+      const isLoginOrRegister = url.includes('/auth/login') || url.includes('/auth/register');
+      
+      if (isMeRequest) {
+        // For /auth/me, just remove token, don't redirect
+        storage.removeToken();
+      } else if (!isLoginOrRegister && !isMeRequest) {
+        // For other non-auth requests, redirect to login
         storage.removeToken();
         window.location.href = '/login';
       }
@@ -134,6 +142,19 @@ export const authApi = {
         email,
         password,
       });
+      return response.data;
+    } catch (error: any) {
+      // Return error response instead of throwing
+      if (error.response?.data) {
+        return error.response.data;
+      }
+      throw error;
+    }
+  },
+
+  getCurrentUser: async (): Promise<ApiResponse<User>> => {
+    try {
+      const response = await api.get<ApiResponse<User>>('/auth/me');
       return response.data;
     } catch (error: any) {
       // Return error response instead of throwing
