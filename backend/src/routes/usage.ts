@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getUsageInfo, upgradeToPro, downgradeToFree } from '../services/planService';
+import { trackEvent } from '../services/eventService';
 
 const router = express.Router();
 
@@ -36,6 +37,10 @@ router.post('/upgrade', async (req: AuthRequest, res: Response, next: NextFuncti
     }
 
     await upgradeToPro(req.userId);
+    await trackEvent(req.userId, {
+      event: 'upgrade_confirmed',
+      props: { source: 'usage_upgrade_endpoint' },
+    }).catch(() => undefined);
     const usageInfo = await getUsageInfo(req.userId);
 
     res.json({
@@ -71,4 +76,3 @@ router.post('/downgrade', async (req: AuthRequest, res: Response, next: NextFunc
 });
 
 export default router;
-

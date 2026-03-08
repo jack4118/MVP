@@ -4,6 +4,20 @@ import { storage } from '../utils/storage';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export type UserPlan = 'free' | 'pro';
+export type LeadStatus = 'new' | 'contacted' | 'interested' | 'waiting_reply' | 'not_interested' | 'closed';
+export type AiTone = 'polite' | 'friendly' | 'professional' | 'casual';
+export type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request';
+export type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation';
+export type OutputFormat = 'chat' | 'email' | 'whatsapp';
+export type ProductEvent =
+  | 'ai_generate_clicked'
+  | 'ai_generate_success'
+  | 'ai_generate_failed_limit'
+  | 'copy_clicked'
+  | 'upgrade_modal_opened'
+  | 'upgrade_confirmed'
+  | 'lead_created'
+  | 'first_value_moment';
 
 export interface UsageInfo {
   plan: UserPlan;
@@ -11,6 +25,8 @@ export interface UsageInfo {
   leadLimit: number | null;
   aiUsageThisMonth: number;
   aiLimit: number | null;
+  aiRemaining: number | null;
+  aiUsagePercent: number;
   canCreateLead: boolean;
   canUseAi: boolean;
 }
@@ -40,29 +56,20 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   (error: AxiosError<ApiResponse<unknown>>) => {
-    // Only redirect to login if we're not already on the login page
-    // and the error is not from a login/register/me request
     if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
       const url = error.config?.url || '';
-      const isAuthRequest = url.includes('/auth/');
       const isMeRequest = url.includes('/auth/me');
       const isLoginOrRegister = url.includes('/auth/login') || url.includes('/auth/register');
-      
+
       if (isMeRequest) {
-        // For /auth/me, just remove token, don't redirect
         storage.removeToken();
-      } else if (!isLoginOrRegister && !isMeRequest) {
-        // For other non-auth requests, redirect to login
+      } else if (!isLoginOrRegister) {
         storage.removeToken();
         window.location.href = '/login';
       }
@@ -88,7 +95,7 @@ export interface Lead {
   name: string;
   contact?: string;
   notes?: string;
-  status: string;
+  status: LeadStatus;
   lastActivityAt?: string;
   createdAt: string;
 }
@@ -103,32 +110,57 @@ export interface Reminder {
     id: string;
     name: string;
     contact?: string;
-    status: string;
+    status: LeadStatus;
   };
 }
 
-export type UserPlan = 'free' | 'pro';
+export interface AiHistoryItem {
+  id: string;
+  leadId: string;
+  userId: string;
+  purpose: 'follow_up' | 'payment';
+  stylePreset?: string | null;
+  content: string;
+  createdAt: string;
+  lead: {
+    id: string;
+    name: string;
+  };
+}
 
-export interface UsageInfo {
-  plan: UserPlan;
-  leadCount: number;
-  leadLimit: number | null;
-  aiUsageThisMonth: number;
-  aiLimit: number | null;
-  canCreateLead: boolean;
-  canUseAi: boolean;
+export interface WhatsAppConnection {
+  id: string;
+  userId: string;
+  businessAccountId: string;
+  phoneNumberId: string;
+  displayPhone?: string | null;
+  isActive: boolean;
+  lastVerifiedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WhatsAppLogItem {
+  id: string;
+  userId: string;
+  leadId?: string | null;
+  toPhone: string;
+  content: string;
+  status: 'queued' | 'sent' | 'failed';
+  error?: string | null;
+  createdAt: string;
+  lead?: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 export const authApi = {
   register: async (email: string, password: string): Promise<ApiResponse<User>> => {
     try {
-      const response = await api.post<ApiResponse<User>>('/auth/register', {
-        email,
-        password,
-      });
+      const response = await api.post<ApiResponse<User>>('/auth/register', { email, password });
       return response.data;
     } catch (error: any) {
-      // Return error response instead of throwing
       if (error.response?.data) {
         return error.response.data;
       }
@@ -138,13 +170,9 @@ export const authApi = {
 
   login: async (email: string, password: string): Promise<ApiResponse<LoginResponse>> => {
     try {
-      const response = await api.post<ApiResponse<LoginResponse>>('/auth/login', {
-        email,
-        password,
-      });
+      const response = await api.post<ApiResponse<LoginResponse>>('/auth/login', { email, password });
       return response.data;
     } catch (error: any) {
-      // Return error response instead of throwing
       if (error.response?.data) {
         return error.response.data;
       }
@@ -157,7 +185,6 @@ export const authApi = {
       const response = await api.get<ApiResponse<User>>('/auth/me');
       return response.data;
     } catch (error: any) {
-      // Return error response instead of throwing
       if (error.response?.data) {
         return error.response.data;
       }
@@ -176,7 +203,7 @@ export const leadsApi = {
     name: string;
     contact?: string;
     notes?: string;
-    status?: string;
+    status?: LeadStatus;
   }): Promise<ApiResponse<Lead>> => {
     const response = await api.post<ApiResponse<Lead>>('/leads', data);
     return response.data;
@@ -188,27 +215,62 @@ export const leadsApi = {
       name?: string;
       contact?: string;
       notes?: string;
-      status?: string;
+      status?: LeadStatus;
     }
   ): Promise<ApiResponse<Lead>> => {
     const response = await api.put<ApiResponse<Lead>>(`/leads/${id}`, data);
     return response.data;
   },
 
-  updateLeadStatus: async (id: string, status: string): Promise<ApiResponse<Lead>> => {
+  updateLeadStatus: async (id: string, status: LeadStatus): Promise<ApiResponse<Lead>> => {
     const response = await api.put<ApiResponse<Lead>>(`/leads/${id}/status`, { status });
     return response.data;
   },
 };
 
 export const remindersApi = {
+  getReminders: async (params?: {
+    view?: 'today' | 'upcoming' | 'all';
+    status?: 'all' | 'pending' | 'done';
+    days?: number;
+  }): Promise<ApiResponse<Reminder[]>> => {
+    const response = await api.get<ApiResponse<Reminder[]>>('/reminders', { params });
+    return response.data;
+  },
+
   getTodayReminders: async (): Promise<ApiResponse<Reminder[]>> => {
     const response = await api.get<ApiResponse<Reminder[]>>('/reminders/today');
     return response.data;
   },
 
+  createReminder: async (data: {
+    leadId: string;
+    type: 'follow_up' | 'payment' | 'meeting' | 'custom';
+    triggerAt: string;
+  }): Promise<ApiResponse<Reminder>> => {
+    const response = await api.post<ApiResponse<Reminder>>('/reminders', data);
+    return response.data;
+  },
+
   markDone: async (id: string): Promise<ApiResponse<Reminder>> => {
     const response = await api.post<ApiResponse<Reminder>>(`/reminders/${id}/done`);
+    return response.data;
+  },
+
+  updateReminder: async (
+    id: string,
+    data: {
+      type?: 'follow_up' | 'payment' | 'meeting' | 'custom';
+      triggerAt?: string;
+      isDone?: boolean;
+    }
+  ): Promise<ApiResponse<Reminder>> => {
+    const response = await api.put<ApiResponse<Reminder>>(`/reminders/${id}`, data);
+    return response.data;
+  },
+
+  deleteReminder: async (id: string): Promise<ApiResponse<{ deleted: boolean }>> => {
+    const response = await api.delete<ApiResponse<{ deleted: boolean }>>(`/reminders/${id}`);
     return response.data;
   },
 };
@@ -217,9 +279,12 @@ export const aiApi = {
   generateFollowUp: async (data: {
     leadId: string;
     leadName: string;
-    status?: string;
+    objective: string;
+    status?: LeadStatus;
     daysPassed?: number;
-    tone?: string;
+    tone?: AiTone;
+    stylePreset?: FollowUpStylePreset;
+    outputFormat?: OutputFormat;
     language?: 'en' | 'zh-CN';
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/follow-up', data);
@@ -229,12 +294,23 @@ export const aiApi = {
   generatePayment: async (data: {
     leadId: string;
     leadName: string;
+    objective: string;
     amount?: number;
     dueDate?: string;
-    tone?: string;
+    tone?: AiTone;
+    stylePreset?: PaymentStylePreset;
+    outputFormat?: OutputFormat;
     language?: 'en' | 'zh-CN';
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/payment', data);
+    return response.data;
+  },
+
+  getHistory: async (params?: {
+    limit?: number;
+    purpose?: 'follow_up' | 'payment' | 'all';
+  }): Promise<ApiResponse<AiHistoryItem[]>> => {
+    const response = await api.get<ApiResponse<AiHistoryItem[]>>('/ai/history', { params });
     return response.data;
   },
 };
@@ -244,11 +320,59 @@ export const usageApi = {
     const response = await api.get<ApiResponse<UsageInfo>>('/usage');
     return response.data;
   },
+
   upgradeToPro: async (): Promise<ApiResponse<UsageInfo>> => {
     const response = await api.post<ApiResponse<UsageInfo>>('/usage/upgrade');
     return response.data;
   },
 };
 
-export default api;
+export const eventsApi = {
+  track: async (event: ProductEvent, props?: Record<string, unknown>): Promise<void> => {
+    await api.post('/events', { event, props });
+  },
 
+  getDailyStats: async (days: number = 30): Promise<ApiResponse<Array<Record<string, unknown>>>> => {
+    const response = await api.get<ApiResponse<Array<Record<string, unknown>>>>('/events/stats/daily', {
+      params: { days },
+    });
+    return response.data;
+  },
+};
+
+export const whatsappApi = {
+  getConnection: async (): Promise<ApiResponse<WhatsAppConnection | null>> => {
+    const response = await api.get<ApiResponse<WhatsAppConnection | null>>('/whatsapp/connection');
+    return response.data;
+  },
+
+  saveConnection: async (data: {
+    businessAccountId: string;
+    phoneNumberId: string;
+    accessToken: string;
+  }): Promise<ApiResponse<{ saved: boolean }>> => {
+    const response = await api.post<ApiResponse<{ saved: boolean }>>('/whatsapp/connection', data);
+    return response.data;
+  },
+
+  verifyConnection: async (): Promise<ApiResponse<{ connected: boolean; displayPhone?: string | null; verifiedName?: string | null }>> => {
+    const response = await api.post<ApiResponse<{ connected: boolean; displayPhone?: string | null; verifiedName?: string | null }>>('/whatsapp/connection/verify');
+    return response.data;
+  },
+
+  sendText: async (data: {
+    toPhone: string;
+    content: string;
+    leadId?: string;
+  }): Promise<ApiResponse<{ sent: boolean; messageId?: string; toPhone: string }>> => {
+    const response = await api.post<ApiResponse<{ sent: boolean; messageId?: string; toPhone: string }>>('/whatsapp/send', data);
+    return response.data;
+  },
+
+  getLogs: async (limit: number = 30): Promise<ApiResponse<WhatsAppLogItem[]>> => {
+    const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/logs', { params: { limit } });
+    return response.data;
+  },
+};
+
+export default api;

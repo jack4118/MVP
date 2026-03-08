@@ -1,13 +1,37 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { generateFollowUpText, generatePaymentText } from '../services/aiService';
+import { generateFollowUpText, generatePaymentText, getAiHistory } from '../services/aiService';
 import { aiFollowUpSchema, aiPaymentSchema } from '../utils/validation';
 import { getLeadById } from '../services/leadService';
 import { getUserPlan, checkAiUsageLimit, getUsageInfo } from '../services/planService';
+import { trackEvent } from '../services/eventService';
 
 const router = express.Router();
 
 router.use(authenticate);
+
+router.get('/history', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Unauthorized' },
+      });
+    }
+
+    const limit = Number(req.query.limit || 20);
+    const purpose = (req.query.purpose as 'follow_up' | 'payment' | 'all' | undefined) || 'all';
+
+    const history = await getAiHistory(req.userId, { limit, purpose });
+
+    return res.json({
+      success: true,
+      data: history,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -36,6 +60,10 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
 
     if (!canUseAi) {
       const usageInfo = await getUsageInfo(req.userId);
+      await trackEvent(req.userId, {
+        event: 'ai_generate_failed_limit',
+        props: { purpose: 'follow_up' },
+      }).catch(() => undefined);
       return res.status(403).json({
         success: false,
         error: {
@@ -47,6 +75,10 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
     }
 
     const generatedText = await generateFollowUpText(req.userId, leadId, validatedData);
+    await trackEvent(req.userId, {
+      event: 'ai_generate_success',
+      props: { purpose: 'follow_up', stylePreset: validatedData.stylePreset || 'gentle_nudge' },
+    }).catch(() => undefined);
     const usageInfo = await getUsageInfo(req.userId);
 
     res.json({
@@ -97,6 +129,10 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
     if (!canUseAi) {
       const usageInfo = await getUsageInfo(req.userId);
       console.log(`[AI Limit Check] Usage info:`, JSON.stringify(usageInfo, null, 2));
+      await trackEvent(req.userId, {
+        event: 'ai_generate_failed_limit',
+        props: { purpose: 'payment' },
+      }).catch(() => undefined);
       return res.status(403).json({
         success: false,
         error: {
@@ -108,6 +144,10 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
     }
 
     const generatedText = await generatePaymentText(req.userId, leadId, validatedData);
+    await trackEvent(req.userId, {
+      event: 'ai_generate_success',
+      props: { purpose: 'payment', stylePreset: validatedData.stylePreset || 'friendly_reminder' },
+    }).catch(() => undefined);
     const usageInfo = await getUsageInfo(req.userId);
 
     res.json({
@@ -129,4 +169,3 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
 });
 
 export default router;
-

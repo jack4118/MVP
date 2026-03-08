@@ -5,21 +5,402 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+type Language = 'en' | 'zh-CN';
+type OutputFormat = 'chat' | 'email' | 'whatsapp';
+
+type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual';
+type PaymentTone = 'polite' | 'friendly' | 'professional' | 'casual';
+
+type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request';
+type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation';
+
 export interface FollowUpData {
   leadName: string;
+  objective: string;
   status?: string;
   daysPassed?: number;
-  tone?: string;
-  language?: 'en' | 'zh-CN';
+  tone?: FollowUpTone;
+  stylePreset?: FollowUpStylePreset;
+  outputFormat?: OutputFormat;
+  language?: Language;
 }
 
 export interface PaymentData {
   leadName: string;
+  objective: string;
   amount?: number;
   dueDate?: string;
-  tone?: string;
-  language?: 'en' | 'zh-CN';
+  tone?: PaymentTone;
+  stylePreset?: PaymentStylePreset;
+  outputFormat?: OutputFormat;
+  language?: Language;
 }
+
+type AiErrorKind = 'quota' | 'auth' | 'timeout' | 'unknown';
+type EmojiPreference = 'low' | 'medium' | 'high';
+
+const presetsEnabled = process.env.FEATURE_AI_PRESETS !== 'false';
+
+const classifyAiError = (error: any): AiErrorKind => {
+  const message = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || '').toLowerCase();
+  const status = Number(error?.status || error?.response?.status || 0);
+
+  if (code.includes('insufficient_quota') || message.includes('quota')) {
+    return 'quota';
+  }
+
+  if (status === 401 || code.includes('invalid_api_key') || message.includes('api key')) {
+    return 'auth';
+  }
+
+  if (status === 408 || code.includes('timeout') || message.includes('timed out')) {
+    return 'timeout';
+  }
+
+  return 'unknown';
+};
+
+const detectEmojiPreference = (objective: string): EmojiPreference => {
+  const text = objective.toLowerCase();
+  const highSignals = [
+    'emoji',
+    'emojis',
+    '多点emoji',
+    '多一点emoji',
+    '多一点表情',
+    '多点表情',
+    '可爱一点',
+    '活泼一点',
+  ];
+
+  if (highSignals.some((signal) => text.includes(signal))) {
+    return 'high';
+  }
+
+  return 'medium';
+};
+
+const getFollowUpPresetFragment = (preset: FollowUpStylePreset, isChinese: boolean): string => {
+  if (isChinese) {
+    switch (preset) {
+      case 'value_reminder':
+        return '重点强调你之前提供的价值和下一步收益。';
+      case 'meeting_request':
+        return '重点是提出一个低压力的简短沟通邀请（例如 10 分钟）。';
+      case 'gentle_nudge':
+      default:
+        return '重点是轻提醒，给对方空间，避免催促感。';
+    }
+  }
+
+  switch (preset) {
+    case 'value_reminder':
+      return 'Focus on reminding them of value already delivered and a small next benefit.';
+    case 'meeting_request':
+      return 'Focus on proposing a low-pressure short call (for example 10 minutes).';
+    case 'gentle_nudge':
+    default:
+      return 'Focus on a gentle nudge with low pressure and clear empathy.';
+  }
+};
+
+const getPaymentPresetFragment = (preset: PaymentStylePreset, isChinese: boolean): string => {
+  if (isChinese) {
+    switch (preset) {
+      case 'due_today':
+        return '重点说明今天到期，并给出友好的付款确认请求。';
+      case 'overdue_escalation':
+        return '语气更坚定但保持礼貌，要求确认付款时间。';
+      case 'friendly_reminder':
+      default:
+        return '语气温和友好，强调协作关系和付款提醒。';
+    }
+  }
+
+  switch (preset) {
+    case 'due_today':
+      return 'Focus on payment due today and a friendly confirmation request.';
+    case 'overdue_escalation':
+      return 'Be firmer while remaining respectful, and ask for a concrete payment date.';
+    case 'friendly_reminder':
+    default:
+      return 'Keep it warm and collaborative while clearly reminding payment is pending.';
+  }
+};
+
+const mapFollowUpTone = (tone: FollowUpTone): 'soft' | 'professional' | 'firm' => {
+  if (tone === 'professional') {
+    return 'professional';
+  }
+  if (tone === 'casual') {
+    return 'firm';
+  }
+  return 'soft';
+};
+
+const mapPaymentTone = (tone: PaymentTone): 'professional' | 'firm' => {
+  if (tone === 'casual' || tone === 'friendly') {
+    return 'firm';
+  }
+  return 'professional';
+};
+
+const createFollowUpFallback = (data: FollowUpData, daysPassed: number, isChinese: boolean, preset: FollowUpStylePreset): string => {
+  if (isChinese) {
+    if (preset === 'value_reminder') {
+      return `你好 ${data.leadName}，\n\n想简短跟进一下。上次我们讨论的方案主要是为了帮你更稳定地推进当前目标（${data.objective}）。\n\n如果你愿意，我可以按你的节奏继续配合。你这周看什么时候方便回复我一句？`;
+    }
+
+    if (preset === 'meeting_request') {
+      return `你好 ${data.leadName}，\n\n希望你近况顺利。${daysPassed > 0 ? `距离上次沟通已经 ${daysPassed} 天，` : ''}我想确认一下你这边关于“${data.objective}”的进展。\n\n如果方便，我们可以约一个 10 分钟的简短沟通，你看这两天哪个时间合适？`;
+    }
+
+    return `你好 ${data.leadName}，\n\n希望你一切顺利。${daysPassed > 0 ? `距离上次沟通已经 ${daysPassed} 天，` : ''}我来轻轻跟进一下，看你这边关于“${data.objective}”是否需要我补充任何信息。\n\n你方便时回复我一句就好。`;
+  }
+
+  if (preset === 'value_reminder') {
+    return `Hi ${data.leadName},\n\nQuick follow-up from my side. The approach we discussed is meant to help you move this forward on ${data.objective} with less back-and-forth.\n\nIf helpful, I can tailor the next step to your timeline. Would you like me to send a short suggested plan?`;
+  }
+
+  if (preset === 'meeting_request') {
+    return `Hi ${data.leadName},\n\nHope you are doing well. ${daysPassed > 0 ? `It has been ${daysPassed} day${daysPassed > 1 ? 's' : ''} since we last spoke, ` : ''}and I wanted to check in on ${data.objective}.\n\nWould a quick 10-minute call this week be useful to align on next steps?`;
+  }
+
+  return `Hi ${data.leadName},\n\nHope all is well. ${daysPassed > 0 ? `It has been ${daysPassed} day${daysPassed > 1 ? 's' : ''} since our last message, ` : ''}so I wanted to send a gentle follow-up on ${data.objective} and see if you need anything from me.\n\nWould you like me to resend a short summary?`;
+};
+
+const createPaymentFallback = (
+  data: PaymentData,
+  isChinese: boolean,
+  preset: PaymentStylePreset,
+  daysOverdue: number
+): string => {
+  const amountText = data.amount ? (isChinese ? `${data.amount.toFixed(2)} 元` : `$${data.amount.toFixed(2)}`) : null;
+
+  if (isChinese) {
+    if (preset === 'due_today') {
+      return `你好 ${data.leadName}，\n\n温馨提醒，${amountText ? `${amountText} 的` : ''}款项今天到期。\n\n若你已安排付款请忽略；如方便，也请回复我确认一下时间。谢谢。`;
+    }
+
+    if (preset === 'overdue_escalation') {
+      return `你好 ${data.leadName}，\n\n关于${amountText ? amountText : '该笔'}款项（${data.objective}），当前已逾期 ${daysOverdue} 天。\n\n麻烦你确认一下预计付款日期，以便我这边安排后续记录。感谢配合。`;
+    }
+
+    return `你好 ${data.leadName}，\n\n友好提醒一下，${amountText ? `${amountText} 的` : ''}款项目前仍待处理（${data.objective}）。\n\n如你已完成付款请忽略这条信息；若尚未处理，方便的话请告知预计时间。`;
+  }
+
+  if (preset === 'due_today') {
+    return `Hi ${data.leadName},\n\nFriendly reminder that ${amountText ? `${amountText} ` : ''}payment is due today.\n\nIf you have already sent it, please ignore this message. If not, could you share a quick confirmation when processed?`;
+  }
+
+  if (preset === 'overdue_escalation') {
+    return `Hi ${data.leadName},\n\nA quick note that ${amountText ? `${amountText} ` : ''}payment is now ${daysOverdue} day${daysOverdue === 1 ? '' : 's'} overdue.\n\nCould you confirm the exact payment date so I can update our records?`;
+  }
+
+  return `Hi ${data.leadName},\n\nFriendly reminder regarding ${amountText ? `${amountText} ` : 'the pending '}payment for the completed work on ${data.objective}.\n\nIf already paid, please disregard this note. If still pending, could you share an estimated payment date?`;
+};
+
+const generateCompletion = async (systemPrompt: string, userPrompt: string) => {
+  return openai.chat.completions.create({
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.6,
+    max_tokens: 350,
+  });
+};
+
+const getAdvisorPersona = (isChinese: boolean): string => {
+  if (isChinese) {
+    return [
+      '你是一位资深增长顾问和沟通策略专家，具备高水平商业判断。',
+      '你的风格：温和、聪明、专业、克制，不咄咄逼人，像真人在微信里说话。',
+      '你的目标：在保护关系的前提下，提高对方回复与行动概率，优先达成用户给定的具体目标。',
+      '写作原则：',
+      '- 同理心开场，降低心理压力',
+      '- 表达清晰，避免空话、套话、官腔和复杂术语',
+      '- 必须围绕 objective 产出具体请求，不要泛泛而谈',
+      '- 给出低门槛下一步（容易回复，最好是时间点或是/否问题）',
+      '- 语气坚定但礼貌，不操控、不施压',
+      '- 句子短、信息密度高、可直接发送',
+      '- 禁止使用夸张营销词：如“显著提升”“最大化收益”等',
+    ].join('\n');
+  }
+
+  return [
+    'You are a senior growth advisor and elite communication strategist with strong business judgment.',
+    'Your style is gentle, intelligent, highly professional, and conversationally human.',
+    'Your goal is to increase response probability while prioritizing the user objective exactly.',
+    'Writing principles:',
+    '- Start with empathy to reduce pressure',
+    '- Be clear and specific; avoid fluff, buzzwords, and corporate jargon',
+    '- Keep objective-first: convert objective into one concrete ask',
+    '- Offer a low-friction next step that is easy to reply to (time estimate or yes/no)',
+    '- Be firm without sounding pushy or manipulative',
+    '- Keep sentences concise and immediately sendable',
+    '- Avoid exaggerated marketing claims',
+  ].join('\n');
+};
+
+const getObjectiveDirective = (objective: string, isChinese: boolean): string => {
+  if (isChinese) {
+    return [
+      `目标是：${objective}`,
+      '先把目标翻译成一个明确请求，再写消息。',
+      '请求必须具体，例如：确认预计日期、确认本周/下周、确认是否已完成。',
+      '不要只说“跟进一下”，要说清楚你要对方回复什么。',
+    ].join('\n');
+  }
+
+  return [
+    `Objective: ${objective}`,
+    'Translate objective into one explicit ask before writing.',
+    'Ask must be specific, for example expected date, this week/next week timing, or completion status.',
+    'Do not stay generic like “just following up”; state exactly what reply is needed.',
+  ].join('\n');
+};
+
+const getFormatInstruction = (outputFormat: OutputFormat, isChinese: boolean): string => {
+  if (isChinese) {
+    if (outputFormat === 'email') {
+      return '输出格式为邮件：包含“主题：...”，然后是称呼、正文和结尾签名。';
+    }
+    if (outputFormat === 'whatsapp') {
+      return '输出格式为 WhatsApp：口语化、像真人发消息。3-6 行短句；可用 0-2 个自然 emoji；不要邮件式签名，不要“主题：”。';
+    }
+    return '输出格式为日常聊天消息：自然、简短。';
+  }
+
+  if (outputFormat === 'email') {
+    return 'Output as email format: include "Subject: ...", greeting, body, and sign-off.';
+  }
+  if (outputFormat === 'whatsapp') {
+    return 'Output as WhatsApp style: human conversational lines (3-6 short lines), optional 0-2 natural emojis, no formal email sign-off, no subject line.';
+  }
+  return 'Output as a regular chat message: natural and concise.';
+};
+
+const getEmojiInstruction = (
+  outputFormat: OutputFormat,
+  isChinese: boolean,
+  emojiPreference: EmojiPreference
+): string => {
+  if (outputFormat !== 'whatsapp') {
+    return isChinese
+      ? 'emoji 使用：最多 1 个，非必要可不使用。'
+      : 'Emoji usage: max 1, optional.';
+  }
+
+  if (emojiPreference === 'high') {
+    return isChinese
+      ? 'emoji 使用：自然地使用 3-6 个（分散在各段），不要连续堆叠同一个 emoji。'
+      : 'Emoji usage: naturally use 3-6 emojis across lines, no repetitive stacking.';
+  }
+
+  return isChinese
+    ? 'emoji 使用：自然地使用 1-3 个，增强亲和感但不过度。'
+    : 'Emoji usage: naturally use 1-3 emojis for warmth, not excessive.';
+};
+
+const getHardConstraints = (isChinese: boolean, outputFormat: OutputFormat): string => {
+  if (isChinese) {
+    const common = [
+      '硬性要求：',
+      '1) 不要输出“WhatsApp:”或“Email:”等标签',
+      '2) 不要写“期待你的回复”这类模板化结尾',
+      '3) 优先使用贴近日常沟通的自然表达',
+    ];
+    if (outputFormat === 'whatsapp') {
+      common.push('4) 第一行建议简短称呼，第二行直接说明请求，末尾给出易回复问题');
+    }
+    return common.join('\n');
+  }
+
+  const common = [
+    'Hard constraints:',
+    '1) Do not output labels like "WhatsApp:" or "Email:"',
+    '2) Avoid templated closings like "looking forward to your reply"',
+    '3) Prefer natural spoken phrasing over formal script-like wording',
+  ];
+  if (outputFormat === 'whatsapp') {
+    common.push('4) Line 1 short greeting, line 2 concrete ask, end with an easy reply question');
+  }
+  return common.join('\n');
+};
+
+const getChineseWhatsappHumanStyle = (purpose: 'follow_up' | 'payment'): string => {
+  if (purpose === 'payment') {
+    return [
+      '中文 WhatsApp 真人口吻目标（必须遵守）：',
+      '结构：',
+      '1) 第一段：简短称呼 + 轻松开场（可带 1 个自然 emoji）',
+      '2) 第二段：明确本次要确认的事情（具体到时间/金额/动作）',
+      '3) 第三段：说明你们安排原因（简短一两句）',
+      '4) 第四段：给对方留空间 + 请求一个可执行回复（例如预计日期）',
+      '',
+      '示例语气（仅学习语气，不要照抄）：',
+      '老板早安😊',
+      '想确认一下这笔款项预计这周还是下周方便安排？',
+      '我们这边要先排期处理进度，所以想先和你对齐时间。',
+      '方便的话回我一个大概时间就好，感谢你🙏',
+      '',
+      '禁用表达：显著提升、最大化收益、探讨下一步计划、模板化收尾',
+    ].join('\n');
+  }
+
+  return [
+    '中文 WhatsApp 真人口吻目标（必须遵守）：',
+    '结构：',
+    '1) 第一段：简短称呼 + 轻松问候（可带 1-2 个自然 emoji）',
+    '2) 第二段：直接说明这次跟进要确认什么（objective 必须落地成问题）',
+    '3) 第三段：说明你们为什么需要这个信息（简短真实）',
+    '4) 第四段：给对方缓冲 + 友善收尾',
+    '',
+    '示例语气（仅学习语气，不要照抄）：',
+    '老板早安😊',
+    '想确认一下 2025 年做账文件大概这几天还是下周方便交给我们呢？',
+    '我们这边需要先排期，文件如果能早一点准备好，就能更快开始处理👍',
+    '如果你现在还在整理也没关系，回我一个大概时间就好，谢谢你🙏',
+    '',
+    '禁用表达：显著提升、实现更高效率和收益、期待你的回复、明显 AI 模板腔',
+  ].join('\n');
+};
+
+const cleanGeneratedMessage = (text: string): string => {
+  return text
+    .replace(/^(WhatsApp|Email|Chat)\s*:\s*/im, '')
+    .replace(/^\s*主题\s*:\s*/im, '主题: ')
+    .replace(/^\s*Subject\s*:\s*/im, 'Subject: ')
+    .trim();
+};
+
+const formatFallbackMessage = (
+  baseMessage: string,
+  outputFormat: OutputFormat,
+  isChinese: boolean,
+  leadName: string,
+  subject: string
+): string => {
+  if (outputFormat === 'email') {
+    const signOff = isChinese ? '此致\n敬礼' : 'Best regards';
+    return `${isChinese ? '主题' : 'Subject'}: ${subject}\n\n${baseMessage}\n\n${signOff}`;
+  }
+
+  if (outputFormat === 'whatsapp') {
+    const emojiTail = detectEmojiPreference(baseMessage) === 'high'
+      ? (isChinese ? '\n感谢你🙏😊' : '\nThanks a lot 🙏😊')
+      : (isChinese ? '\n谢谢～😊' : '\nThanks! 😊');
+    if (isChinese) {
+      return `Hi ${leadName}，\n${baseMessage.replace(/\n\n/g, '\n')}${emojiTail}`;
+    }
+    return `Hi ${leadName},\n${baseMessage.replace(/\n\n/g, '\n')}${emojiTail}`;
+  }
+
+  return baseMessage;
+};
 
 export const generateFollowUpText = async (
   userId: string,
@@ -28,116 +409,68 @@ export const generateFollowUpText = async (
 ): Promise<string> => {
   const tone = data.tone || 'polite';
   const daysPassed = data.daysPassed || 0;
-  const status = data.status || 'waiting_reply';
   const language = data.language || 'en';
-
-  // Map tone to new format: polite/friendly -> soft, professional -> professional, casual -> firm
-  let mappedTone: 'soft' | 'professional' | 'firm';
-  if (tone === 'professional') {
-    mappedTone = 'professional';
-  } else if (tone === 'casual') {
-    mappedTone = 'firm';
-  } else {
-    mappedTone = 'soft'; // polite, friendly default to soft
-  }
-
+  const outputFormat = data.outputFormat || 'chat';
+  const mappedTone = mapFollowUpTone(tone);
   const isChinese = language === 'zh-CN';
+  const selectedPreset: FollowUpStylePreset = presetsEnabled ? data.stylePreset || 'gentle_nudge' : 'gentle_nudge';
 
-  let systemPrompt: string;
-  let userPrompt: string;
+  const systemPrompt = getAdvisorPersona(isChinese);
 
-  if (isChinese) {
-    systemPrompt = '你是一个专业的销售助手，帮助小企业主跟进客户。你的目标是听起来礼貌、人性化且专业——不要显得咄咄逼人。消息应该减少压力并增加回复概率。';
-    userPrompt = `用中文写一封跟进消息。
-
-上下文：
-- 客户姓名：${data.leadName}
-- 距离上次回复的天数：${daysPassed}
-- 关系：现有客户
-- 语气：${mappedTone === 'soft' ? '温和' : mappedTone === 'professional' ? '专业' : '坚定'}
-
-规则：
-- 简短自然
-- 不要施加压力
-- 以简单的问题结尾
-- 使用客户姓名，不要使用占位符如 XXX`;
-  } else {
-    systemPrompt = 'You are a professional sales assistant helping a small business owner follow up with a client. Your goal is to sound polite, human, and professional — not pushy. The message should reduce pressure and increase reply probability.';
-    userPrompt = `Write a follow-up message in English.
-
-Context:
-- Customer Name: ${data.leadName}
-- Days since last reply: ${daysPassed}
-- Relationship: existing client
-- Tone: ${mappedTone}
-
-Rules:
-- Short and natural
-- No pressure
-- End with an easy question
-- Use the customer name, do not use placeholders like XXX`;
-  }
+  const userPrompt = isChinese
+    ? `用中文写一封跟进消息。\n\n上下文：\n- 客户姓名：${data.leadName}\n- 目标：${data.objective}\n- 距离上次回复天数：${daysPassed}\n- 语气：${mappedTone === 'soft' ? '温和' : mappedTone === 'professional' ? '专业' : '坚定'}\n- 模板风格：${selectedPreset}\n\n风格要求：\n${getFollowUpPresetFragment(selectedPreset, true)}\n\n规则：\n- 简短自然\n- 不要施压\n- 结尾用简单问题\n- 必须使用客户姓名` 
+    : `Write a follow-up message in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Days since last reply: ${daysPassed}\n- Tone: ${mappedTone}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getFollowUpPresetFragment(selectedPreset, false)}\n\nRules:\n- Keep it short and natural\n- No pressure\n- End with an easy question\n- Must use the customer name`;
+  const formatInstruction = getFormatInstruction(outputFormat, isChinese);
+  const emojiPreference = detectEmojiPreference(data.objective);
+  const emojiInstruction = getEmojiInstruction(outputFormat, isChinese, emojiPreference);
+  const objectiveDirective = getObjectiveDirective(data.objective, isChinese);
+  const hardConstraints = getHardConstraints(isChinese, outputFormat);
+  const humanStyleBlock =
+    isChinese && outputFormat === 'whatsapp' ? `\n\n${getChineseWhatsappHumanStyle('follow_up')}` : '';
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${emojiInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n如果 objective 与模板风格冲突，优先满足 objective。`;
 
   try {
     if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not set in environment variables');
+      throw new Error('OPENAI_API_KEY is not set');
     }
 
-    console.log('Calling OpenAI API for follow-up message...');
-    console.log('OpenAI API Key exists:', !!process.env.OPENAI_API_KEY);
-    console.log('OpenAI API Key length:', process.env.OPENAI_API_KEY?.length || 0);
-    
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 300,
-    });
+    const completion = await generateCompletion(systemPrompt, promptWithFormat);
+    const generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
 
-    const generatedText = completion.choices[0]?.message?.content || '';
-    
-    if (!generatedText) {
+    if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
     }
-
-    console.log('✅ OpenAI API success, generated text length:', generatedText.length);
-    console.log('✅ OpenAI API usage:', JSON.stringify(completion.usage, null, 2));
 
     await prisma.aiLog.create({
       data: {
         userId,
         leadId,
         purpose: 'follow_up',
+        stylePreset: selectedPreset,
         content: generatedText,
       },
     });
 
     return generatedText;
   } catch (error: any) {
-    console.error('OpenAI API error:', error);
-    if (error instanceof Error) {
-      console.error('Error message:', error.message);
-      if (error.message.includes('API key')) {
-        console.error('Please check your OPENAI_API_KEY in .env file');
-      }
-    }
-    if (error?.code === 'insufficient_quota' || error?.message?.includes('quota')) {
-      console.error('⚠️ OpenAI API quota exceeded. Please check your billing at https://platform.openai.com/account/billing');
-    }
-    // Fallback to simple template if API fails
-    const fallbackText = isChinese
-      ? `尊敬的 ${data.leadName}，\n\n希望您一切顺利。${daysPassed > 0 ? `距离我们上次联系已经过去 ${daysPassed} 天了。` : ''}\n\n我想跟进一下我们之前的对话，看看您是否有任何问题或需要我帮助的地方。\n\n如有任何疑问，请随时联系我。\n\n此致\n敬礼`
-      : `Dear ${data.leadName},\n\nI hope this message finds you well. ${daysPassed > 0 ? `It's been ${daysPassed} day${daysPassed > 1 ? 's' : ''} since we last connected.` : ''}\n\nI wanted to follow up on our previous conversation and see if you have any questions or if there's anything I can help you with.\n\nPlease feel free to reach out at your convenience. I'm here to help.\n\nBest regards`;
+    const errorKind = classifyAiError(error);
+    console.error(`[AI] Follow-up generation failed (${errorKind})`, error?.message || error);
 
-    console.log('⚠️ Saving fallback text to aiLog (this counts as usage)');
+    const baseFallbackText = createFollowUpFallback(data, daysPassed, isChinese, selectedPreset);
+    const fallbackText = formatFallbackMessage(
+      baseFallbackText,
+      outputFormat,
+      isChinese,
+      data.leadName,
+      isChinese ? '跟进确认' : 'Quick Follow-up'
+    );
+
     await prisma.aiLog.create({
       data: {
         userId,
         leadId,
         purpose: 'follow_up',
+        stylePreset: selectedPreset,
         content: fallbackText,
       },
     });
@@ -155,16 +488,11 @@ export const generatePaymentText = async (
   const amount = data.amount;
   const dueDate = data.dueDate;
   const language = data.language || 'en';
+  const outputFormat = data.outputFormat || 'chat';
+  const mappedTone = mapPaymentTone(tone);
+  const isChinese = language === 'zh-CN';
+  const selectedPreset: PaymentStylePreset = presetsEnabled ? data.stylePreset || 'friendly_reminder' : 'friendly_reminder';
 
-  // Map tone to new format: professional or firm only
-  let mappedTone: 'professional' | 'firm';
-  if (tone === 'casual' || tone === 'friendly') {
-    mappedTone = 'firm';
-  } else {
-    mappedTone = 'professional'; // polite, professional default to professional
-  }
-
-  // Calculate days overdue if dueDate is provided
   let daysOverdue = 0;
   if (dueDate) {
     const due = new Date(dueDate);
@@ -172,113 +500,62 @@ export const generatePaymentText = async (
     daysOverdue = Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
   }
 
-  const isChinese = language === 'zh-CN';
+  const systemPrompt = getAdvisorPersona(isChinese);
 
-  let systemPrompt: string;
-  let userPrompt: string;
-
-  if (isChinese) {
-    systemPrompt = '你帮助企业主礼貌但清楚地请求付款。消息必须保护关系，同时提醒付款。';
-    userPrompt = `用中文写一封付款提醒。
-
-上下文：
-- 客户姓名：${data.leadName}
-- 项目已完成
-- 付款待处理
-- 逾期天数：${daysOverdue}
-- 语气：${mappedTone === 'professional' ? '专业' : '坚定'}
-${amount ? `- 金额：${amount.toFixed(2)}` : ''}
-
-规则：
-- 保持尊重
-- 提及完成情况
-- 清晰但友好
-- 使用客户姓名，不要使用占位符如 XXX`;
-  } else {
-    systemPrompt = 'You help a business owner request payment politely but clearly. The message must protect the relationship while reminding about payment.';
-    userPrompt = `Write a payment reminder in English.
-
-Context:
-- Customer Name: ${data.leadName}
-- Project is completed
-- Payment is pending
-- Days overdue: ${daysOverdue}
-- Tone: ${mappedTone}
-${amount ? `- Amount: $${amount.toFixed(2)}` : ''}
-
-Rules:
-- Be respectful
-- Mention completion
-- Clear but friendly
-- Use the customer name, do not use placeholders like XXX`;
-  }
+  const userPrompt = isChinese
+    ? `用中文写一封付款提醒。\n\n上下文：\n- 客户姓名：${data.leadName}\n- 目标：${data.objective}\n- 项目已完成\n- 付款待处理\n- 逾期天数：${daysOverdue}\n- 语气：${mappedTone === 'professional' ? '专业' : '坚定'}\n${amount ? `- 金额：${amount.toFixed(2)}` : ''}\n- 模板风格：${selectedPreset}\n\n风格要求：\n${getPaymentPresetFragment(selectedPreset, true)}\n\n规则：\n- 保持尊重\n- 清晰友好\n- 使用客户姓名`
+    : `Write a payment reminder in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Project is completed\n- Payment is pending\n- Days overdue: ${daysOverdue}\n- Tone: ${mappedTone}\n${amount ? `- Amount: $${amount.toFixed(2)}` : ''}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getPaymentPresetFragment(selectedPreset, false)}\n\nRules:\n- Be respectful\n- Keep it clear and friendly\n- Must use the customer name`;
+  const formatInstruction = getFormatInstruction(outputFormat, isChinese);
+  const emojiPreference = detectEmojiPreference(data.objective);
+  const emojiInstruction = getEmojiInstruction(outputFormat, isChinese, emojiPreference);
+  const objectiveDirective = getObjectiveDirective(data.objective, isChinese);
+  const hardConstraints = getHardConstraints(isChinese, outputFormat);
+  const humanStyleBlock =
+    isChinese && outputFormat === 'whatsapp' ? `\n\n${getChineseWhatsappHumanStyle('payment')}` : '';
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${emojiInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n如果 objective 与模板风格冲突，优先满足 objective。`;
 
   try {
     if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not set in environment variables');
+      throw new Error('OPENAI_API_KEY is not set');
     }
 
-    console.log('Calling OpenAI API for payment reminder...');
-    console.log('OpenAI API Key exists:', !!process.env.OPENAI_API_KEY);
-    console.log('OpenAI API Key length:', process.env.OPENAI_API_KEY?.length || 0);
-    
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 300,
-    });
+    const completion = await generateCompletion(systemPrompt, promptWithFormat);
+    const generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
 
-    const generatedText = completion.choices[0]?.message?.content || '';
-    
-    if (!generatedText) {
+    if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
     }
-
-    console.log('✅ OpenAI API success, generated text length:', generatedText.length);
-    console.log('✅ OpenAI API usage:', JSON.stringify(completion.usage, null, 2));
 
     await prisma.aiLog.create({
       data: {
         userId,
         leadId,
         purpose: 'payment',
+        stylePreset: selectedPreset,
         content: generatedText,
       },
     });
 
     return generatedText;
   } catch (error: any) {
-    console.error('❌ OpenAI API error:', error);
-    console.error('❌ Error type:', error?.constructor?.name);
-    console.error('❌ Error code:', error?.code);
-    if (error instanceof Error) {
-      console.error('❌ Error message:', error.message);
-      if (error.message.includes('API key')) {
-        console.error('⚠️ Please check your OPENAI_API_KEY in .env file');
-      }
-    }
-    if (error?.code === 'insufficient_quota' || error?.message?.includes('quota')) {
-      console.error('⚠️ OpenAI API quota exceeded. Please check your billing at https://platform.openai.com/account/billing');
-    }
-    if (error?.response) {
-      console.error('❌ OpenAI API response error:', JSON.stringify(error.response, null, 2));
-    }
-    console.log('⚠️ Using fallback template instead of OpenAI API');
-    // Fallback to simple template if API fails
-    const fallbackText = isChinese
-      ? `尊敬的 ${data.leadName}，\n\n希望您一切顺利。${amount ? `这是一封关于 ${amount.toFixed(2)} 元付款的友好提醒。` : '这是一封关于未付款项的友好提醒。'}\n\n${dueDate ? `付款到期日为 ${dueDate}。` : '我想跟进一下目前未付的款项。'}\n\n如果您已经付款，请忽略此消息。如有任何问题或疑虑，请随时联系我。\n\n感谢您的关注。\n\n此致\n敬礼`
-      : `Dear ${data.leadName},\n\nI hope you're doing well. ${amount ? `This is a friendly reminder regarding the payment of $${amount.toFixed(2)}.` : 'This is a friendly reminder regarding your pending payment.'}\n\n${dueDate ? `The payment was due on ${dueDate}.` : 'I wanted to follow up on the payment that is currently pending.'}\n\nIf you've already made the payment, please disregard this message. If you have any questions or concerns, please don't hesitate to reach out.\n\nThank you for your attention to this matter.\n\nBest regards`;
+    const errorKind = classifyAiError(error);
+    console.error(`[AI] Payment generation failed (${errorKind})`, error?.message || error);
 
-    console.log('⚠️ Saving fallback text to aiLog (this counts as usage)');
+    const baseFallbackText = createPaymentFallback(data, isChinese, selectedPreset, daysOverdue);
+    const fallbackText = formatFallbackMessage(
+      baseFallbackText,
+      outputFormat,
+      isChinese,
+      data.leadName,
+      isChinese ? '付款提醒' : 'Payment Reminder'
+    );
+
     await prisma.aiLog.create({
       data: {
         userId,
         leadId,
         purpose: 'payment',
+        stylePreset: selectedPreset,
         content: fallbackText,
       },
     });
@@ -287,3 +564,27 @@ Rules:
   }
 };
 
+export const getAiHistory = async (
+  userId: string,
+  options: { limit?: number; purpose?: 'follow_up' | 'payment' | 'all' }
+) => {
+  const limit = Math.min(Math.max(options.limit || 20, 1), 100);
+  const purpose = options.purpose || 'all';
+
+  return prisma.aiLog.findMany({
+    where: {
+      userId,
+      ...(purpose !== 'all' ? { purpose } : {}),
+    },
+    include: {
+      lead: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
+};

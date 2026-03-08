@@ -116,6 +116,13 @@ const Dashboard = () => {
             <p>{t.dashboard.aiGeneratorDescription}</p>
           </div>
         </Link>
+        <Link to="/whatsapp" className="nav-card">
+          <div className="nav-icon">💬</div>
+          <div>
+            <h3>{t.dashboard.whatsappIntegration}</h3>
+            <p>{t.dashboard.whatsappIntegrationDescription}</p>
+          </div>
+        </Link>
       </nav>
 
       <div className="card welcome-card">

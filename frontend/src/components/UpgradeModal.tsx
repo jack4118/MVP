@@ -1,17 +1,31 @@
-import { useState } from 'react';
-import { useLanguage } from '../contexts/LanguageContext';
+import { useEffect, useState } from 'react';
+import { useLanguage, translate } from '../contexts/LanguageContext';
 import { usageApi } from '../services/api';
+import { trackProductEvent } from '../utils/analytics';
 
 interface UpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpgradeSuccess?: () => void;
+  source?: 'copy_gate' | 'ai_limit' | 'post_success' | 'generic';
+  generatedCount?: number;
 }
 
-const UpgradeModal = ({ isOpen, onClose, onUpgradeSuccess }: UpgradeModalProps) => {
+const UpgradeModal = ({
+  isOpen,
+  onClose,
+  onUpgradeSuccess,
+  source = 'generic',
+  generatedCount = 0,
+}: UpgradeModalProps) => {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    trackProductEvent('upgrade_modal_opened', { source });
+  }, [isOpen, source]);
 
   if (!isOpen) return null;
 
@@ -53,8 +67,11 @@ const UpgradeModal = ({ isOpen, onClose, onUpgradeSuccess }: UpgradeModalProps) 
           </button>
         </div>
 
-        <p style={{ marginBottom: '24px', color: 'var(--text-secondary)' }}>
+        <p style={{ marginBottom: '8px', color: 'var(--text-secondary)' }}>
           {t.pricing.upgradeModalDescription}
+        </p>
+        <p style={{ marginBottom: '24px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+          {translate(t.pricing.valueMessagesCreated, { count: generatedCount })}
         </p>
 
         <div style={{ marginBottom: '24px' }}>
@@ -115,6 +132,7 @@ const UpgradeModal = ({ isOpen, onClose, onUpgradeSuccess }: UpgradeModalProps) 
               try {
                 const response = await usageApi.upgradeToPro();
                 if (response.success) {
+                  trackProductEvent('upgrade_confirmed', { source });
                   onClose();
                   if (onUpgradeSuccess) {
                     onUpgradeSuccess();
@@ -149,4 +167,3 @@ const UpgradeModal = ({ isOpen, onClose, onUpgradeSuccess }: UpgradeModalProps) 
 };
 
 export default UpgradeModal;
-

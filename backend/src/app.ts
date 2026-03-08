@@ -7,6 +7,8 @@ import leadRoutes from './routes/leads';
 import reminderRoutes from './routes/reminders';
 import aiRoutes from './routes/ai';
 import usageRoutes from './routes/usage';
+import eventRoutes from './routes/events';
+import whatsAppRoutes from './routes/whatsapp';
 
 dotenv.config();
 
@@ -50,6 +52,8 @@ app.use('/api/leads', leadRoutes);
 app.use('/api/reminders', reminderRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/usage', usageRoutes);
+app.use('/api/events', eventRoutes);
+app.use('/api/whatsapp', whatsAppRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
@@ -59,4 +63,3 @@ app.listen(PORT, () => {
 });
 
 export default app;
-

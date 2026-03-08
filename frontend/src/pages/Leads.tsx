@@ -1,10 +1,24 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { leadsApi, aiApi, usageApi, Lead, UsageInfo } from '../services/api';
+import {
+  leadsApi,
+  aiApi,
+  usageApi,
+  Lead,
+  UsageInfo,
+  FollowUpStylePreset,
+  PaymentStylePreset,
+  LeadStatus,
+  OutputFormat,
+} from '../services/api';
 import { useLanguage, translate } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
 import UpgradeModal from '../components/UpgradeModal';
+import { shouldGateCopyForFree } from '../utils/paywall';
+import { trackProductEvent } from '../utils/analytics';
+
+const aiPresetsEnabled = import.meta.env.VITE_FEATURE_AI_PRESETS !== 'false';
 
 const Leads = () => {
   const { t, language } = useLanguage();
@@ -18,7 +32,7 @@ const Leads = () => {
     name: '',
     contact: '',
     notes: '',
-    status: 'new',
+    status: 'new' as LeadStatus,
   });
 
   // Filter states
@@ -35,6 +49,11 @@ const Leads = () => {
   const [copied, setCopied] = useState(false);
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
+  const [followUpStylePreset, setFollowUpStylePreset] = useState<FollowUpStylePreset>('gentle_nudge');
+  const [paymentStylePreset, setPaymentStylePreset] = useState<PaymentStylePreset>('friendly_reminder');
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('chat');
+  const [objective, setObjective] = useState('');
 
   useEffect(() => {
     loadLeads();
@@ -125,11 +144,14 @@ const Leads = () => {
       if (editingLead) {
         await leadsApi.updateLead(editingLead.id, formData);
       } else {
-        await leadsApi.createLead(formData);
+        const created = await leadsApi.createLead(formData);
+        if (created.success && created.data) {
+          trackProductEvent('lead_created', { status: created.data.status });
+        }
       }
       setShowForm(false);
       setEditingLead(null);
-      setFormData({ name: '', contact: '', notes: '', status: 'new' });
+      setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
       setError('');
       loadLeads();
     } catch (err) {
@@ -148,7 +170,7 @@ const Leads = () => {
     setShowForm(true);
   };
 
-  const handleStatusChange = async (leadId: string, newStatus: string) => {
+  const handleStatusChange = async (leadId: string, newStatus: LeadStatus) => {
     try {
       await leadsApi.updateLeadStatus(leadId, newStatus);
       loadLeads();
@@ -175,34 +197,48 @@ const Leads = () => {
     setCurrentLead(lead);
     setShowAiModal(true);
     setGeneratedText('');
-    setAiLoading(true);
     setError('');
+    if (!objective.trim()) {
+      setError(t.ai.objectiveRequired);
+      return;
+    }
+    setAiLoading(true);
+    trackProductEvent('ai_generate_clicked', { purpose: 'follow_up', leadId: lead.id });
 
     try {
       const daysPassed = calculateDaysPassed(lead);
       const response = await aiApi.generateFollowUp({
         leadId: lead.id,
         leadName: lead.name,
+        objective: objective.trim(),
         status: lead.status,
         daysPassed,
         tone: 'polite',
+        stylePreset: aiPresetsEnabled ? followUpStylePreset : undefined,
+        outputFormat,
         language: language as 'en' | 'zh-CN',
       });
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
+        trackProductEvent('ai_generate_success', { purpose: 'follow_up', leadId: lead.id });
         // Update usage info from response
-        if ((response as any).usage) {
-          setUsageInfo((response as any).usage);
+        if (response.usage) {
+          setUsageInfo(response.usage);
+          if (response.usage.aiUsageThisMonth === 1) {
+            trackProductEvent('first_value_moment', { source: 'leads_quick_ai' });
+          }
         } else {
           await loadUsageInfo();
         }
       } else {
         // Check if it's a limit error
         if (response.error?.code === 'AI_LIMIT_REACHED') {
+          trackProductEvent('ai_generate_failed_limit', { purpose: 'follow_up' });
+          setUpgradeSource('ai_limit');
           setShowUpgradeModal(true);
-          if ((response as any).usage) {
-            setUsageInfo((response as any).usage);
+          if (response.usage) {
+            setUsageInfo(response.usage);
           }
         }
         setError(response.error?.message || t.ai.failedToGenerate);
@@ -211,6 +247,8 @@ const Leads = () => {
     } catch (err: any) {
       // Check if it's a limit error from axios response
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
+        trackProductEvent('ai_generate_failed_limit', { purpose: 'follow_up' });
+        setUpgradeSource('ai_limit');
         setShowUpgradeModal(true);
         if (err?.response?.data?.usage) {
           setUsageInfo(err.response.data.usage);
@@ -227,31 +265,45 @@ const Leads = () => {
     setCurrentLead(lead);
     setShowAiModal(true);
     setGeneratedText('');
-    setAiLoading(true);
     setError('');
+    if (!objective.trim()) {
+      setError(t.ai.objectiveRequired);
+      return;
+    }
+    setAiLoading(true);
+    trackProductEvent('ai_generate_clicked', { purpose: 'payment', leadId: lead.id });
 
     try {
       const response = await aiApi.generatePayment({
         leadId: lead.id,
         leadName: lead.name,
+        objective: objective.trim(),
         tone: 'polite',
+        stylePreset: aiPresetsEnabled ? paymentStylePreset : undefined,
+        outputFormat,
         language: language as 'en' | 'zh-CN',
       });
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
+        trackProductEvent('ai_generate_success', { purpose: 'payment', leadId: lead.id });
         // Update usage info from response
-        if ((response as any).usage) {
-          setUsageInfo((response as any).usage);
+        if (response.usage) {
+          setUsageInfo(response.usage);
+          if (response.usage.aiUsageThisMonth === 1) {
+            trackProductEvent('first_value_moment', { source: 'leads_quick_ai' });
+          }
         } else {
           await loadUsageInfo();
         }
       } else {
         // Check if it's a limit error
         if (response.error?.code === 'AI_LIMIT_REACHED') {
+          trackProductEvent('ai_generate_failed_limit', { purpose: 'payment' });
+          setUpgradeSource('ai_limit');
           setShowUpgradeModal(true);
-          if ((response as any).usage) {
-            setUsageInfo((response as any).usage);
+          if (response.usage) {
+            setUsageInfo(response.usage);
           }
         }
         setError(response.error?.message || t.ai.failedToGenerate);
@@ -260,6 +312,8 @@ const Leads = () => {
     } catch (err: any) {
       // Check if it's a limit error from axios response
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
+        trackProductEvent('ai_generate_failed_limit', { purpose: 'payment' });
+        setUpgradeSource('ai_limit');
         setShowUpgradeModal(true);
         if (err?.response?.data?.usage) {
           setUsageInfo(err.response.data.usage);
@@ -273,8 +327,14 @@ const Leads = () => {
   };
 
   const handleCopyText = async () => {
-    // Check if user is on free plan
-    if (usageInfo && usageInfo.plan === 'free') {
+    const shouldGate = shouldGateCopyForFree(usageInfo);
+    trackProductEvent('copy_clicked', {
+      source: 'leads_modal',
+      gated: shouldGate,
+    });
+
+    if (shouldGate) {
+      setUpgradeSource('copy_gate');
       setShowUpgradeModal(true);
       return;
     }
@@ -286,6 +346,22 @@ const Leads = () => {
     } catch (err) {
       setError(t.common.error);
     }
+  };
+
+  const handleRegenerateFromModal = async () => {
+    if (!currentLead) return;
+    if (currentLead.status === 'closed') {
+      await handleAiPayment(currentLead);
+      return;
+    }
+    await handleAiFollowUp(currentLead);
+  };
+
+  const openAiModalForLead = (lead: Lead) => {
+    setCurrentLead(lead);
+    setShowAiModal(true);
+    setGeneratedText('');
+    setError('');
   };
 
   const statusColors: Record<string, string> = {
@@ -348,7 +424,7 @@ const Leads = () => {
             onClick={() => {
               setShowForm(true);
               setEditingLead(null);
-              setFormData({ name: '', contact: '', notes: '', status: 'new' });
+              setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
               setError('');
             }}
             className="btn btn-primary"
@@ -469,7 +545,7 @@ const Leads = () => {
               <label className="form-label">{t.leads.status}</label>
               <select
                 value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as LeadStatus })}
                 className="input"
               >
                 <option value="new">{t.status.new}</option>
@@ -489,7 +565,7 @@ const Leads = () => {
                 onClick={() => {
                   setShowForm(false);
                   setEditingLead(null);
-                  setFormData({ name: '', contact: '', notes: '', status: 'new' });
+                  setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
                 }}
                 className="btn btn-secondary"
               >
@@ -520,7 +596,7 @@ const Leads = () => {
               onClick={() => {
                 setShowForm(true);
                 setEditingLead(null);
-                setFormData({ name: '', contact: '', notes: '', status: 'new' });
+                setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
               }}
               className="btn btn-primary"
             >
@@ -550,7 +626,7 @@ const Leads = () => {
                   <td>
                     <select
                       value={lead.status}
-                      onChange={(e) => handleStatusChange(lead.id, e.target.value)}
+                      onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
                       className="status-select"
                       style={{ 
                         backgroundColor: statusColors[lead.status] || 'transparent',
@@ -578,7 +654,7 @@ const Leads = () => {
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {lead.status === 'waiting_reply' && (
                         <button
-                          onClick={() => handleAiFollowUp(lead)}
+                          onClick={() => openAiModalForLead(lead)}
                           className="btn btn-primary"
                           style={{ padding: '6px 12px', fontSize: '12px' }}
                         >
@@ -587,7 +663,7 @@ const Leads = () => {
                       )}
                       {lead.status === 'closed' && (
                         <button
-                          onClick={() => handleAiPayment(lead)}
+                          onClick={() => openAiModalForLead(lead)}
                           className="btn btn-primary"
                           style={{ padding: '6px 12px', fontSize: '12px' }}
                         >
@@ -672,6 +748,61 @@ const Leads = () => {
               </div>
             )}
 
+            {currentLead && (
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label">{t.ai.objective} *</label>
+                <textarea
+                  value={objective}
+                  onChange={(e) => setObjective(e.target.value)}
+                  className="input"
+                  rows={3}
+                  placeholder={t.ai.objectivePlaceholder}
+                />
+              </div>
+            )}
+
+            {aiPresetsEnabled && currentLead && (
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label">{t.ai.stylePreset}</label>
+                {currentLead.status === 'closed' ? (
+                  <select
+                    value={paymentStylePreset}
+                    onChange={(e) => setPaymentStylePreset(e.target.value as PaymentStylePreset)}
+                    className="input"
+                  >
+                    <option value="friendly_reminder">{t.ai.paymentPresetFriendlyReminder}</option>
+                    <option value="due_today">{t.ai.paymentPresetDueToday}</option>
+                    <option value="overdue_escalation">{t.ai.paymentPresetOverdueEscalation}</option>
+                  </select>
+                ) : (
+                  <select
+                    value={followUpStylePreset}
+                    onChange={(e) => setFollowUpStylePreset(e.target.value as FollowUpStylePreset)}
+                    className="input"
+                  >
+                    <option value="gentle_nudge">{t.ai.followUpPresetGentleNudge}</option>
+                    <option value="value_reminder">{t.ai.followUpPresetValueReminder}</option>
+                    <option value="meeting_request">{t.ai.followUpPresetMeetingRequest}</option>
+                  </select>
+                )}
+              </div>
+            )}
+
+            {currentLead && (
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label">{t.ai.outputFormat}</label>
+                <select
+                  value={outputFormat}
+                  onChange={(e) => setOutputFormat(e.target.value as OutputFormat)}
+                  className="input"
+                >
+                  <option value="chat">{t.ai.formatChat}</option>
+                  <option value="email">{t.ai.formatEmail}</option>
+                  <option value="whatsapp">{t.ai.formatWhatsapp}</option>
+                </select>
+              </div>
+            )}
+
             {usageInfo && usageInfo.plan === 'free' && (
               <div style={{ 
                 marginBottom: '16px', 
@@ -683,8 +814,18 @@ const Leads = () => {
                 textAlign: 'center',
               }}>
                 {usageInfo.aiLimit !== null
-                  ? translate(t.pricing.aiMessagesLeft, { count: Math.max(0, usageInfo.aiLimit - usageInfo.aiUsageThisMonth) })
+                  ? translate(t.pricing.aiMessagesLeft, { count: usageInfo.aiRemaining ?? 0 })
                   : t.pricing.aiMessagesLeftUnlimited}
+                {usageInfo.aiLimit !== null && (
+                  <div style={{ marginTop: '8px' }}>
+                    <div style={{ fontSize: '12px', marginBottom: '6px' }}>
+                      {translate(t.pricing.usageProgress, { used: usageInfo.aiUsageThisMonth, limit: usageInfo.aiLimit })}
+                    </div>
+                    <div style={{ width: '100%', height: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{ width: `${usageInfo.aiUsagePercent}%`, height: '100%', background: 'var(--bg-primary)' }} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -695,6 +836,32 @@ const Leads = () => {
               </div>
             ) : (
               <>
+                {currentLead && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <button
+                      onClick={handleRegenerateFromModal}
+                      className="btn btn-primary"
+                      style={{ width: '100%' }}
+                    >
+                      {generatedText ? t.ai.regenerateVariant : t.ai.generateText}
+                    </button>
+                  </div>
+                )}
+                {generatedText && usageInfo?.plan === 'free' && (
+                  <div style={{ marginBottom: '12px', padding: '10px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '14px' }}>
+                    <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
+                    <button
+                      className="btn btn-primary"
+                      style={{ marginTop: '8px', padding: '6px 10px', fontSize: '12px' }}
+                      onClick={() => {
+                        setUpgradeSource('post_success');
+                        setShowUpgradeModal(true);
+                      }}
+                    >
+                      {t.pricing.upgradePrompt}
+                    </button>
+                  </div>
+                )}
                 <textarea
                   value={generatedText}
                   readOnly
@@ -707,13 +874,13 @@ const Leads = () => {
                   placeholder={t.ai.generatedTextPlaceholder}
                 />
                 {generatedText && (
-                  <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button onClick={handleRegenerateFromModal} className="btn btn-secondary">
+                      {t.ai.regenerateVariant}
+                    </button>
                     <button 
                       onClick={handleCopyText} 
                       className="btn btn-success"
-                      style={{
-                        opacity: usageInfo && usageInfo.plan === 'free' ? 0.7 : 1,
-                      }}
                     >
                       {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
                     </button>
@@ -728,6 +895,8 @@ const Leads = () => {
       {/* Upgrade Modal */}
       <UpgradeModal 
         isOpen={showUpgradeModal} 
+        source={upgradeSource}
+        generatedCount={usageInfo?.aiUsageThisMonth || 0}
         onClose={() => setShowUpgradeModal(false)}
         onUpgradeSuccess={() => {
           loadUsageInfo();

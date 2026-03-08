@@ -13,6 +13,7 @@ import {
   updateLeadStatusSchema,
 } from '../utils/validation';
 import { getUserPlan, checkLeadLimit, getUsageInfo } from '../services/planService';
+import { trackEvent } from '../services/eventService';
 
 const router = express.Router();
 
@@ -45,6 +46,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const validatedData = createLeadSchema.parse(req.body);
     const lead = await createLead(req.userId, validatedData);
+    await trackEvent(req.userId, {
+      event: 'lead_created',
+      props: { status: lead.status },
+    }).catch(() => undefined);
     res.status(201).json({
       success: true,
       data: lead,
@@ -126,4 +131,3 @@ router.put('/:id/status', async (req: AuthRequest, res: Response, next: NextFunc
 });
 
 export default router;
-

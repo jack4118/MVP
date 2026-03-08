@@ -8,6 +8,8 @@ export interface UsageInfo {
   leadLimit: number | null; // null means unlimited
   aiUsageThisMonth: number;
   aiLimit: number | null; // null means unlimited
+  aiRemaining: number | null;
+  aiUsagePercent: number;
   canCreateLead: boolean;
   canUseAi: boolean;
 }
@@ -82,6 +84,8 @@ export const getUsageInfo = async (userId: string): Promise<UsageInfo> => {
 
   const canCreateLead = await checkLeadLimit(userId, plan);
   const canUseAi = await checkAiUsageLimit(userId, plan);
+  const aiRemaining = aiLimit === null ? null : Math.max(0, aiLimit - aiUsageThisMonth);
+  const aiUsagePercent = aiLimit === null ? 0 : Math.min(100, Math.round((aiUsageThisMonth / aiLimit) * 100));
 
   return {
     plan,
@@ -89,6 +93,8 @@ export const getUsageInfo = async (userId: string): Promise<UsageInfo> => {
     leadLimit,
     aiUsageThisMonth,
     aiLimit,
+    aiRemaining,
+    aiUsagePercent,
     canCreateLead,
     canUseAi,
   };
@@ -107,4 +113,3 @@ export const downgradeToFree = async (userId: string): Promise<void> => {
     data: { plan: 'free' },
   });
 };
-

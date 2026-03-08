@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import Reminders from './pages/Reminders';
 import AI from './pages/AI';
+import WhatsApp from './pages/WhatsApp';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -60,6 +61,14 @@ const AppRoutes = () => {
           </PrivateRoute>
         }
       />
+      <Route
+        path="/whatsapp"
+        element={
+          <PrivateRoute>
+            <WhatsApp />
+          </PrivateRoute>
+        }
+      />
       <Route path="/" element={<Navigate to="/dashboard" />} />
     </Routes>
   );
@@ -80,4 +89,3 @@ function App() {
 }
 
 export default App;
-
