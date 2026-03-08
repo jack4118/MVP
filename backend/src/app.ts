@@ -9,6 +9,8 @@ import aiRoutes from './routes/ai';
 import usageRoutes from './routes/usage';
 import eventRoutes from './routes/events';
 import whatsAppRoutes from './routes/whatsapp';
+import internalRoutes from './routes/internal';
+import { startReminderWorker } from './services/reminderWorker';
 
 dotenv.config();
 
@@ -54,12 +56,14 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/whatsapp', whatsAppRoutes);
+app.use('/api/internal', internalRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  startReminderWorker();
 });
 
 export default app;

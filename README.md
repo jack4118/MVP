@@ -1,6 +1,6 @@
-# MVP SaaS Project
+# ez-reply
 
-A full-stack SaaS application for lead management, reminders, and AI-powered text generation.
+A full-stack SaaS application for lead management, reminders, and AI-assisted business messaging.
 
 ## Features
 
@@ -156,4 +156,3 @@ The frontend will run on `http://localhost:5173`
 - The AI text generation currently uses placeholder logic. You can extend it to integrate with OpenAI or other AI services.
 - All API endpoints (except auth) require JWT authentication.
 - The project is designed to be extensible while keeping the MVP simple and maintainable.
-

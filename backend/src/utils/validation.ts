@@ -76,7 +76,7 @@ export const aiFollowUpSchema = z.object({
   tone: followUpToneSchema.optional(),
   stylePreset: followUpStylePresetSchema.optional(),
   outputFormat: outputFormatSchema.optional(),
-  language: z.enum(['en', 'zh-CN']).optional().default('en'),
+  language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
 });
 
 export const aiPaymentSchema = z.object({
@@ -87,7 +87,7 @@ export const aiPaymentSchema = z.object({
   tone: paymentToneSchema.optional(),
   stylePreset: paymentStylePresetSchema.optional(),
   outputFormat: outputFormatSchema.optional(),
-  language: z.enum(['en', 'zh-CN']).optional().default('en'),
+  language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
 });
 
 export const eventLogSchema = z.object({

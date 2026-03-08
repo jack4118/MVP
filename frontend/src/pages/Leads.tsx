@@ -216,7 +216,7 @@ const Leads = () => {
         tone: 'polite',
         stylePreset: aiPresetsEnabled ? followUpStylePreset : undefined,
         outputFormat,
-        language: language as 'en' | 'zh-CN',
+        language,
       });
 
       if (response.success && response.data) {
@@ -281,7 +281,7 @@ const Leads = () => {
         tone: 'polite',
         stylePreset: aiPresetsEnabled ? paymentStylePreset : undefined,
         outputFormat,
-        language: language as 'en' | 'zh-CN',
+        language,
       });
 
       if (response.success && response.data) {
@@ -551,8 +551,8 @@ const Leads = () => {
                 <option value="new">{t.status.new}</option>
                 <option value="contacted">{t.status.contacted}</option>
                 <option value="interested">{t.status.interested}</option>
-                <option value="waiting_reply">{t.status.waitingReply}</option>
-                <option value="not_interested">{t.status.notInterested}</option>
+                <option value="waiting_reply">{t.status.waiting_reply}</option>
+                <option value="not_interested">{t.status.not_interested}</option>
                 <option value="closed">{t.status.closed}</option>
               </select>
             </div>
@@ -640,8 +640,8 @@ const Leads = () => {
                       <option value="new">{t.status.new}</option>
                       <option value="contacted">{t.status.contacted}</option>
                       <option value="interested">{t.status.interested}</option>
-                      <option value="waiting_reply">{t.status.waitingReply}</option>
-                      <option value="not_interested">{t.status.notInterested}</option>
+                      <option value="waiting_reply">{t.status.waiting_reply}</option>
+                      <option value="not_interested">{t.status.not_interested}</option>
                       <option value="closed">{t.status.closed}</option>
                     </select>
                   </td>

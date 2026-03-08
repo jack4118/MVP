@@ -107,7 +107,7 @@ const WhatsApp = () => {
         setError(response.error?.message || t.common.error);
         return;
       }
-      setSuccess('Connection saved. Please verify now.');
+      setSuccess(t.whatsapp.saveSuccess);
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
@@ -128,7 +128,7 @@ const WhatsApp = () => {
         formData.accessToken.trim();
 
       if (!hasExistingConnection && !hasFilledForm) {
-        setError('Please fill all connection fields and click Save (or Verify) first.');
+        setError(t.whatsapp.fillConnectionFirst);
         return;
       }
 
@@ -145,7 +145,7 @@ const WhatsApp = () => {
         setError(response.error?.message || t.common.error);
         return;
       }
-      setSuccess(`Verified successfully${response.data?.displayPhone ? ` (${response.data.displayPhone})` : ''}`);
+      setSuccess(`${t.whatsapp.verifySuccess}${response.data?.displayPhone ? ` (${response.data.displayPhone})` : ''}`);
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
@@ -167,7 +167,7 @@ const WhatsApp = () => {
         setError(response.error?.message || t.common.error);
         return;
       }
-      setSuccess('Test message sent successfully.');
+      setSuccess(t.whatsapp.testSent);
       await loadAll();
       await loadConversation(testData.toPhone);
     } catch (err) {
@@ -204,7 +204,7 @@ const WhatsApp = () => {
       <div className="card" style={{ marginBottom: '16px', background: 'linear-gradient(135deg, rgba(55,180,90,0.12), rgba(35,115,200,0.08))' }}>
         <h2 style={{ marginTop: 0 }}>{t.whatsapp.setup}</h2>
         <p style={{ color: 'var(--text-secondary)' }}>
-          Status: {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
+          {t.whatsapp.statusLabel}: {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
           {connection?.displayPhone ? ` • ${connection.displayPhone}` : ''}
         </p>
 
@@ -220,7 +220,7 @@ const WhatsApp = () => {
 
         <div className="form-group">
           <label className="form-label">{t.whatsapp.accessToken}</label>
-          <input className="input" type="password" value={formData.accessToken} onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })} placeholder="Paste permanent token or new token" />
+          <input className="input" type="password" value={formData.accessToken} onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })} placeholder={t.whatsapp.tokenPlaceholder} />
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -385,7 +385,7 @@ const WhatsApp = () => {
         {loading ? (
           <p>{t.common.loading}</p>
         ) : logs.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)' }}>No messages yet.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noLogs}</p>
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {logs.map((log) => (

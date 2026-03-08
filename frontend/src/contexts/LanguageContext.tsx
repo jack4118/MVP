@@ -1,14 +1,16 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { en } from '../locales/en';
 import { zhCN } from '../locales/zh-CN';
+import { ms } from '../locales/ms';
 
-export type Language = 'en' | 'zh-CN';
+export type Language = 'en' | 'zh-CN' | 'ms';
 
 export type Translations = typeof en;
 
 const translations: Record<Language, Translations> = {
   en,
   'zh-CN': zhCN,
+  ms,
 };
 
 interface LanguageContextType {
@@ -61,4 +63,3 @@ export const translate = (text: string, params?: Record<string, string | number>
   
   return result;
 };
-

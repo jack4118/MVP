@@ -124,7 +124,7 @@ const AI = () => {
           tone: formData.tone as 'polite' | 'friendly' | 'professional' | 'casual',
           stylePreset: aiPresetsEnabled ? formData.followUpStylePreset : undefined,
           outputFormat: formData.outputFormat,
-          language: language as 'en' | 'zh-CN',
+          language,
         });
       } else {
         response = await aiApi.generatePayment({
@@ -136,7 +136,7 @@ const AI = () => {
           tone: formData.tone as 'polite' | 'friendly' | 'professional' | 'casual',
           stylePreset: aiPresetsEnabled ? formData.paymentStylePreset : undefined,
           outputFormat: formData.outputFormat,
-          language: language as 'en' | 'zh-CN',
+          language,
         });
       }
 
@@ -211,7 +211,7 @@ const AI = () => {
       return;
     }
     if (!whatsAppPhone.trim()) {
-      setError('Please fill recipient phone number first.');
+      setError(t.ai.recipientPhoneRequired);
       return;
     }
 
@@ -482,10 +482,10 @@ const AI = () => {
                 className="input"
                 value={whatsAppPhone}
                 onChange={(e) => setWhatsAppPhone(e.target.value)}
-                placeholder="WhatsApp number (e.g. 60123456789)"
+                placeholder={t.ai.whatsappPhonePlaceholder}
               />
               <button className="btn btn-primary" onClick={handleSendWhatsApp} disabled={sendingWhatsApp}>
-                {sendingWhatsApp ? t.common.loading : 'Send via WhatsApp'}
+                {sendingWhatsApp ? t.common.loading : t.ai.sendViaWhatsapp}
               </button>
             </div>
           )}
@@ -503,9 +503,9 @@ const AI = () => {
       />
 
       <div className="card" style={{ marginTop: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <h2 style={{ margin: 0 }}>Generated History</h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="ai-history-header">
+          <h2 style={{ margin: 0 }}>{t.ai.historyTitle}</h2>
+          <div className="ai-history-controls">
             <select
               className="input"
               style={{ width: '160px' }}
@@ -516,18 +516,18 @@ const AI = () => {
                 loadHistory(next);
               }}
             >
-              <option value="all">All</option>
-              <option value="follow_up">Follow Up</option>
-              <option value="payment">Payment</option>
+              <option value="all">{t.ai.historyAll}</option>
+              <option value="follow_up">{t.ai.historyFollowUp}</option>
+              <option value="payment">{t.ai.historyPayment}</option>
             </select>
             <button className="btn btn-secondary" onClick={() => loadHistory(historyPurpose)}>
-              Refresh
+              {t.ai.historyRefresh}
             </button>
           </div>
         </div>
 
         {history.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)' }}>No generated messages yet.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>{t.ai.historyEmpty}</p>
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {history.map((item) => (

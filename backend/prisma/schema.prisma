@@ -22,6 +22,7 @@ model User {
   eventLogs   EventLog[]
   whatsAppConnection WhatsAppConnection?
   whatsAppMessageLogs WhatsAppMessageLog[]
+  reminderDispatchLogs ReminderDispatchLog[]
 
   @@map("users")
 }
@@ -52,13 +53,38 @@ model Reminder {
   type      String   // follow_up / payment
   triggerAt DateTime @map("trigger_at")
   isDone    Boolean  @default(false) @map("is_done")
+  lastDispatchedAt DateTime? @map("last_dispatched_at")
+  nextDispatchAt DateTime? @map("next_dispatch_at")
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  dispatchLogs ReminderDispatchLog[]
 
   @@index([leadId])
   @@index([triggerAt])
   @@index([isDone])
   @@map("reminders")
+}
+
+model ReminderDispatchLog {
+  id         String   @id @default(uuid())
+  reminderId String   @map("reminder_id")
+  userId     String   @map("user_id")
+  dispatchKey String  @unique @map("dispatch_key")
+  channel    String   // in_app | whatsapp
+  status     String   // sent | failed | requires_template | skipped
+  error      String?
+  payload    Json?
+  sentAt     DateTime @default(now()) @map("sent_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  reminder Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([reminderId])
+  @@index([status])
+  @@index([sentAt])
+  @@map("reminder_dispatch_logs")
 }
 
 model AiLog {

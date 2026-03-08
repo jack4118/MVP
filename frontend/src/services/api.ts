@@ -9,6 +9,7 @@ export type AiTone = 'polite' | 'friendly' | 'professional' | 'casual';
 export type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request';
 export type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation';
 export type OutputFormat = 'chat' | 'email' | 'whatsapp';
+export type AppLanguage = 'en' | 'zh-CN' | 'ms';
 export type ProductEvent =
   | 'ai_generate_clicked'
   | 'ai_generate_success'
@@ -111,6 +112,27 @@ export interface Reminder {
     name: string;
     contact?: string;
     status: LeadStatus;
+  };
+}
+
+export interface ReminderDispatchLog {
+  id: string;
+  reminderId: string;
+  userId: string;
+  dispatchKey: string;
+  channel: 'in_app' | 'whatsapp';
+  status: 'sent' | 'failed' | 'requires_template' | 'skipped';
+  error?: string | null;
+  sentAt: string;
+  reminder: {
+    id: string;
+    type: string;
+    triggerAt: string;
+    lead: {
+      id: string;
+      name: string;
+      contact?: string | null;
+    };
   };
 }
 
@@ -293,6 +315,16 @@ export const remindersApi = {
     const response = await api.delete<ApiResponse<{ deleted: boolean }>>(`/reminders/${id}`);
     return response.data;
   },
+
+  getDispatchLogs: async (limit: number = 30): Promise<ApiResponse<ReminderDispatchLog[]>> => {
+    const response = await api.get<ApiResponse<ReminderDispatchLog[]>>('/reminders/dispatch-logs', { params: { limit } });
+    return response.data;
+  },
+
+  runDispatchNow: async (): Promise<ApiResponse<{ scanned: number; processed: number }>> => {
+    const response = await api.post<ApiResponse<{ scanned: number; processed: number }>>('/reminders/dispatch/run');
+    return response.data;
+  },
 };
 
 export const aiApi = {
@@ -305,7 +337,7 @@ export const aiApi = {
     tone?: AiTone;
     stylePreset?: FollowUpStylePreset;
     outputFormat?: OutputFormat;
-    language?: 'en' | 'zh-CN';
+    language?: AppLanguage;
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/follow-up', data);
     return response.data;
@@ -320,7 +352,7 @@ export const aiApi = {
     tone?: AiTone;
     stylePreset?: PaymentStylePreset;
     outputFormat?: OutputFormat;
-    language?: 'en' | 'zh-CN';
+    language?: AppLanguage;
   }): Promise<ApiResponse<{ text: string }>> => {
     const response = await api.post<ApiResponse<{ text: string }>>('/ai/payment', data);
     return response.data;

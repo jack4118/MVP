@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { remindersApi, Reminder, leadsApi, Lead } from '../services/api';
+import { remindersApi, Reminder, ReminderDispatchLog, leadsApi, Lead } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
@@ -10,6 +10,7 @@ const Reminders = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [dispatchLogs, setDispatchLogs] = useState<ReminderDispatchLog[]>([]);
   const [view, setView] = useState<'today' | 'upcoming' | 'all'>('today');
   const [status, setStatus] = useState<'all' | 'pending' | 'done'>('pending');
   const [days, setDays] = useState(30);
@@ -23,6 +24,7 @@ const Reminders = () => {
   useEffect(() => {
     loadReminders();
     loadLeads();
+    loadDispatchLogs();
   }, []);
 
   const loadLeads = async () => {
@@ -56,12 +58,23 @@ const Reminders = () => {
     }
   };
 
+  const loadDispatchLogs = async () => {
+    try {
+      const response = await remindersApi.getDispatchLogs(20);
+      if (response.success && response.data) {
+        setDispatchLogs(response.data);
+      }
+    } catch (_err) {
+      // non-blocking
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (!formData.leadId || !formData.triggerAt) {
-      setError('Please select lead and datetime');
+      setError(t.reminders.leadAndTimeRequired);
       return;
     }
 
@@ -133,16 +146,16 @@ const Reminders = () => {
       )}
 
       <div className="card" style={{ marginBottom: '16px', background: 'linear-gradient(145deg, rgba(255,216,80,0.12), rgba(80,170,255,0.07))' }}>
-        <h2 style={{ marginTop: 0 }}>Create Reminder</h2>
+        <h2 style={{ marginTop: 0 }}>{t.reminders.createReminder}</h2>
         <form onSubmit={handleCreate}>
           <div className="form-group">
-            <label className="form-label">Lead</label>
+            <label className="form-label">{t.reminders.lead}</label>
             <select
               className="input"
               value={formData.leadId}
               onChange={(e) => setFormData({ ...formData, leadId: e.target.value })}
             >
-              <option value="">-- Select a lead --</option>
+              <option value="">{t.ai.selectLeadPlaceholder}</option>
               {leads.map((lead) => (
                 <option key={lead.id} value={lead.id}>
                   {lead.name} ({getStatusLabel(lead.status)})
@@ -152,21 +165,21 @@ const Reminders = () => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Type</label>
+            <label className="form-label">{t.reminders.type}</label>
             <select
               className="input"
               value={formData.type}
               onChange={(e) => setFormData({ ...formData, type: e.target.value as 'follow_up' | 'payment' | 'meeting' | 'custom' })}
             >
-              <option value="follow_up">Follow Up</option>
-              <option value="payment">Payment</option>
+              <option value="follow_up">{t.ai.followUp}</option>
+              <option value="payment">{t.ai.payment}</option>
               <option value="meeting">Meeting</option>
               <option value="custom">Custom</option>
             </select>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Trigger At</label>
+            <label className="form-label">{t.reminders.triggerAt}</label>
             <input
               className="input"
               type="datetime-local"
@@ -175,14 +188,14 @@ const Reminders = () => {
             />
           </div>
 
-          <button type="submit" className="btn btn-primary">+ Create Reminder</button>
+          <button type="submit" className="btn btn-primary">+ {t.reminders.createReminder}</button>
         </form>
       </div>
 
       <div className="card" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
+        <div className="reminder-filter-grid">
           <div>
-            <label className="form-label">View</label>
+            <label className="form-label">{t.reminders.view}</label>
             <select
               className="input"
               value={view}
@@ -192,14 +205,14 @@ const Reminders = () => {
                 loadReminders(next, status, days);
               }}
             >
-              <option value="today">Today</option>
-              <option value="upcoming">Upcoming</option>
-              <option value="all">All</option>
+              <option value="today">{t.reminders.today}</option>
+              <option value="upcoming">{t.reminders.upcoming}</option>
+              <option value="all">{t.reminders.all}</option>
             </select>
           </div>
 
           <div>
-            <label className="form-label">Status</label>
+            <label className="form-label">{t.reminders.statusFilter}</label>
             <select
               className="input"
               value={status}
@@ -209,14 +222,14 @@ const Reminders = () => {
                 loadReminders(view, next, days);
               }}
             >
-              <option value="pending">Pending</option>
-              <option value="done">Done</option>
-              <option value="all">All</option>
+              <option value="pending">{t.reminders.pending}</option>
+              <option value="done">{t.reminders.done}</option>
+              <option value="all">{t.reminders.all}</option>
             </select>
           </div>
 
           <div>
-            <label className="form-label">Days (upcoming)</label>
+            <label className="form-label">{t.reminders.daysUpcoming}</label>
             <input
               className="input"
               type="number"
@@ -231,8 +244,8 @@ const Reminders = () => {
             />
           </div>
 
-          <button className="btn btn-secondary" onClick={() => loadReminders()}>
-            Refresh
+          <button className="btn btn-secondary" onClick={() => { loadReminders(); loadDispatchLogs(); }}>
+            {t.reminders.refresh}
           </button>
         </div>
       </div>
@@ -267,15 +280,15 @@ const Reminders = () => {
                   <div className="reminder-badges">
                     <span className="badge badge-type">{reminder.type}</span>
                     <span className="badge badge-status">{getStatusLabel(reminder.lead.status)}</span>
-                    <span className="badge badge-status">{reminder.isDone ? 'done' : 'pending'}</span>
+                    <span className="badge badge-status">{reminder.isDone ? t.reminders.done : t.reminders.pending}</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <button onClick={() => handleMarkDone(reminder)} className="btn btn-success">
-                    {reminder.isDone ? '↺ Reopen' : `✓ ${t.reminders.markDone}`}
+                    {reminder.isDone ? `↺ ${t.reminders.reopen}` : `✓ ${t.reminders.markDone}`}
                   </button>
                   <button onClick={() => handleDelete(reminder.id)} className="btn btn-danger">
-                    Delete
+                    {t.reminders.deleteAction}
                   </button>
                 </div>
               </div>
@@ -293,6 +306,40 @@ const Reminders = () => {
           ))}
         </div>
       )}
+
+      <div className="card" style={{ marginTop: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '10px', flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0 }}>{t.reminders.dispatchLogs}</h2>
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              await remindersApi.runDispatchNow();
+              await loadReminders();
+              await loadDispatchLogs();
+            }}
+          >
+            {t.reminders.runNow}
+          </button>
+        </div>
+        {dispatchLogs.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)' }}>{t.reminders.noDispatchLogs}</p>
+        ) : (
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {dispatchLogs.map((log) => (
+              <div key={log.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                  <strong>{log.reminder.lead.name}</strong>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{new Date(log.sentAt).toLocaleString()}</span>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  {log.channel} • {log.status} • {log.reminder.type}
+                </div>
+                {log.error && <div style={{ marginTop: '6px', color: 'var(--danger)' }}>{log.error}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

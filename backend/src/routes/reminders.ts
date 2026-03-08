@@ -2,7 +2,9 @@ import express, { Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import {
   createReminder,
+  dispatchDueReminders,
   deleteReminder,
+  getReminderDispatchLogs,
   getReminders,
   getTodayReminders,
   markReminderDone,
@@ -118,6 +120,33 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     if (error instanceof Error && error.message === 'Reminder not found') {
       return res.status(404).json({ success: false, error: { message: error.message } });
     }
+    next(error);
+  }
+});
+
+router.get('/dispatch-logs', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const limit = Number(req.query.limit || 50);
+    const logs = await getReminderDispatchLogs(req.userId, limit);
+    return res.json({ success: true, data: logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/dispatch/run', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const result = await dispatchDueReminders();
+    return res.json({ success: true, data: result });
+  } catch (error) {
     next(error);
   }
 });

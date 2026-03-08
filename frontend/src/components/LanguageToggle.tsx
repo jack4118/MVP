@@ -1,27 +1,29 @@
-import { useLanguage } from '../contexts/LanguageContext';
+import { useLanguage, Language } from '../contexts/LanguageContext';
+
+const options: Array<{ value: Language; label: string }> = [
+  { value: 'en', label: 'EN' },
+  { value: 'zh-CN', label: '中文' },
+  { value: 'ms', label: 'BM' },
+];
 
 const LanguageToggle = () => {
   const { language, setLanguage } = useLanguage();
 
-  const toggleLanguage = () => {
-    setLanguage(language === 'en' ? 'zh-CN' : 'en');
-  };
-
   return (
-    <button
-      onClick={toggleLanguage}
+    <select
+      value={language}
+      onChange={(e) => setLanguage(e.target.value as Language)}
       className="language-toggle"
-      aria-label="Toggle language"
-      title={language === 'en' ? '切换到中文' : 'Switch to English'}
+      aria-label="Language selector"
+      title="Language"
     >
-      {language === 'en' ? (
-        <span style={{ fontSize: '14px', fontWeight: 600 }}>中文</span>
-      ) : (
-        <span style={{ fontSize: '14px', fontWeight: 600 }}>EN</span>
-      )}
-    </button>
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
   );
 };
 
 export default LanguageToggle;
-
