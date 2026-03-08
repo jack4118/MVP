@@ -61,6 +61,41 @@ const classifyAiError = (error: any): AiErrorKind => {
   return 'unknown';
 };
 
+const splitObjectives = (objective: string): string[] => {
+  return objective
+    .split(/\r?\n|,|;|，|；|、|\band\b|\bthen\b|&/gi)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .filter((part, index, arr) => arr.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === index)
+    .slice(0, 6);
+};
+
+const normalize = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim();
+
+const getObjectiveCoverageRatio = (message: string, objectiveItems: string[]): number => {
+  if (objectiveItems.length === 0) {
+    return 1;
+  }
+
+  const normalizedMessage = normalize(message);
+  let matched = 0;
+
+  for (const item of objectiveItems) {
+    const normalizedItem = normalize(item);
+    const itemTokens = normalizedItem
+      .split(/[^a-z0-9\u4e00-\u9fff]+/i)
+      .filter((token) => token.length >= 3);
+
+    const directMatch = normalizedMessage.includes(normalizedItem);
+    const tokenMatch = itemTokens.some((token) => normalizedMessage.includes(token));
+    if (directMatch || tokenMatch) {
+      matched += 1;
+    }
+  }
+
+  return matched / objectiveItems.length;
+};
+
 const detectEmojiPreference = (objective: string): EmojiPreference => {
   const text = objective.toLowerCase();
   const highSignals = [
@@ -241,7 +276,7 @@ const getAdvisorPersona = (language: Language): string => {
       '- Objective mesti diterjemah kepada satu permintaan yang spesifik',
       '- Hujung mesej mesti mudah dibalas (ya/tidak atau jangka masa)',
       '- Ringkas, praktikal, dan terus boleh dihantar',
-    ].join('\\n');
+    ].join('\n');
   }
 
   return [
@@ -259,8 +294,23 @@ const getAdvisorPersona = (language: Language): string => {
   ].join('\n');
 };
 
-const getObjectiveDirective = (objective: string, language: Language): string => {
+const getObjectiveDirective = (
+  objective: string,
+  language: Language,
+  objectiveItems: string[],
+  purpose: 'follow_up' | 'payment'
+): string => {
+  const hasMultiple = objectiveItems.length > 1;
   if (language === 'zh-CN') {
+    if (hasMultiple) {
+      return [
+        `多目标列表：${objectiveItems.map((item, idx) => `${idx + 1}. ${item}`).join('；')}`,
+        '请按“主目标 + 次目标”的结构写。',
+        purpose === 'payment' ? '主目标优先确认付款时间；其余目标用简短清单覆盖。' : '主目标放在前两行并提出明确请求；次目标用简短清单带过。',
+        '最终内容必须覆盖每一个目标，不要遗漏。',
+        '不要冗长，不要机械罗列。',
+      ].join('\n');
+    }
     return [
       `目标是：${objective}`,
       '先把目标翻译成一个明确请求，再写消息。',
@@ -270,12 +320,35 @@ const getObjectiveDirective = (objective: string, language: Language): string =>
   }
 
   if (language === 'ms') {
+    if (hasMultiple) {
+      return [
+        `Senarai objektif: ${objectiveItems.map((item, idx) => `${idx + 1}. ${item}`).join('; ')}`,
+        'Guna struktur “objektif utama + objektif tambahan”.',
+        purpose === 'payment'
+          ? 'Objektif utama mesti fokus kepada pengesahan bayaran dahulu.'
+          : 'Objektif utama mesti muncul awal dengan permintaan jelas.',
+        'Objektif tambahan boleh dalam senarai ringkas, tanpa terlalu panjang.',
+        'Mesej akhir mesti meliputi semua objektif, jangan tertinggal.',
+      ].join('\n');
+    }
     return [
       `Objektif: ${objective}`,
       'Tukarkan objektif kepada satu permintaan yang jelas sebelum menulis.',
       'Permintaan mesti spesifik, contohnya tarikh anggaran atau minggu sasaran.',
       'Elakkan ayat umum seperti “sekadar follow up”.',
-    ].join('\\n');
+    ].join('\n');
+  }
+
+  if (hasMultiple) {
+    return [
+      `Objective list: ${objectiveItems.map((item, idx) => `${idx + 1}. ${item}`).join('; ')}`,
+      'Use a “primary objective + secondary objectives” structure.',
+      purpose === 'payment'
+        ? 'Primary objective must confirm payment timing first.'
+        : 'Primary objective must appear early with a clear ask.',
+      'Secondary objectives can be compact checklist style.',
+      'Final message must cover every objective item.',
+    ].join('\n');
   }
 
   return [
@@ -438,7 +511,7 @@ const getMalayWhatsappHumanStyle = (purpose: 'follow_up' | 'payment'): string =>
       '3) Terangkan sebab perlukan pengesahan masa',
       '4) Akhiri dengan soalan yang mudah dijawab',
       'Elakkan ayat terlalu formal atau bunyi robotik.',
-    ].join('\\n');
+    ].join('\n');
   }
 
   return [
@@ -491,6 +564,7 @@ export const generateFollowUpText = async (
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
   const selectedPreset: FollowUpStylePreset = presetsEnabled ? data.stylePreset || 'gentle_nudge' : 'gentle_nudge';
+  const objectiveItems = splitObjectives(data.objective);
 
   const systemPrompt = getAdvisorPersona(language);
 
@@ -502,7 +576,7 @@ export const generateFollowUpText = async (
   const formatInstruction = getFormatInstruction(outputFormat, language);
   const emojiPreference = detectEmojiPreference(data.objective);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
-  const objectiveDirective = getObjectiveDirective(data.objective, language);
+  const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const humanStyleBlock =
     isChinese && outputFormat === 'whatsapp'
@@ -523,7 +597,16 @@ export const generateFollowUpText = async (
     }
 
     const completion = await generateCompletion(systemPrompt, promptWithFormat);
-    const generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+
+    if (objectiveItems.length > 1 && getObjectiveCoverageRatio(generatedText, objectiveItems) < 0.75) {
+      const strictPrompt = `${promptWithFormat}\n\nRewrite now: ensure all objective items are explicitly covered. Keep it concise and natural.`;
+      const retryCompletion = await generateCompletion(systemPrompt, strictPrompt);
+      const retriedText = cleanGeneratedMessage(retryCompletion.choices[0]?.message?.content || '');
+      if (retriedText.trim()) {
+        generatedText = retriedText;
+      }
+    }
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -544,9 +627,14 @@ export const generateFollowUpText = async (
     const errorKind = classifyAiError(error);
     console.error(`[AI] Follow-up generation failed (${errorKind})`, error?.message || error);
 
+    const objectiveSummary = objectiveItems.length > 1
+      ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n')
+      : data.objective;
     const baseFallbackText = isMalay
-      ? `Hai ${data.leadName},\n\nSaya nak follow-up ringkas tentang ${data.objective}. ${daysPassed > 0 ? `Sudah ${daysPassed} hari sejak mesej terakhir, ` : ''}jadi saya nak pastikan hala tuju seterusnya.\n\nBoleh kongsi anggaran masa yang sesuai untuk langkah seterusnya?`
-      : createFollowUpFallback(data, daysPassed, isChinese, selectedPreset);
+      ? `Hai ${data.leadName},\n\nSaya nak follow-up ringkas tentang perkara berikut:\n${objectiveSummary}\n${daysPassed > 0 ? `\nSudah ${daysPassed} hari sejak mesej terakhir.` : ''}\n\nBoleh kongsi anggaran masa untuk setiap perkara di atas?`
+      : isChinese
+        ? `你好 ${data.leadName}，\n\n我这边简短跟进以下事项：\n${objectiveSummary}\n${daysPassed > 0 ? `\n距离上次沟通已 ${daysPassed} 天。` : ''}\n\n方便的话，请按以上事项回复大概时间。`
+        : createFollowUpFallback(data, daysPassed, isChinese, selectedPreset).replace(data.objective, objectiveSummary);
     const fallbackText = formatFallbackMessage(
       baseFallbackText,
       outputFormat,
@@ -583,6 +671,7 @@ export const generatePaymentText = async (
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
   const selectedPreset: PaymentStylePreset = presetsEnabled ? data.stylePreset || 'friendly_reminder' : 'friendly_reminder';
+  const objectiveItems = splitObjectives(data.objective);
 
   let daysOverdue = 0;
   if (dueDate) {
@@ -601,7 +690,7 @@ export const generatePaymentText = async (
   const formatInstruction = getFormatInstruction(outputFormat, language);
   const emojiPreference = detectEmojiPreference(data.objective);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
-  const objectiveDirective = getObjectiveDirective(data.objective, language);
+  const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const humanStyleBlock =
     isChinese && outputFormat === 'whatsapp'
@@ -622,7 +711,16 @@ export const generatePaymentText = async (
     }
 
     const completion = await generateCompletion(systemPrompt, promptWithFormat);
-    const generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+
+    if (objectiveItems.length > 1 && getObjectiveCoverageRatio(generatedText, objectiveItems) < 0.75) {
+      const strictPrompt = `${promptWithFormat}\n\nRewrite now: include every objective item. Keep payment timing first, then cover the remaining objectives naturally.`;
+      const retryCompletion = await generateCompletion(systemPrompt, strictPrompt);
+      const retriedText = cleanGeneratedMessage(retryCompletion.choices[0]?.message?.content || '');
+      if (retriedText.trim()) {
+        generatedText = retriedText;
+      }
+    }
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -643,9 +741,14 @@ export const generatePaymentText = async (
     const errorKind = classifyAiError(error);
     console.error(`[AI] Payment generation failed (${errorKind})`, error?.message || error);
 
+    const objectiveSummary = objectiveItems.length > 1
+      ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n')
+      : data.objective;
     const baseFallbackText = isMalay
-      ? `Hai ${data.leadName},\n\nPeringatan mesra berkaitan bayaran untuk ${data.objective}.${amount ? ` Jumlah semasa: ${amount.toFixed(2)}.` : ''}\n\nBoleh kongsi anggaran tarikh bayaran supaya kami boleh kemas kini jadual?`
-      : createPaymentFallback(data, isChinese, selectedPreset, daysOverdue);
+      ? `Hai ${data.leadName},\n\nPeringatan mesra untuk perkara berikut:\n${objectiveSummary}${amount ? `\nJumlah bayaran semasa: ${amount.toFixed(2)}.` : ''}\n\nBoleh kongsi anggaran tarikh untuk tindakan di atas, terutamanya bayaran?`
+      : isChinese
+        ? `你好 ${data.leadName}，\n\n这边提醒以下事项：\n${objectiveSummary}${amount ? `\n当前金额：${amount.toFixed(2)}。` : ''}\n\n方便的话，请优先确认付款时间，并告知其余事项安排。`
+        : createPaymentFallback(data, isChinese, selectedPreset, daysOverdue).replace(data.objective, objectiveSummary);
     const fallbackText = formatFallbackMessage(
       baseFallbackText,
       outputFormat,
