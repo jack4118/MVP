@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { whatsappApi, WhatsAppConnection, WhatsAppLogItem } from '../services/api';
+import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
@@ -9,6 +9,10 @@ const WhatsApp = () => {
   const { t } = useLanguage();
   const [connection, setConnection] = useState<WhatsAppConnection | null>(null);
   const [logs, setLogs] = useState<WhatsAppLogItem[]>([]);
+  const [contacts, setContacts] = useState<WhatsAppContactSummary[]>([]);
+  const [selectedPhone, setSelectedPhone] = useState('');
+  const [conversation, setConversation] = useState<WhatsAppLogItem[]>([]);
+  const [loadingConversation, setLoadingConversation] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -29,10 +33,22 @@ const WhatsApp = () => {
     loadAll();
   }, []);
 
+  useEffect(() => {
+    if (!selectedPhone) {
+      setConversation([]);
+      return;
+    }
+    loadConversation(selectedPhone);
+  }, [selectedPhone]);
+
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [conn, logResp] = await Promise.all([whatsappApi.getConnection(), whatsappApi.getLogs(30)]);
+      const [conn, logResp, contactResp] = await Promise.all([
+        whatsappApi.getConnection(),
+        whatsappApi.getLogs(30),
+        whatsappApi.getContacts(50),
+      ]);
       if (conn.success) {
         const existingConnection = conn.data || null;
         setConnection(existingConnection);
@@ -48,10 +64,36 @@ const WhatsApp = () => {
       if (logResp.success && logResp.data) {
         setLogs(logResp.data);
       }
+      if (contactResp.success && contactResp.data) {
+        setContacts(contactResp.data);
+        if (!selectedPhone && contactResp.data.length > 0) {
+          const first = contactResp.data[0]?.phone || '';
+          setSelectedPhone(first);
+          if (first) {
+            setTestData((prev) => ({ ...prev, toPhone: first }));
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadConversation = async (phone: string) => {
+    try {
+      if (!phone) {
+        setConversation([]);
+        return;
+      }
+      setLoadingConversation(true);
+      const response = await whatsappApi.getMessages(phone, 200);
+      if (response.success && response.data) {
+        setConversation(response.data);
+      }
+    } finally {
+      setLoadingConversation(false);
     }
   };
 
@@ -127,6 +169,7 @@ const WhatsApp = () => {
       }
       setSuccess('Test message sent successfully.');
       await loadAll();
+      await loadConversation(testData.toPhone);
     } catch (err) {
       const message =
         (err as any)?.response?.data?.error?.message ||
@@ -210,6 +253,134 @@ const WhatsApp = () => {
       </div>
 
       <div className="card">
+        <h2 style={{ marginTop: 0 }}>{t.whatsapp.chatView}</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden', flex: '1 1 280px', minWidth: '260px' }}>
+            <div style={{ padding: '10px', borderBottom: '1px solid var(--border-color)', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              {t.whatsapp.contacts}
+            </div>
+            <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
+              {contacts.length === 0 ? (
+                <div style={{ padding: '10px', color: 'var(--text-secondary)' }}>{t.whatsapp.noContacts}</div>
+              ) : (
+                contacts.map((contact) => (
+                  <button
+                    key={`chat-${contact.phone}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPhone(contact.phone);
+                      setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      border: 'none',
+                      borderBottom: '1px solid var(--border-color)',
+                      background: selectedPhone === contact.phone ? 'rgba(80,160,255,0.12)' : 'transparent',
+                      color: 'var(--text-primary)',
+                      padding: '10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>{contact.lead?.name || contact.phone}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{contact.phone}</div>
+                    <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {contact.lastMessage}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', minHeight: '420px', display: 'flex', flexDirection: 'column', flex: '2 1 420px', minWidth: '300px' }}>
+            <div style={{ padding: '10px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <strong>{selectedPhone || t.whatsapp.selectContact}</strong>
+              <button className="btn btn-secondary" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
+                {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
+              </button>
+            </div>
+            <div style={{ padding: '12px', display: 'grid', gap: '10px', overflowY: 'auto', maxHeight: '420px' }}>
+              {!selectedPhone ? (
+                <div style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.selectContact}</div>
+              ) : conversation.length === 0 ? (
+                <div style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noMessages}</div>
+              ) : (
+                conversation.map((msg) => {
+                  const outbound = msg.direction !== 'inbound';
+                  return (
+                    <div
+                      key={msg.id}
+                      style={{
+                        justifySelf: outbound ? 'end' : 'start',
+                        maxWidth: '85%',
+                        borderRadius: '10px',
+                        padding: '10px',
+                        background: outbound ? 'rgba(80,180,255,0.18)' : 'rgba(120,120,120,0.18)',
+                        border: '1px solid var(--border-color)',
+                      }}
+                    >
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                      <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>{t.whatsapp.customerInsights}</h2>
+        {loading ? (
+          <p>{t.common.loading}</p>
+        ) : contacts.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noContacts}</p>
+        ) : (
+          <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+            {contacts.map((contact) => {
+              const sentRate = contact.totalMessages > 0
+                ? Math.round((contact.sentCount / contact.totalMessages) * 100)
+                : 0;
+              return (
+                <div key={contact.phone} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div>
+                      <strong>{contact.lead?.name || contact.phone}</strong>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {contact.lead ? `${t.whatsapp.linkedLead}: ${contact.lead.name} (${contact.lead.status})` : `${t.whatsapp.phone}: ${contact.phone}`}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {new Date(contact.lastAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    {t.whatsapp.successRate}: {sentRate}% • {t.whatsapp.totalMessages}: {contact.totalMessages} • {t.whatsapp.lastStatus}: {contact.lastStatus}
+                  </div>
+                  <div style={{ marginTop: '6px', whiteSpace: 'pre-wrap' }}>{contact.lastMessage}</div>
+                  {contact.lastError && <div style={{ marginTop: '6px', color: 'var(--error)' }}>{contact.lastError}</div>}
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
+                        setSelectedPhone(contact.phone);
+                      }}
+                    >
+                      {t.whatsapp.useThisNumber}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <h2 style={{ marginTop: 0 }}>{t.whatsapp.logs}</h2>
         {loading ? (
           <p>{t.common.loading}</p>

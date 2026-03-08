@@ -144,14 +144,34 @@ export interface WhatsAppLogItem {
   id: string;
   userId: string;
   leadId?: string | null;
+  messageId?: string | null;
+  direction?: 'inbound' | 'outbound';
+  fromPhone?: string | null;
   toPhone: string;
   content: string;
-  status: 'queued' | 'sent' | 'failed';
+  status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'received';
   error?: string | null;
+  externalTimestamp?: string | null;
   createdAt: string;
   lead?: {
     id: string;
     name: string;
+  } | null;
+}
+
+export interface WhatsAppContactSummary {
+  phone: string;
+  totalMessages: number;
+  sentCount: number;
+  failedCount: number;
+  lastStatus: string;
+  lastMessage: string;
+  lastError?: string | null;
+  lastAt: string;
+  lead?: {
+    id: string;
+    name: string;
+    status: LeadStatus;
   } | null;
 }
 
@@ -371,6 +391,16 @@ export const whatsappApi = {
 
   getLogs: async (limit: number = 30): Promise<ApiResponse<WhatsAppLogItem[]>> => {
     const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/logs', { params: { limit } });
+    return response.data;
+  },
+
+  getContacts: async (limit: number = 50): Promise<ApiResponse<WhatsAppContactSummary[]>> => {
+    const response = await api.get<ApiResponse<WhatsAppContactSummary[]>>('/whatsapp/contacts', { params: { limit } });
+    return response.data;
+  },
+
+  getMessages: async (phone: string, limit: number = 100): Promise<ApiResponse<WhatsAppLogItem[]>> => {
+    const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/messages', { params: { phone, limit } });
     return response.data;
   },
 };

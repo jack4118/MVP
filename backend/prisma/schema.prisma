@@ -117,10 +117,15 @@ model WhatsAppMessageLog {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   leadId    String?  @map("lead_id")
+  messageId String?  @map("message_id")
+  direction String   @default("outbound") // outbound | inbound
+  fromPhone String?  @map("from_phone")
   toPhone   String   @map("to_phone")
   content   String
-  status    String   // queued | sent | failed
+  status    String   // queued | sent | delivered | read | failed | received
   error     String?
+  externalTimestamp DateTime? @map("external_timestamp")
+  rawPayload Json?   @map("raw_payload")
   createdAt DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -129,5 +134,8 @@ model WhatsAppMessageLog {
   @@index([userId])
   @@index([leadId])
   @@index([status])
+  @@index([messageId])
+  @@index([fromPhone])
+  @@index([toPhone])
   @@map("whatsapp_message_logs")
 }

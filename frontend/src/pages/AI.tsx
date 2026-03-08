@@ -469,7 +469,13 @@ const AI = () => {
             </div>
           )}
 
-          <textarea value={generatedText} readOnly className="input generated-textarea" placeholder={t.ai.generatedTextPlaceholder} rows={15} />
+          <textarea
+            value={generatedText}
+            onChange={(e) => setGeneratedText(e.target.value)}
+            className="input generated-textarea"
+            placeholder={t.ai.generatedTextPlaceholder}
+            rows={15}
+          />
           {generatedText && (
             <div style={{ marginTop: '10px', display: 'grid', gap: '8px' }}>
               <input

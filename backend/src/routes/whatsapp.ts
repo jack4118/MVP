@@ -3,13 +3,39 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { whatsappConnectionSchema, whatsappSendSchema } from '../utils/validation';
 import {
   getWhatsappConnection,
+  getWhatsAppContactSummaries,
+  getWhatsAppConversationMessages,
   getWhatsAppMessageLogs,
+  processWhatsAppWebhook,
   sendWhatsAppText,
   upsertWhatsappConnection,
   verifyWhatsappConnection,
 } from '../services/whatsappService';
 
 const router = express.Router();
+
+router.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  const expectedToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+
+  if (mode === 'subscribe' && token && expectedToken && token === expectedToken) {
+    return res.status(200).send(String(challenge || ''));
+  }
+  return res.status(403).send('Forbidden');
+});
+
+router.post('/webhook', async (req, res) => {
+  try {
+    await processWhatsAppWebhook(req.body);
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('WhatsApp webhook processing error:', error);
+    return res.status(200).json({ success: true });
+  }
+});
+
 router.use(authenticate);
 
 router.get('/connection', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -21,6 +47,9 @@ router.get('/connection', async (req: AuthRequest, res: Response, next: NextFunc
     const connection = await getWhatsappConnection(req.userId);
     return res.json({ success: true, data: connection });
   } catch (error) {
+    if (error instanceof Error && error.message === 'accessToken is required for first-time connection') {
+      return res.status(400).json({ success: false, error: { message: error.message, code: 'WHATSAPP_ACCESS_TOKEN_REQUIRED' } });
+    }
     next(error);
   }
 });
@@ -96,6 +125,41 @@ router.get('/logs', async (req: AuthRequest, res: Response, next: NextFunction) 
     const logs = await getWhatsAppMessageLogs(req.userId, limit);
 
     return res.json({ success: true, data: logs });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/contacts', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const limit = Number(req.query.limit || 50);
+    const contacts = await getWhatsAppContactSummaries(req.userId, limit);
+
+    return res.json({ success: true, data: contacts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/messages', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const phone = String(req.query.phone || '');
+    if (!phone) {
+      return res.status(400).json({ success: false, error: { message: 'phone is required' } });
+    }
+
+    const limit = Number(req.query.limit || 100);
+    const messages = await getWhatsAppConversationMessages(req.userId, phone, limit);
+
+    return res.json({ success: true, data: messages });
   } catch (error) {
     next(error);
   }

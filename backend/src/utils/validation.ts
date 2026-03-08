@@ -110,7 +110,16 @@ export const updateReminderSchema = z.object({
 export const whatsappConnectionSchema = z.object({
   businessAccountId: z.string().min(1, 'businessAccountId is required'),
   phoneNumberId: z.string().min(1, 'phoneNumberId is required'),
-  accessToken: z.string().min(1, 'accessToken is required'),
+  accessToken: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') {
+        return value;
+      }
+      const trimmed = value.trim();
+      return trimmed.length === 0 ? undefined : trimmed;
+    },
+    z.string().min(1, 'accessToken is required').optional()
+  ),
 });
 
 export const whatsappSendSchema = z.object({
