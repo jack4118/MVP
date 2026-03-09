@@ -1,0 +1,34 @@
+databases:
+  - name: mvp-postgres
+    plan: free
+
+services:
+  - type: web
+    name: mvp-backend
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci && npm run prisma:generate && npm run build
+    startCommand: npx prisma migrate deploy && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mvp-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: REMINDER_WORKER_ENABLED
+        value: "true"
+      - key: INTERNAL_DISPATCH_SECRET
+        generateValue: true

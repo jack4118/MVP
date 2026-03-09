@@ -156,3 +156,10 @@ The frontend will run on `http://localhost:5173`
 - The AI text generation currently uses placeholder logic. You can extend it to integrate with OpenAI or other AI services.
 - All API endpoints (except auth) require JWT authentication.
 - The project is designed to be extensible while keeping the MVP simple and maintainable.
+
+## Deployment
+
+- Use GitHub for source control and auto-deploy triggers.
+- Deploy frontend (`frontend`) to Cloudflare Pages.
+- Deploy backend (`backend`) and PostgreSQL to Render.
+- Full step-by-step guide: [`DEPLOY.md`](/Users/cheelam/Sites/MVP/DEPLOY.md)

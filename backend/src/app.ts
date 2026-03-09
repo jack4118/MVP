@@ -16,6 +16,23 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const LOCALHOST_PREFIXES = ['http://localhost:', 'http://127.0.0.1:'];
+
+const parseOriginList = (value: string | undefined): string[] => {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const allowedOrigins = new Set<string>([
+  ...parseOriginList(process.env.FRONTEND_URL),
+  ...parseOriginList(process.env.FRONTEND_URLS),
+]);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -23,19 +40,16 @@ app.use(cors({
     if (!origin) {
       return callback(null, true);
     }
-    
-    // If FRONTEND_URL is set, check if origin matches
-    if (process.env.FRONTEND_URL) {
-      if (origin === process.env.FRONTEND_URL) {
-        return callback(null, true);
-      }
-    }
-    
-    // Allow any localhost port during development
-    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+
+    if (allowedOrigins.has(origin)) {
       return callback(null, true);
     }
-    
+
+    // Allow any localhost port during development
+    if (LOCALHOST_PREFIXES.some((prefix) => origin.startsWith(prefix))) {
+      return callback(null, true);
+    }
+
     // Reject other origins
     callback(new Error('Not allowed by CORS'));
   },
