@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { generateFollowUpText, generatePaymentText, getAiHistory } from '../services/aiService';
+import { buildGenerationDebugInfo, generateFollowUpText, generatePaymentText, getAiHistory } from '../services/aiService';
 import { aiFollowUpSchema, aiPaymentSchema } from '../utils/validation';
 import { getLeadById } from '../services/leadService';
 import { getUserPlan, checkAiUsageLimit, getUsageInfo } from '../services/planService';
@@ -75,6 +75,19 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
     }
 
     const generatedText = await generateFollowUpText(req.userId, leadId, validatedData);
+    const followUpMode = validatedData.conversationMode || 'standard';
+    const followUpTone = validatedData.tone || 'polite';
+    const followUpEmoji = validatedData.emojiDensity || 'medium';
+    const followUpLanguage = validatedData.language || 'en';
+    const followUpFormat = validatedData.outputFormat || 'chat';
+    const debug = buildGenerationDebugInfo(generatedText, {
+      language: followUpLanguage,
+      outputFormat: followUpFormat,
+      purpose: 'follow_up',
+      tone: followUpTone,
+      conversationMode: followUpMode,
+      emojiPreference: followUpEmoji,
+    }, validatedData.objective);
     await trackEvent(req.userId, {
       event: 'ai_generate_success',
       props: { purpose: 'follow_up', stylePreset: validatedData.stylePreset || 'gentle_nudge' },
@@ -85,6 +98,7 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
       success: true,
       data: {
         text: generatedText,
+        debug,
       },
       usage: usageInfo,
     });
@@ -144,6 +158,19 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
     }
 
     const generatedText = await generatePaymentText(req.userId, leadId, validatedData);
+    const paymentMode = validatedData.conversationMode || 'standard';
+    const paymentTone = validatedData.tone || 'polite';
+    const paymentEmoji = validatedData.emojiDensity || 'medium';
+    const paymentLanguage = validatedData.language || 'en';
+    const paymentFormat = validatedData.outputFormat || 'chat';
+    const debug = buildGenerationDebugInfo(generatedText, {
+      language: paymentLanguage,
+      outputFormat: paymentFormat,
+      purpose: 'payment',
+      tone: paymentTone,
+      conversationMode: paymentMode,
+      emojiPreference: paymentEmoji,
+    }, validatedData.objective);
     await trackEvent(req.userId, {
       event: 'ai_generate_success',
       props: { purpose: 'payment', stylePreset: validatedData.stylePreset || 'friendly_reminder' },
@@ -154,6 +181,7 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
       success: true,
       data: {
         text: generatedText,
+        debug,
       },
       usage: usageInfo,
     });

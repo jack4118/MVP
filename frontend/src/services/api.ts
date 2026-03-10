@@ -5,9 +5,11 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export type UserPlan = 'free' | 'pro';
 export type LeadStatus = 'new' | 'contacted' | 'interested' | 'waiting_reply' | 'not_interested' | 'closed';
-export type AiTone = 'polite' | 'friendly' | 'professional' | 'casual';
-export type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request';
-export type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation';
+export type AiTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
+export type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
+export type EmojiDensity = 'low' | 'medium' | 'high';
+export type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request' | 'deadline_push' | 'social_proof';
+export type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation' | 'installment_offer' | 'soft_final_notice';
 export type OutputFormat = 'chat' | 'email' | 'whatsapp';
 export type AppLanguage = 'en' | 'zh-CN' | 'ms';
 export type ProductEvent =
@@ -147,6 +149,25 @@ export interface AiHistoryItem {
   lead: {
     id: string;
     name: string;
+  };
+}
+
+export interface AiGenerationDebug {
+  requested: {
+    language: AppLanguage;
+    outputFormat: OutputFormat;
+    tone: AiTone;
+    conversationMode: ConversationMode;
+    emojiDensity: EmojiDensity;
+  };
+  checks: {
+    emojiCount: number;
+    emojiMin: number;
+    emojiMax: number;
+    emojiInRange: boolean;
+    modeSignalDetected: boolean;
+    objectiveCoverageRatio: number;
+    objectiveCoveragePass: boolean;
   };
 }
 
@@ -336,10 +357,12 @@ export const aiApi = {
     daysPassed?: number;
     tone?: AiTone;
     stylePreset?: FollowUpStylePreset;
+    conversationMode?: ConversationMode;
+    emojiDensity?: EmojiDensity;
     outputFormat?: OutputFormat;
     language?: AppLanguage;
-  }): Promise<ApiResponse<{ text: string }>> => {
-    const response = await api.post<ApiResponse<{ text: string }>>('/ai/follow-up', data);
+  }): Promise<ApiResponse<{ text: string; debug?: AiGenerationDebug }>> => {
+    const response = await api.post<ApiResponse<{ text: string; debug?: AiGenerationDebug }>>('/ai/follow-up', data);
     return response.data;
   },
 
@@ -351,10 +374,12 @@ export const aiApi = {
     dueDate?: string;
     tone?: AiTone;
     stylePreset?: PaymentStylePreset;
+    conversationMode?: ConversationMode;
+    emojiDensity?: EmojiDensity;
     outputFormat?: OutputFormat;
     language?: AppLanguage;
-  }): Promise<ApiResponse<{ text: string }>> => {
-    const response = await api.post<ApiResponse<{ text: string }>>('/ai/payment', data);
+  }): Promise<ApiResponse<{ text: string; debug?: AiGenerationDebug }>> => {
+    const response = await api.post<ApiResponse<{ text: string; debug?: AiGenerationDebug }>>('/ai/payment', data);
     return response.data;
   },
 

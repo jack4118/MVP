@@ -11,6 +11,10 @@ import {
   PaymentStylePreset,
   OutputFormat,
   AiHistoryItem,
+  AiTone,
+  ConversationMode,
+  EmojiDensity,
+  AiGenerationDebug,
 } from '../services/api';
 import { useLanguage, translate } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
@@ -27,6 +31,8 @@ const AI = () => {
   const [purpose, setPurpose] = useState<'follow-up' | 'payment'>('follow-up');
   const [generatedText, setGeneratedText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [generationStage, setGenerationStage] = useState<'idle' | 'thinking' | 'done'>('idle');
+  const [generationDebug, setGenerationDebug] = useState<AiGenerationDebug | null>(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
@@ -39,11 +45,13 @@ const AI = () => {
   const { t, language } = useLanguage();
   const [formData, setFormData] = useState({
     daysPassed: 0,
-    tone: 'polite',
+    tone: 'polite' as AiTone,
     objective: '',
     amount: 0,
     dueDate: '',
     outputFormat: 'chat' as OutputFormat,
+    conversationMode: 'standard' as ConversationMode,
+    emojiDensity: 'medium' as EmojiDensity,
     followUpStylePreset: 'gentle_nudge' as FollowUpStylePreset,
     paymentStylePreset: 'friendly_reminder' as PaymentStylePreset,
   });
@@ -108,6 +116,8 @@ const AI = () => {
     });
 
     setLoading(true);
+    setGenerationStage('thinking');
+    setGenerationDebug(null);
     setError('');
     setGeneratedText('');
     setWhatsAppPhone(selectedLead.contact || '');
@@ -121,8 +131,10 @@ const AI = () => {
           objective: formData.objective.trim(),
           status: selectedLead.status,
           daysPassed: formData.daysPassed,
-          tone: formData.tone as 'polite' | 'friendly' | 'professional' | 'casual',
+          tone: formData.tone,
           stylePreset: aiPresetsEnabled ? formData.followUpStylePreset : undefined,
+          conversationMode: formData.conversationMode,
+          emojiDensity: formData.emojiDensity,
           outputFormat: formData.outputFormat,
           language,
         });
@@ -133,8 +145,10 @@ const AI = () => {
           objective: formData.objective.trim(),
           amount: formData.amount > 0 ? formData.amount : undefined,
           dueDate: formData.dueDate || undefined,
-          tone: formData.tone as 'polite' | 'friendly' | 'professional' | 'casual',
+          tone: formData.tone,
           stylePreset: aiPresetsEnabled ? formData.paymentStylePreset : undefined,
+          conversationMode: formData.conversationMode,
+          emojiDensity: formData.emojiDensity,
           outputFormat: formData.outputFormat,
           language,
         });
@@ -142,6 +156,8 @@ const AI = () => {
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
+        setGenerationDebug(response.data.debug || null);
+        setGenerationStage('done');
 
         if (response.usage) {
           setUsageInfo(response.usage);
@@ -158,6 +174,7 @@ const AI = () => {
         });
         await loadHistory(historyPurpose);
       } else {
+        setGenerationStage('idle');
         if (response.error?.code === 'AI_LIMIT_REACHED') {
           trackProductEvent('ai_generate_failed_limit', { purpose });
           openUpgradeModal('ai_limit');
@@ -168,6 +185,7 @@ const AI = () => {
         setError(response.error?.message || t.ai.failedToGenerate);
       }
     } catch (err: any) {
+      setGenerationStage('idle');
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
         trackProductEvent('ai_generate_failed_limit', { purpose });
         openUpgradeModal('ai_limit');
@@ -370,6 +388,8 @@ const AI = () => {
                     <option value="gentle_nudge">{t.ai.followUpPresetGentleNudge}</option>
                     <option value="value_reminder">{t.ai.followUpPresetValueReminder}</option>
                     <option value="meeting_request">{t.ai.followUpPresetMeetingRequest}</option>
+                    <option value="deadline_push">{t.ai.followUpPresetDeadlinePush}</option>
+                    <option value="social_proof">{t.ai.followUpPresetSocialProof}</option>
                   </select>
                 </div>
               )}
@@ -409,6 +429,8 @@ const AI = () => {
                     <option value="friendly_reminder">{t.ai.paymentPresetFriendlyReminder}</option>
                     <option value="due_today">{t.ai.paymentPresetDueToday}</option>
                     <option value="overdue_escalation">{t.ai.paymentPresetOverdueEscalation}</option>
+                    <option value="installment_offer">{t.ai.paymentPresetInstallmentOffer}</option>
+                    <option value="soft_final_notice">{t.ai.paymentPresetSoftFinalNotice}</option>
                   </select>
                 </div>
               )}
@@ -419,13 +441,44 @@ const AI = () => {
             <label className="form-label">{t.ai.tone}</label>
             <select
               value={formData.tone}
-              onChange={(e) => setFormData({ ...formData, tone: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, tone: e.target.value as AiTone })}
               className="input"
             >
               <option value="polite">{t.ai.polite}</option>
               <option value="friendly">{t.ai.friendly}</option>
               <option value="professional">{t.ai.professional}</option>
               <option value="casual">{t.ai.casual}</option>
+              <option value="assertive">{t.ai.assertive}</option>
+              <option value="empathetic">{t.ai.empathetic}</option>
+              <option value="urgent">{t.ai.urgent}</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t.ai.replyMode}</label>
+            <select
+              value={formData.conversationMode}
+              onChange={(e) => setFormData({ ...formData, conversationMode: e.target.value as ConversationMode })}
+              className="input"
+            >
+              <option value="standard">{t.ai.replyModeStandard}</option>
+              <option value="humor">{t.ai.replyModeHumor}</option>
+              <option value="banter">{t.ai.replyModeBanter}</option>
+              <option value="direct">{t.ai.replyModeDirect}</option>
+              <option value="consultative">{t.ai.replyModeConsultative}</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t.ai.emojiLevel}</label>
+            <select
+              value={formData.emojiDensity}
+              onChange={(e) => setFormData({ ...formData, emojiDensity: e.target.value as EmojiDensity })}
+              className="input"
+            >
+              <option value="low">{t.ai.emojiLow}</option>
+              <option value="medium">{t.ai.emojiMedium}</option>
+              <option value="high">{t.ai.emojiHigh}</option>
             </select>
           </div>
 
@@ -489,6 +542,69 @@ const AI = () => {
               </button>
             </div>
           )}
+          <div className={`ai-state-panel ai-state-${generationStage}`} style={{ marginTop: '12px' }}>
+            <div className="ai-state-visual" aria-hidden="true">
+              {generationStage === 'idle' && <div className="ai-state-orbit"></div>}
+              {generationStage === 'thinking' && (
+                <div className="ai-state-dots">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              )}
+              {generationStage === 'done' && <div className="ai-state-check">OK</div>}
+            </div>
+            <div className="ai-state-text">
+              <div className="ai-state-title">
+                {generationStage === 'idle' && t.ai.statusIdleTitle}
+                {generationStage === 'thinking' && t.ai.statusThinkingTitle}
+                {generationStage === 'done' && t.ai.statusDoneTitle}
+              </div>
+              <div className="ai-state-desc">
+                {generationStage === 'idle' && t.ai.statusIdleDesc}
+                {generationStage === 'thinking' && t.ai.statusThinkingDesc}
+                {generationStage === 'done' && t.ai.statusDoneDesc}
+              </div>
+              {generationDebug && (
+                <div className="ai-debug-grid">
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugLanguage}</span>
+                    <strong>{generationDebug.requested.language}</strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugTone}</span>
+                    <strong>{generationDebug.requested.tone}</strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugMode}</span>
+                    <strong>{generationDebug.requested.conversationMode}</strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugEmoji}</span>
+                    <strong>
+                      {generationDebug.checks.emojiCount} ({generationDebug.checks.emojiMin}-{generationDebug.checks.emojiMax})
+                    </strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugEmojiMatch}</span>
+                    <strong>{generationDebug.checks.emojiInRange ? t.ai.debugYes : t.ai.debugNo}</strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugModeMatch}</span>
+                    <strong>{generationDebug.checks.modeSignalDetected ? t.ai.debugYes : t.ai.debugNo}</strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugObjective}</span>
+                    <strong>{generationDebug.checks.objectiveCoverageRatio}</strong>
+                  </div>
+                  <div className="ai-debug-item">
+                    <span>{t.ai.debugObjectiveMatch}</span>
+                    <strong>{generationDebug.checks.objectiveCoveragePass ? t.ai.debugYes : t.ai.debugNo}</strong>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

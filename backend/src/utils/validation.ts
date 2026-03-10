@@ -11,19 +11,23 @@ export const leadStatusValues = [
 
 export const leadStatusSchema = z.enum(leadStatusValues);
 
-export const followUpToneValues = ['polite', 'friendly', 'professional', 'casual'] as const;
+export const followUpToneValues = ['polite', 'friendly', 'professional', 'casual', 'assertive', 'empathetic', 'urgent'] as const;
 export const followUpToneSchema = z.enum(followUpToneValues);
 
-export const paymentToneValues = ['polite', 'friendly', 'professional', 'casual'] as const;
+export const paymentToneValues = ['polite', 'friendly', 'professional', 'casual', 'assertive', 'empathetic', 'urgent'] as const;
 export const paymentToneSchema = z.enum(paymentToneValues);
 
-export const followUpStylePresetValues = ['gentle_nudge', 'value_reminder', 'meeting_request'] as const;
-export const paymentStylePresetValues = ['friendly_reminder', 'due_today', 'overdue_escalation'] as const;
+export const followUpStylePresetValues = ['gentle_nudge', 'value_reminder', 'meeting_request', 'deadline_push', 'social_proof'] as const;
+export const paymentStylePresetValues = ['friendly_reminder', 'due_today', 'overdue_escalation', 'installment_offer', 'soft_final_notice'] as const;
 
 export const followUpStylePresetSchema = z.enum(followUpStylePresetValues);
 export const paymentStylePresetSchema = z.enum(paymentStylePresetValues);
 export const outputFormatValues = ['chat', 'email', 'whatsapp'] as const;
 export const outputFormatSchema = z.enum(outputFormatValues);
+export const conversationModeValues = ['standard', 'humor', 'banter', 'direct', 'consultative'] as const;
+export const conversationModeSchema = z.enum(conversationModeValues);
+export const emojiDensityValues = ['low', 'medium', 'high'] as const;
+export const emojiDensitySchema = z.enum(emojiDensityValues);
 export const reminderTypeValues = ['follow_up', 'payment', 'meeting', 'custom'] as const;
 export const reminderTypeSchema = z.enum(reminderTypeValues);
 
@@ -75,6 +79,8 @@ export const aiFollowUpSchema = z.object({
   daysPassed: z.number().int().nonnegative().optional(),
   tone: followUpToneSchema.optional(),
   stylePreset: followUpStylePresetSchema.optional(),
+  conversationMode: conversationModeSchema.optional(),
+  emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
 });
@@ -86,6 +92,8 @@ export const aiPaymentSchema = z.object({
   dueDate: z.string().optional(),
   tone: paymentToneSchema.optional(),
   stylePreset: paymentStylePresetSchema.optional(),
+  conversationMode: conversationModeSchema.optional(),
+  emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
 });

@@ -7,12 +7,13 @@ const openai = new OpenAI({
 
 type Language = 'en' | 'zh-CN' | 'ms';
 type OutputFormat = 'chat' | 'email' | 'whatsapp';
+type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
 
-type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual';
-type PaymentTone = 'polite' | 'friendly' | 'professional' | 'casual';
+type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
+type PaymentTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
 
-type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request';
-type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation';
+type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request' | 'deadline_push' | 'social_proof';
+type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation' | 'installment_offer' | 'soft_final_notice';
 
 export interface FollowUpData {
   leadName: string;
@@ -21,6 +22,8 @@ export interface FollowUpData {
   daysPassed?: number;
   tone?: FollowUpTone;
   stylePreset?: FollowUpStylePreset;
+  conversationMode?: ConversationMode;
+  emojiDensity?: EmojiPreference;
   outputFormat?: OutputFormat;
   language?: Language;
 }
@@ -32,12 +35,42 @@ export interface PaymentData {
   dueDate?: string;
   tone?: PaymentTone;
   stylePreset?: PaymentStylePreset;
+  conversationMode?: ConversationMode;
+  emojiDensity?: EmojiPreference;
   outputFormat?: OutputFormat;
   language?: Language;
 }
 
 type AiErrorKind = 'quota' | 'auth' | 'timeout' | 'unknown';
 type EmojiPreference = 'low' | 'medium' | 'high';
+
+interface DraftConfig {
+  language: Language;
+  outputFormat: OutputFormat;
+  purpose: 'follow_up' | 'payment';
+  tone: FollowUpTone | PaymentTone;
+  conversationMode: ConversationMode;
+  emojiPreference: EmojiPreference;
+}
+
+export interface GenerationDebugInfo {
+  requested: {
+    language: Language;
+    outputFormat: OutputFormat;
+    tone: FollowUpTone | PaymentTone;
+    conversationMode: ConversationMode;
+    emojiDensity: EmojiPreference;
+  };
+  checks: {
+    emojiCount: number;
+    emojiMin: number;
+    emojiMax: number;
+    emojiInRange: boolean;
+    modeSignalDetected: boolean;
+    objectiveCoverageRatio: number;
+    objectiveCoveragePass: boolean;
+  };
+}
 
 const presetsEnabled = process.env.FEATURE_AI_PRESETS !== 'false';
 
@@ -72,6 +105,10 @@ const splitObjectives = (objective: string): string[] => {
 
 const normalize = (text: string): string => text.toLowerCase().replace(/\s+/g, ' ').trim();
 
+const extractHanChars = (text: string): string[] => {
+  return Array.from(text).filter((ch) => /[\u4e00-\u9fff]/.test(ch));
+};
+
 const getObjectiveCoverageRatio = (message: string, objectiveItems: string[]): number => {
   if (objectiveItems.length === 0) {
     return 1;
@@ -82,13 +119,18 @@ const getObjectiveCoverageRatio = (message: string, objectiveItems: string[]): n
 
   for (const item of objectiveItems) {
     const normalizedItem = normalize(item);
+    const itemHanChars = Array.from(new Set(extractHanChars(normalizedItem)));
     const itemTokens = normalizedItem
       .split(/[^a-z0-9\u4e00-\u9fff]+/i)
-      .filter((token) => token.length >= 3);
+      .filter((token) => token.length >= 2);
 
     const directMatch = normalizedMessage.includes(normalizedItem);
     const tokenMatch = itemTokens.some((token) => normalizedMessage.includes(token));
-    if (directMatch || tokenMatch) {
+    const hanMatch =
+      itemHanChars.length > 0
+        ? itemHanChars.filter((char) => normalizedMessage.includes(char)).length / itemHanChars.length >= 0.6
+        : false;
+    if (directMatch || tokenMatch || hanMatch) {
       matched += 1;
     }
   }
@@ -119,6 +161,10 @@ const detectEmojiPreference = (objective: string): EmojiPreference => {
 const getFollowUpPresetFragment = (preset: FollowUpStylePreset, isChinese: boolean): string => {
   if (isChinese) {
     switch (preset) {
+      case 'deadline_push':
+        return '强调目标有明确时间窗口，要求对方给出具体时间，不拖延。';
+      case 'social_proof':
+        return '以“类似客户已完成同一步骤”为背景，增强对方行动信心。';
       case 'value_reminder':
         return '重点强调你之前提供的价值和下一步收益。';
       case 'meeting_request':
@@ -130,6 +176,10 @@ const getFollowUpPresetFragment = (preset: FollowUpStylePreset, isChinese: boole
   }
 
   switch (preset) {
+    case 'deadline_push':
+      return 'Emphasize a clear time window and ask for a concrete date to avoid delays.';
+    case 'social_proof':
+      return 'Use light social proof (similar clients already completed this step) to encourage action.';
     case 'value_reminder':
       return 'Focus on reminding them of value already delivered and a small next benefit.';
     case 'meeting_request':
@@ -143,6 +193,10 @@ const getFollowUpPresetFragment = (preset: FollowUpStylePreset, isChinese: boole
 const getPaymentPresetFragment = (preset: PaymentStylePreset, isChinese: boolean): string => {
   if (isChinese) {
     switch (preset) {
+      case 'installment_offer':
+        return '提供分期或部分先付方案，降低对方一次性付款压力。';
+      case 'soft_final_notice':
+        return '明确说明这是最后一次友善提醒，语气克制但边界清晰。';
       case 'due_today':
         return '重点说明今天到期，并给出友好的付款确认请求。';
       case 'overdue_escalation':
@@ -154,6 +208,10 @@ const getPaymentPresetFragment = (preset: PaymentStylePreset, isChinese: boolean
   }
 
   switch (preset) {
+    case 'installment_offer':
+      return 'Offer a partial/installment option to reduce payment friction while securing commitment.';
+    case 'soft_final_notice':
+      return 'Position it as a final friendly reminder with clear boundaries and next step.';
     case 'due_today':
       return 'Focus on payment due today and a friendly confirmation request.';
     case 'overdue_escalation':
@@ -165,24 +223,115 @@ const getPaymentPresetFragment = (preset: PaymentStylePreset, isChinese: boolean
 };
 
 const mapFollowUpTone = (tone: FollowUpTone): 'soft' | 'professional' | 'firm' => {
+  if (tone === 'assertive' || tone === 'urgent') {
+    return 'firm';
+  }
+  if (tone === 'empathetic' || tone === 'friendly' || tone === 'casual') {
+    return 'soft';
+  }
   if (tone === 'professional') {
     return 'professional';
-  }
-  if (tone === 'casual') {
-    return 'firm';
   }
   return 'soft';
 };
 
 const mapPaymentTone = (tone: PaymentTone): 'professional' | 'firm' => {
-  if (tone === 'casual' || tone === 'friendly') {
+  if (tone === 'casual' || tone === 'friendly' || tone === 'assertive' || tone === 'urgent') {
     return 'firm';
   }
   return 'professional';
 };
 
+const getToneInstruction = (
+  language: Language,
+  tone: FollowUpTone | PaymentTone,
+  purpose: 'follow_up' | 'payment'
+): string => {
+  if (language === 'zh-CN') {
+    switch (tone) {
+      case 'friendly':
+        return '语气要求：友好亲切，像熟人沟通，但不要油腻。';
+      case 'professional':
+        return '语气要求：专业清晰，表达稳重，避免口水话。';
+      case 'casual':
+        return purpose === 'payment'
+          ? '语气要求：自然直接，略微强势，但必须保持分寸和礼貌。'
+          : '语气要求：轻松随意，像真人聊天，不要太正式。';
+      case 'assertive':
+        return '语气要求：明确、有执行力，直接要求对方给出时间或结论。';
+      case 'empathetic':
+        return '语气要求：先共情再推进，保持温柔但要有明确请求。';
+      case 'urgent':
+        return '语气要求：强调紧迫性和时间节点，避免拖延但不攻击。';
+      case 'polite':
+      default:
+        return '语气要求：礼貌克制，温和但不软弱。';
+    }
+  }
+
+  if (language === 'ms') {
+    switch (tone) {
+      case 'friendly':
+        return 'Nada: mesra dan hangat seperti manusia sebenar, tanpa berbunyi dibuat-buat.';
+      case 'professional':
+        return 'Nada: profesional, jelas, dan kemas.';
+      case 'casual':
+        return purpose === 'payment'
+          ? 'Nada: santai tetapi tegas, masih sopan dan bersempadan.'
+          : 'Nada: santai, natural, kurang formal.';
+      case 'assertive':
+        return 'Nada: jelas dan tegas, minta tindakan serta masa yang spesifik.';
+      case 'empathetic':
+        return 'Nada: mulakan dengan empati, kemudian teruskan kepada permintaan yang jelas.';
+      case 'urgent':
+        return 'Nada: ada rasa segera dan deadline, tetapi kekal sopan.';
+      case 'polite':
+      default:
+        return 'Nada: sopan, tenang, dan berhemah.';
+    }
+  }
+
+  switch (tone) {
+    case 'friendly':
+      return 'Tone requirement: friendly and warm, like a real human relationship, without sounding cheesy.';
+    case 'professional':
+      return 'Tone requirement: professional, clear, and composed.';
+    case 'casual':
+      return purpose === 'payment'
+        ? 'Tone requirement: casual but firm; direct without crossing boundaries.'
+        : 'Tone requirement: casual and relaxed, like a real chat, not formal business copy.';
+    case 'assertive':
+      return 'Tone requirement: assertive and action-oriented; ask for a concrete date or decision.';
+    case 'empathetic':
+      return 'Tone requirement: empathetic first, then move clearly to the ask.';
+    case 'urgent':
+      return 'Tone requirement: urgent and time-sensitive without being rude or threatening.';
+    case 'polite':
+    default:
+      return 'Tone requirement: polite, measured, and respectful without sounding weak.';
+  }
+};
+
+const getMalaysiaVoiceInstruction = (language: Language): string => {
+  if (language === 'zh-CN') {
+    return '地域语感：使用马来西亚华语 WhatsApp 常见口吻。自然、接地气，可用“这边、方便、先对齐、安排一下、回我一下”。避免中国大陆官腔；不使用“贵司、烦请知悉”这类生硬词。';
+  }
+  if (language === 'ms') {
+    return 'Regional voice: guna gaya Malaysia (BM harian) seperti “boleh”, “nanti”, “sekejap”, “ya”, “terima kasih”. Boleh campur sedikit gaya pasar secara sopan; elakkan gaya terlalu baku.';
+  }
+  return 'Regional voice: use Malaysian conversational English naturally (for example: "can", "ya", "let me know", "settle", "appreciate", optional light "lah"). Avoid US/UK formal corporate tone.';
+};
+
 const createFollowUpFallback = (data: FollowUpData, daysPassed: number, isChinese: boolean, preset: FollowUpStylePreset): string => {
   if (isChinese) {
+    if (preset === 'deadline_push') {
+      return `你好 ${data.leadName}，\n\n想确认一下“${data.objective}”这件事，我们这边需要在这周内把时间敲定。\n\n方便的话直接回我一个可执行时间，我好马上安排。`;
+    }
+
+    if (preset === 'social_proof') {
+      return `你好 ${data.leadName}，\n\n这边跟进一下“${data.objective}”。最近几位客户也是先确认这个节点，后面推进会顺很多。\n\n你这边如果没问题，方便回我一个预计时间吗？`;
+    }
+
     if (preset === 'value_reminder') {
       return `你好 ${data.leadName}，\n\n想简短跟进一下。上次我们讨论的方案主要是为了帮你更稳定地推进当前目标（${data.objective}）。\n\n如果你愿意，我可以按你的节奏继续配合。你这周看什么时候方便回复我一句？`;
     }
@@ -192,6 +341,14 @@ const createFollowUpFallback = (data: FollowUpData, daysPassed: number, isChines
     }
 
     return `你好 ${data.leadName}，\n\n希望你一切顺利。${daysPassed > 0 ? `距离上次沟通已经 ${daysPassed} 天，` : ''}我来轻轻跟进一下，看你这边关于“${data.objective}”是否需要我补充任何信息。\n\n你方便时回复我一句就好。`;
+  }
+
+  if (preset === 'deadline_push') {
+    return `Hi ${data.leadName},\n\nQuick follow-up on ${data.objective}. We need to lock a timeline this week so the next step does not slip.\n\nCould you share one concrete date I can work with?`;
+  }
+
+  if (preset === 'social_proof') {
+    return `Hi ${data.leadName},\n\nFollowing up on ${data.objective}. Similar clients who confirmed this step early were able to move much faster after that.\n\nIf it works for you, can you share your expected timing?`;
   }
 
   if (preset === 'value_reminder') {
@@ -214,6 +371,14 @@ const createPaymentFallback = (
   const amountText = data.amount ? (isChinese ? `${data.amount.toFixed(2)} 元` : `$${data.amount.toFixed(2)}`) : null;
 
   if (isChinese) {
+    if (preset === 'installment_offer') {
+      return `你好 ${data.leadName}，\n\n关于${amountText ? amountText : '这笔'}款项，这边想确认一下你的安排。\n\n如果一次性不方便，我们也可以先部分处理或分期，你看哪种方式更合适？`;
+    }
+
+    if (preset === 'soft_final_notice') {
+      return `你好 ${data.leadName}，\n\n这边做最后一次友善提醒：${amountText ? `${amountText} 的` : ''}款项目前仍未处理。\n\n麻烦你今天内回复一个明确付款时间，方便我这边完成记录。`;
+    }
+
     if (preset === 'due_today') {
       return `你好 ${data.leadName}，\n\n温馨提醒，${amountText ? `${amountText} 的` : ''}款项今天到期。\n\n若你已安排付款请忽略；如方便，也请回复我确认一下时间。谢谢。`;
     }
@@ -223,6 +388,14 @@ const createPaymentFallback = (
     }
 
     return `你好 ${data.leadName}，\n\n友好提醒一下，${amountText ? `${amountText} 的` : ''}款项目前仍待处理（${data.objective}）。\n\n如你已完成付款请忽略这条信息；若尚未处理，方便的话请告知预计时间。`;
+  }
+
+  if (preset === 'installment_offer') {
+    return `Hi ${data.leadName},\n\nQuick reminder about ${amountText ? `${amountText}` : 'the pending payment'}.\n\nIf full payment today is not convenient, we can do a partial/installment plan. Which option works best for you?`;
+  }
+
+  if (preset === 'soft_final_notice') {
+    return `Hi ${data.leadName},\n\nThis is a final friendly reminder for ${amountText ? `${amountText}` : 'the pending payment'}.\n\nPlease confirm a clear payment date today so I can close the record on my side.`;
   }
 
   if (preset === 'due_today') {
@@ -395,26 +568,50 @@ const getEmojiInstruction = (
   emojiPreference: EmojiPreference
 ): string => {
   if (outputFormat !== 'whatsapp') {
+    if (emojiPreference === 'low') {
+      return language === 'zh-CN'
+        ? 'emoji 使用：不要使用，除非没有 emoji 会明显不自然。'
+        : language === 'ms'
+          ? 'Penggunaan emoji: jangan guna, kecuali benar-benar perlu untuk bunyi natural.'
+          : 'Emoji usage: do not use emojis unless the line would feel unnatural without one.';
+    }
+
+    if (emojiPreference === 'high') {
+      return language === 'zh-CN'
+        ? 'emoji 使用：最多 1 个，点到为止。'
+        : language === 'ms'
+          ? 'Penggunaan emoji: maksimum 1 sahaja.'
+          : 'Emoji usage: use at most 1 emoji.';
+    }
+
     return language === 'zh-CN'
-      ? 'emoji 使用：最多 1 个，非必要可不使用。'
+      ? 'emoji 使用：可选，最多 1 个。'
       : language === 'ms'
-        ? 'Penggunaan emoji: maksimum 1, pilihan sahaja.'
-      : 'Emoji usage: max 1, optional.';
+        ? 'Penggunaan emoji: pilihan, maksimum 1.'
+        : 'Emoji usage: optional, max 1.';
+  }
+
+  if (emojiPreference === 'low') {
+    return language === 'zh-CN'
+      ? 'emoji 使用：0-1 个，尽量少，不要每段都带 emoji。'
+      : language === 'ms'
+        ? 'Penggunaan emoji: 0-1 sahaja, sangat minimum.'
+        : 'Emoji usage: 0-1 only, very minimal.';
   }
 
   if (emojiPreference === 'high') {
     return language === 'zh-CN'
-      ? 'emoji 使用：自然地使用 3-6 个（分散在各段），不要连续堆叠同一个 emoji。'
+      ? 'emoji 使用：严格使用 3-5 个，自然分散在不同句子里，不要连续堆叠同一个 emoji。'
       : language === 'ms'
-        ? 'Penggunaan emoji: guna 3-6 secara semula jadi, jangan bertindih berlebihan.'
-      : 'Emoji usage: naturally use 3-6 emojis across lines, no repetitive stacking.';
+        ? 'Penggunaan emoji: gunakan 3-5 secara semula jadi dan berjarak, jangan bertindih.'
+        : 'Emoji usage: use 3-5 emojis naturally across different lines, with no repetitive stacking.';
   }
 
   return language === 'zh-CN'
-    ? 'emoji 使用：自然地使用 1-3 个，增强亲和感但不过度。'
+    ? 'emoji 使用：使用 1-2 个，增强亲和感，但不要太满。'
     : language === 'ms'
-      ? 'Penggunaan emoji: 1-3 secara semula jadi, mesra tetapi tidak berlebihan.'
-    : 'Emoji usage: naturally use 1-3 emojis for warmth, not excessive.';
+      ? 'Penggunaan emoji: guna 1-2 secara semula jadi.'
+      : 'Emoji usage: use 1-2 emojis naturally for warmth.';
 };
 
 const getHardConstraints = (language: Language, outputFormat: OutputFormat): string => {
@@ -454,6 +651,313 @@ const getHardConstraints = (language: Language, outputFormat: OutputFormat): str
     common.push('4) Line 1 short greeting, line 2 concrete ask, end with an easy reply question');
   }
   return common.join('\n');
+};
+
+const getConversationModeInstruction = (
+  language: Language,
+  mode: ConversationMode,
+  purpose: 'follow_up' | 'payment'
+): string => {
+  if (mode === 'standard') {
+    return language === 'zh-CN'
+      ? '风格模式：标准专业。像真人沟通，稳重自然。'
+      : language === 'ms'
+        ? 'Mod gaya: standard profesional. Natural dan kemas.'
+        : 'Style mode: standard professional. Keep it natural and business-like.';
+  }
+
+  if (mode === 'humor') {
+    return language === 'zh-CN'
+      ? '风格模式：幽默。至少加入一句轻松、有点机灵的人味表达，但不能影响清晰请求，不能轻浮。'
+      : language === 'ms'
+        ? 'Mod gaya: humor ringan. Mesti ada sedikit unsur lucu atau selamba, tetapi permintaan kekal jelas.'
+        : 'Style mode: light humor. Include a small touch of wit or playful phrasing, while keeping the ask clear.';
+  }
+
+  if (mode === 'direct') {
+    return language === 'zh-CN'
+      ? '风格模式：直接。短句、直奔主题、不要铺垫。第二行必须是明确请求。'
+      : language === 'ms'
+        ? 'Mod gaya: direct. Ayat ringkas, terus kepada point, permintaan jelas pada awal mesej.'
+        : 'Style mode: direct. Use short lines, get to the point fast, and place the ask early.';
+  }
+
+  if (mode === 'consultative') {
+    return language === 'zh-CN'
+      ? '风格模式：顾问式。先给一条判断，再给一条建议行动，最后确认对方时间。'
+      : language === 'ms'
+        ? 'Mod gaya: konsultatif. Beri cadangan ringkas dahulu, kemudian minta komitmen masa.'
+        : 'Style mode: consultative. Give a short recommendation first, then ask for commitment timing.';
+  }
+
+  if (purpose === 'payment') {
+    return language === 'zh-CN'
+      ? '风格模式：斗嘴。要有熟人间轻微调侃感，不是普通礼貌文案；但必须保持尊重与边界，优先确认付款时间。'
+      : language === 'ms'
+        ? 'Mod gaya: banter. Mesti terasa seperti gurauan santai antara kenalan, tetapi kekal hormat dan utamakan masa bayaran.'
+        : 'Style mode: playful banter. It should feel like light teasing between familiar people, not standard polite copy; still respectful and payment-timing first.';
+  }
+
+  return language === 'zh-CN'
+    ? '风格模式：斗嘴。必须写出熟人之间轻松斗嘴的感觉，不要退回普通商务客气话；但要有礼貌，不攻击，不嘲讽。'
+    : language === 'ms'
+      ? 'Mod gaya: banter. Mesti terasa santai macam kawan rapat, bukan mesej standard; jangan kasar atau menyindir.'
+      : 'Style mode: playful banter. Make it noticeably playful and familiar, not a standard business message; no insults or sarcasm.';
+};
+
+const countEmojis = (text: string): number => {
+  const matches = text.match(/\p{Extended_Pictographic}/gu);
+  return matches ? matches.length : 0;
+};
+
+const getEmojiRange = (
+  outputFormat: OutputFormat,
+  emojiPreference: EmojiPreference
+): { min: number; max: number } => {
+  if (outputFormat !== 'whatsapp') {
+    if (emojiPreference === 'low') {
+      return { min: 0, max: 0 };
+    }
+    return { min: 0, max: 1 };
+  }
+
+  if (emojiPreference === 'low') {
+    return { min: 0, max: 0 };
+  }
+  if (emojiPreference === 'high') {
+    return { min: 3, max: 5 };
+  }
+  return { min: 1, max: 2 };
+};
+
+const needsEmojiRewrite = (text: string, outputFormat: OutputFormat, emojiPreference: EmojiPreference): boolean => {
+  const emojiCount = countEmojis(text);
+  const { min, max } = getEmojiRange(outputFormat, emojiPreference);
+  return emojiCount < min || emojiCount > max;
+};
+
+const hasModeSignal = (text: string, language: Language, mode: ConversationMode): boolean => {
+  if (mode === 'standard') {
+    return true;
+  }
+
+  const lower = text.toLowerCase();
+  const humorSignals =
+    language === 'zh-CN'
+      ? ['哈哈', '开个玩笑', '别介意', '😄', '😂', '😅']
+      : language === 'ms'
+        ? ['gurau', 'hehe', 'selamba', 'lawak', '😄', '😂', '😅']
+        : ['just kidding', 'kidding', 'haha', 'lol', '😄', '😂', '😅'];
+  const banterSignals =
+    language === 'zh-CN'
+      ? ['你这', '我可', '懂的都懂', '嘿', '哈', '😏', '😜']
+      : language === 'ms'
+        ? ['jangan buat-buat', 'santai je', 'eh', 'lah', 'sikit-sikit', 'nak tanya', 'ke mana', '😏', '😜']
+        : ['you know me', 'come on', 'hey now', 'hey ', 'just checking in', 'no need to', '😏', '😜'];
+
+  if (mode === 'direct') {
+    const compact = lower.replace(/\s+/g, ' ');
+    return /when|date|time|bila|bila boleh|boleh|can|could|please|什么时候|何时|几时|确认|请|sahkan|sila/.test(compact);
+  }
+
+  if (mode === 'consultative') {
+    return /建议|建议你|可以先|可先|能否|方便|cadangan|bagaimana jika|boleh kita|boleh|suggest|recommend|you can|we can|could you|can you|next step|langkah seterusnya|so we can|supaya|to help|为了更快/.test(lower);
+  }
+
+  if ((mode === 'humor' || mode === 'banter') && countEmojis(text) >= 1) {
+    return true;
+  }
+
+  const signals = mode === 'humor' ? humorSignals : banterSignals;
+  return signals.some((signal) => lower.includes(signal));
+};
+
+const clampEmojiCount = (text: string, max: number): string => {
+  let emojiSeen = 0;
+  let result = '';
+  for (const ch of text) {
+    if (/\p{Extended_Pictographic}/u.test(ch)) {
+      if (emojiSeen < max) {
+        result += ch;
+      }
+      emojiSeen += 1;
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+};
+
+const ensureEmojiRange = (text: string, outputFormat: OutputFormat, emojiPreference: EmojiPreference): string => {
+  const { min, max } = getEmojiRange(outputFormat, emojiPreference);
+  let result = clampEmojiCount(text, max);
+  let count = countEmojis(result);
+  if (count >= min) {
+    return result;
+  }
+
+  const emojiPool = ['🙂', '😊', '🙏', '✨', '👍'];
+  while (count < min) {
+    result = `${result} ${emojiPool[count % emojiPool.length]}`;
+    count += 1;
+  }
+
+  return result;
+};
+
+const buildRewritePrompt = (draft: string, config: DraftConfig): string => {
+  const toneInstruction = getToneInstruction(config.language, config.tone, config.purpose);
+  const emojiInstruction = getEmojiInstruction(config.outputFormat, config.language, config.emojiPreference);
+  const formatInstruction = getFormatInstruction(config.outputFormat, config.language);
+  const modeInstruction = getConversationModeInstruction(config.language, config.conversationMode, config.purpose);
+
+  if (config.language === 'zh-CN') {
+    return [
+      '请重写下面这条消息，让它严格符合配置。',
+      '保留原始 objective，不要改成别的请求。',
+      '如果当前草稿不够像所选模式，就大胆改写，而不是只做小修小补。',
+      `- ${toneInstruction}`,
+      `- ${modeInstruction}`,
+      `- ${emojiInstruction}`,
+      `- 格式要求：${formatInstruction}`,
+      '- 保持可直接发送，不要添加解释。',
+      '',
+      '草稿：',
+      draft,
+    ].join('\n');
+  }
+
+  if (config.language === 'ms') {
+    return [
+      'Tulis semula mesej di bawah supaya benar-benar ikut konfigurasi.',
+      'Kekalkan objective asal; jangan tukar permintaan utama.',
+      'Jika draf sekarang tidak cukup menepati mod yang dipilih, ubah dengan jelas, bukan sekadar edit kecil.',
+      `- ${toneInstruction}`,
+      `- ${modeInstruction}`,
+      `- ${emojiInstruction}`,
+      `- Keperluan format: ${formatInstruction}`,
+      '- Hasil akhir mesti terus boleh dihantar, tanpa penjelasan tambahan.',
+      '',
+      'Draf:',
+      draft,
+    ].join('\n');
+  }
+
+  return [
+    'Rewrite the draft below so it strictly matches the selected configuration.',
+    'Preserve the original objective and core ask.',
+    'If the draft does not clearly reflect the selected mode, rewrite it decisively instead of making tiny edits.',
+    `- ${toneInstruction}`,
+    `- ${modeInstruction}`,
+    `- ${emojiInstruction}`,
+    `- Format requirement: ${formatInstruction}`,
+    '- Output only the final sendable message.',
+    '',
+    'Draft:',
+    draft,
+  ].join('\n');
+};
+
+const rewriteDraftToMatchConfig = async (
+  systemPrompt: string,
+  draft: string,
+  config: DraftConfig
+): Promise<string> => {
+  const rewritten = await generateCompletion(systemPrompt, buildRewritePrompt(draft, config));
+  return cleanGeneratedMessage(rewritten.choices[0]?.message?.content || '');
+};
+
+const enforceDraftConfig = async (
+  systemPrompt: string,
+  initialText: string,
+  config: DraftConfig
+): Promise<string> => {
+  let current = initialText;
+  let attempts = 0;
+
+  while (attempts < 3) {
+    const emojiInvalid = needsEmojiRewrite(current, config.outputFormat, config.emojiPreference);
+    const modeInvalid = !hasModeSignal(current, config.language, config.conversationMode);
+    if (!emojiInvalid && !modeInvalid) {
+      break;
+    }
+
+    const rewritten = await rewriteDraftToMatchConfig(systemPrompt, current, config);
+    if (!rewritten.trim()) {
+      break;
+    }
+    current = rewritten;
+    attempts += 1;
+  }
+
+  const formatAdjusted = enforceOutputFormatConsistency(current, config.outputFormat);
+  return ensureEmojiRange(formatAdjusted, config.outputFormat, config.emojiPreference);
+};
+
+const getObjectiveCoverageThreshold = (objectiveItems: string[]): number => (objectiveItems.length > 1 ? 0.9 : 1);
+
+const enforceObjectiveCoverage = async (
+  systemPrompt: string,
+  draft: string,
+  language: Language,
+  purpose: 'follow_up' | 'payment',
+  objectiveItems: string[]
+): Promise<string> => {
+  const threshold = getObjectiveCoverageThreshold(objectiveItems);
+  let current = draft;
+  let coverage = getObjectiveCoverageRatio(current, objectiveItems);
+  let attempt = 0;
+
+  while (coverage < threshold && attempt < 2) {
+    const objectiveList = objectiveItems.map((item, idx) => `${idx + 1}. ${item}`).join('\n');
+    const rewritePrompt =
+      language === 'zh-CN'
+        ? `请重写下面消息，确保完全覆盖所有目标项，不遗漏。\n目标项：\n${objectiveList}\n要求：\n- 每个目标都要在正文里明确提到\n- ${purpose === 'payment' ? '优先先确认付款时间，再覆盖其他目标' : '先覆盖主目标，再覆盖次目标'}\n- 输出可直接发送的消息，不加解释\n\n原文：\n${current}`
+        : language === 'ms'
+          ? `Tulis semula mesej ini supaya semua objektif diliputi tanpa tertinggal.\nSenarai objektif:\n${objectiveList}\nSyarat:\n- Setiap objektif mesti disebut dengan jelas\n- ${purpose === 'payment' ? 'Utamakan pengesahan masa bayaran dahulu' : 'Utamakan objektif utama dahulu'}\n- Output mesej siap hantar sahaja\n\nDraf:\n${current}`
+          : `Rewrite this message to fully cover every objective item with no omissions.\nObjective items:\n${objectiveList}\nRequirements:\n- Explicitly cover each objective in the message\n- ${purpose === 'payment' ? 'Prioritize payment timing first, then remaining items' : 'Prioritize the primary objective first'}\n- Output only the final sendable message\n\nDraft:\n${current}`;
+
+    const completion = await generateCompletion(systemPrompt, rewritePrompt);
+    const rewritten = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    if (!rewritten.trim()) {
+      break;
+    }
+    current = rewritten;
+    coverage = getObjectiveCoverageRatio(current, objectiveItems);
+    attempt += 1;
+  }
+
+  return current;
+};
+
+export const buildGenerationDebugInfo = (
+  text: string,
+  config: DraftConfig,
+  objective: string
+): GenerationDebugInfo => {
+  const objectiveItems = splitObjectives(objective);
+  const objectiveCoverageRatio = getObjectiveCoverageRatio(text, objectiveItems);
+  const objectiveCoveragePass = objectiveCoverageRatio >= getObjectiveCoverageThreshold(objectiveItems);
+  const emojiCount = countEmojis(text);
+  const emojiRange = getEmojiRange(config.outputFormat, config.emojiPreference);
+  return {
+    requested: {
+      language: config.language,
+      outputFormat: config.outputFormat,
+      tone: config.tone,
+      conversationMode: config.conversationMode,
+      emojiDensity: config.emojiPreference,
+    },
+    checks: {
+      emojiCount,
+      emojiMin: emojiRange.min,
+      emojiMax: emojiRange.max,
+      emojiInRange: emojiCount >= emojiRange.min && emojiCount <= emojiRange.max,
+      modeSignalDetected: hasModeSignal(text, config.language, config.conversationMode),
+      objectiveCoverageRatio: Number(objectiveCoverageRatio.toFixed(3)),
+      objectiveCoveragePass,
+    },
+  };
 };
 
 const getChineseWhatsappHumanStyle = (purpose: 'follow_up' | 'payment'): string => {
@@ -500,6 +1004,17 @@ const cleanGeneratedMessage = (text: string): string => {
     .replace(/^\s*主题\s*:\s*/im, '主题: ')
     .replace(/^\s*Subject\s*:\s*/im, 'Subject: ')
     .trim();
+};
+
+const enforceOutputFormatConsistency = (text: string, outputFormat: OutputFormat): string => {
+  if (outputFormat === 'whatsapp' || outputFormat === 'chat') {
+    return text
+      .replace(/^\s*(subject|subjek|主题)\s*:\s*.*$/gim, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  return text;
 };
 
 const getMalayWhatsappHumanStyle = (purpose: 'follow_up' | 'payment'): string => {
@@ -564,6 +1079,7 @@ export const generateFollowUpText = async (
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
   const selectedPreset: FollowUpStylePreset = presetsEnabled ? data.stylePreset || 'gentle_nudge' : 'gentle_nudge';
+  const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
 
   const systemPrompt = getAdvisorPersona(language);
@@ -574,8 +1090,11 @@ export const generateFollowUpText = async (
       ? `Tulis mesej follow-up dalam Bahasa Melayu.\n\nKonteks:\n- Nama pelanggan: ${data.leadName}\n- Objektif: ${data.objective}\n- Hari sejak respons terakhir: ${daysPassed}\n- Nada: ${mappedTone}\n- Gaya template: ${selectedPreset}\n\nPeraturan:\n- Ringkas dan natural\n- Tiada tekanan\n- Akhiri dengan soalan mudah dibalas\n- Wajib sebut nama pelanggan`
       : `Write a follow-up message in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Days since last reply: ${daysPassed}\n- Tone: ${mappedTone}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getFollowUpPresetFragment(selectedPreset, false)}\n\nRules:\n- Keep it short and natural\n- No pressure\n- End with an easy question\n- Must use the customer name`;
   const formatInstruction = getFormatInstruction(outputFormat, language);
-  const emojiPreference = detectEmojiPreference(data.objective);
+  const emojiPreference = data.emojiDensity || detectEmojiPreference(data.objective);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
+  const modeInstruction = getConversationModeInstruction(language, conversationMode, 'follow_up');
+  const toneInstruction = getToneInstruction(language, tone, 'follow_up');
+  const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const humanStyleBlock =
@@ -589,7 +1108,7 @@ export const generateFollowUpText = async (
     : isMalay
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${emojiInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -598,13 +1117,30 @@ export const generateFollowUpText = async (
 
     const completion = await generateCompletion(systemPrompt, promptWithFormat);
     let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    generatedText = await enforceDraftConfig(systemPrompt, generatedText, {
+      language,
+      outputFormat,
+      purpose: 'follow_up',
+      tone,
+      conversationMode,
+      emojiPreference,
+    });
+    generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'follow_up', objectiveItems);
 
-    if (objectiveItems.length > 1 && getObjectiveCoverageRatio(generatedText, objectiveItems) < 0.75) {
+    if (getObjectiveCoverageRatio(generatedText, objectiveItems) < getObjectiveCoverageThreshold(objectiveItems)) {
       const strictPrompt = `${promptWithFormat}\n\nRewrite now: ensure all objective items are explicitly covered. Keep it concise and natural.`;
       const retryCompletion = await generateCompletion(systemPrompt, strictPrompt);
       const retriedText = cleanGeneratedMessage(retryCompletion.choices[0]?.message?.content || '');
       if (retriedText.trim()) {
-        generatedText = retriedText;
+        generatedText = await enforceDraftConfig(systemPrompt, retriedText, {
+          language,
+          outputFormat,
+          purpose: 'follow_up',
+          tone,
+          conversationMode,
+          emojiPreference,
+        });
+        generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'follow_up', objectiveItems);
       }
     }
 
@@ -671,6 +1207,7 @@ export const generatePaymentText = async (
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
   const selectedPreset: PaymentStylePreset = presetsEnabled ? data.stylePreset || 'friendly_reminder' : 'friendly_reminder';
+  const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
 
   let daysOverdue = 0;
@@ -688,8 +1225,11 @@ export const generatePaymentText = async (
       ? `Tulis mesej peringatan bayaran dalam Bahasa Melayu.\n\nKonteks:\n- Nama pelanggan: ${data.leadName}\n- Objektif: ${data.objective}\n- Projek telah siap\n- Bayaran masih belum diterima\n- Hari tertunggak: ${daysOverdue}\n- Nada: ${mappedTone}\n${amount ? `- Jumlah: ${amount.toFixed(2)}` : ''}\n- Gaya template: ${selectedPreset}\n\nPeraturan:\n- Hormat dan profesional\n- Jelas serta ringkas\n- Wajib sebut nama pelanggan`
       : `Write a payment reminder in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Project is completed\n- Payment is pending\n- Days overdue: ${daysOverdue}\n- Tone: ${mappedTone}\n${amount ? `- Amount: $${amount.toFixed(2)}` : ''}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getPaymentPresetFragment(selectedPreset, false)}\n\nRules:\n- Be respectful\n- Keep it clear and friendly\n- Must use the customer name`;
   const formatInstruction = getFormatInstruction(outputFormat, language);
-  const emojiPreference = detectEmojiPreference(data.objective);
+  const emojiPreference = data.emojiDensity || detectEmojiPreference(data.objective);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
+  const modeInstruction = getConversationModeInstruction(language, conversationMode, 'payment');
+  const toneInstruction = getToneInstruction(language, tone, 'payment');
+  const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const humanStyleBlock =
@@ -703,7 +1243,7 @@ export const generatePaymentText = async (
     : isMalay
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${emojiInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -712,13 +1252,30 @@ export const generatePaymentText = async (
 
     const completion = await generateCompletion(systemPrompt, promptWithFormat);
     let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    generatedText = await enforceDraftConfig(systemPrompt, generatedText, {
+      language,
+      outputFormat,
+      purpose: 'payment',
+      tone,
+      conversationMode,
+      emojiPreference,
+    });
+    generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'payment', objectiveItems);
 
-    if (objectiveItems.length > 1 && getObjectiveCoverageRatio(generatedText, objectiveItems) < 0.75) {
+    if (getObjectiveCoverageRatio(generatedText, objectiveItems) < getObjectiveCoverageThreshold(objectiveItems)) {
       const strictPrompt = `${promptWithFormat}\n\nRewrite now: include every objective item. Keep payment timing first, then cover the remaining objectives naturally.`;
       const retryCompletion = await generateCompletion(systemPrompt, strictPrompt);
       const retriedText = cleanGeneratedMessage(retryCompletion.choices[0]?.message?.content || '');
       if (retriedText.trim()) {
-        generatedText = retriedText;
+        generatedText = await enforceDraftConfig(systemPrompt, retriedText, {
+          language,
+          outputFormat,
+          purpose: 'payment',
+          tone,
+          conversationMode,
+          emojiPreference,
+        });
+        generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'payment', objectiveItems);
       }
     }
 
