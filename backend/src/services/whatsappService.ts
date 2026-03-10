@@ -480,3 +480,43 @@ export const getWhatsAppContactSummaries = async (userId: string, limit: number 
     .sort((a, b) => b.lastAt.getTime() - a.lastAt.getTime())
     .slice(0, safeLimit);
 };
+
+export const getWhatsAppContactSummariesPaged = async (
+  userId: string,
+  options: { q?: string; page?: number; pageSize?: number } = {}
+): Promise<{ items: ContactSummary[]; total: number; page: number; pageSize: number; totalPages: number }> => {
+  const page = Math.max(1, Number(options.page || 1));
+  const pageSize = Math.min(Math.max(Number(options.pageSize || 20), 1), 100);
+  const q = String(options.q || '').trim().toLowerCase();
+
+  const all = await getWhatsAppContactSummaries(userId, 1000);
+  const filtered = q.length === 0
+    ? all
+    : all.filter((item) => {
+        const haystack = [
+          item.phone,
+          item.lead?.name || '',
+          item.lead?.status || '',
+          item.lastStatus || '',
+          item.lastMessage || '',
+          item.lastError || '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(q);
+      });
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = Math.min(page, totalPages);
+  const start = (clampedPage - 1) * pageSize;
+  const items = filtered.slice(start, start + pageSize);
+
+  return {
+    items,
+    total,
+    page: clampedPage,
+    pageSize,
+    totalPages,
+  };
+};

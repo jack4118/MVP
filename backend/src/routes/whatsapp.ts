@@ -3,7 +3,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { whatsappConnectionSchema, whatsappSendSchema } from '../utils/validation';
 import {
   getWhatsappConnection,
-  getWhatsAppContactSummaries,
+  getWhatsAppContactSummariesPaged,
   getWhatsAppConversationMessages,
   getWhatsAppMessageLogs,
   processWhatsAppWebhook,
@@ -136,10 +136,12 @@ router.get('/contacts', async (req: AuthRequest, res: Response, next: NextFuncti
       return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
     }
 
-    const limit = Number(req.query.limit || 50);
-    const contacts = await getWhatsAppContactSummaries(req.userId, limit);
+    const q = String(req.query.q || '');
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.pageSize || req.query.limit || 20);
+    const paged = await getWhatsAppContactSummariesPaged(req.userId, { q, page, pageSize });
 
-    return res.json({ success: true, data: contacts });
+    return res.json({ success: true, data: paged });
   } catch (error) {
     next(error);
   }

@@ -10,6 +10,12 @@ const WhatsApp = () => {
   const [connection, setConnection] = useState<WhatsAppConnection | null>(null);
   const [logs, setLogs] = useState<WhatsAppLogItem[]>([]);
   const [contacts, setContacts] = useState<WhatsAppContactSummary[]>([]);
+  const [contactsPage, setContactsPage] = useState(1);
+  const [contactsPageSize, setContactsPageSize] = useState(8);
+  const [contactsTotalPages, setContactsTotalPages] = useState(1);
+  const [contactsTotal, setContactsTotal] = useState(0);
+  const [contactQuery, setContactQuery] = useState('');
+  const [loadingContacts, setLoadingContacts] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState('');
   const [conversation, setConversation] = useState<WhatsAppLogItem[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
@@ -34,6 +40,10 @@ const WhatsApp = () => {
   }, []);
 
   useEffect(() => {
+    loadContacts(contactQuery, contactsPage);
+  }, [contactQuery, contactsPage, contactsPageSize]);
+
+  useEffect(() => {
     if (!selectedPhone) {
       setConversation([]);
       return;
@@ -44,10 +54,9 @@ const WhatsApp = () => {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [conn, logResp, contactResp] = await Promise.all([
+      const [conn, logResp] = await Promise.all([
         whatsappApi.getConnection(),
         whatsappApi.getLogs(30),
-        whatsappApi.getContacts(50),
       ]);
       if (conn.success) {
         const existingConnection = conn.data || null;
@@ -64,20 +73,77 @@ const WhatsApp = () => {
       if (logResp.success && logResp.data) {
         setLogs(logResp.data);
       }
-      if (contactResp.success && contactResp.data) {
-        setContacts(contactResp.data);
-        if (!selectedPhone && contactResp.data.length > 0) {
-          const first = contactResp.data[0]?.phone || '';
-          setSelectedPhone(first);
-          if (first) {
-            setTestData((prev) => ({ ...prev, toPhone: first }));
-          }
-        }
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadContacts = async (q: string, page: number) => {
+    try {
+      setLoadingContacts(true);
+      const response = await whatsappApi.getContacts({ q, page, pageSize: contactsPageSize });
+      if (response.success && response.data) {
+        const payload: any = response.data;
+
+        // Backward-compatible fallback:
+        // if backend still returns legacy array instead of paged object,
+        // paginate on frontend so page size always takes effect.
+        if (Array.isArray(payload)) {
+          const query = q.trim().toLowerCase();
+          const filtered = query
+            ? payload.filter((item: WhatsAppContactSummary) => {
+                const haystack = [
+                  item.phone,
+                  item.lead?.name || '',
+                  item.lead?.status || '',
+                  item.lastStatus || '',
+                  item.lastMessage || '',
+                  item.lastError || '',
+                ]
+                  .join(' ')
+                  .toLowerCase();
+                return haystack.includes(query);
+              })
+            : payload;
+
+          const total = filtered.length;
+          const totalPages = Math.max(1, Math.ceil(total / contactsPageSize));
+          const clampedPage = Math.min(Math.max(1, page), totalPages);
+          const start = (clampedPage - 1) * contactsPageSize;
+          const items = filtered.slice(start, start + contactsPageSize);
+
+          setContacts(items);
+          setContactsTotal(total);
+          setContactsTotalPages(totalPages);
+          setContactsPage(clampedPage);
+
+          if (!selectedPhone && items.length > 0) {
+            const first = items[0]?.phone || '';
+            if (first) {
+              setSelectedPhone(first);
+              setTestData((prev) => ({ ...prev, toPhone: first }));
+            }
+          }
+          return;
+        }
+
+        setContacts(payload.items || []);
+        setContactsTotal(payload.total || 0);
+        setContactsTotalPages(payload.totalPages || 1);
+        setContactsPage(payload.page || 1);
+
+        if (!selectedPhone && (payload.items || []).length > 0) {
+          const first = payload.items[0]?.phone || '';
+          if (first) {
+            setSelectedPhone(first);
+            setTestData((prev) => ({ ...prev, toPhone: first }));
+          }
+        }
+      }
+    } finally {
+      setLoadingContacts(false);
     }
   };
 
@@ -201,6 +267,27 @@ const WhatsApp = () => {
       {error && <div className="alert alert-error"><span>{error}</span></div>}
       {success && <div className="alert alert-success"><span>{success}</span></div>}
 
+      <div className="card" style={{ marginBottom: '16px', border: '1px solid rgba(74, 222, 128, 0.35)' }}>
+        <h2 style={{ marginTop: 0 }}>{t.whatsapp.quickStartTitle}</h2>
+        <p style={{ color: 'var(--text-secondary)', marginTop: '-4px' }}>{t.whatsapp.quickStartDesc}</p>
+        <ol style={{ margin: '8px 0 0', paddingLeft: '18px', display: 'grid', gap: '8px' }}>
+          <li>{t.whatsapp.quickStartStep1}</li>
+          <li>{t.whatsapp.quickStartStep2}</li>
+          <li>{t.whatsapp.quickStartStep3}</li>
+          <li>{t.whatsapp.quickStartStep4}</li>
+        </ol>
+        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <a
+            className="btn btn-secondary"
+            href="https://developers.facebook.com/apps/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t.whatsapp.openMetaConsole}
+          </a>
+        </div>
+      </div>
+
       <div className="card" style={{ marginBottom: '16px', background: 'linear-gradient(135deg, rgba(55,180,90,0.12), rgba(35,115,200,0.08))' }}>
         <h2 style={{ marginTop: 0 }}>{t.whatsapp.setup}</h2>
         <p style={{ color: 'var(--text-secondary)' }}>
@@ -292,6 +379,25 @@ const WhatsApp = () => {
                 ))
               )}
             </div>
+            <div style={{ padding: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button
+                className="btn btn-secondary"
+                disabled={loadingContacts || contactsPage <= 1}
+                onClick={() => setContactsPage((prev) => Math.max(1, prev - 1))}
+              >
+                {t.whatsapp.prevPage}
+              </button>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {t.whatsapp.pageLabel}: {contactsPage}/{contactsTotalPages}
+              </span>
+              <button
+                className="btn btn-secondary"
+                disabled={loadingContacts || contactsPage >= contactsTotalPages}
+                onClick={() => setContactsPage((prev) => Math.min(contactsTotalPages, prev + 1))}
+              >
+                {t.whatsapp.nextPage}
+              </button>
+            </div>
           </div>
 
           <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', minHeight: '420px', display: 'flex', flexDirection: 'column', flex: '2 1 420px', minWidth: '300px' }}>
@@ -336,7 +442,34 @@ const WhatsApp = () => {
 
       <div className="card">
         <h2 style={{ marginTop: 0 }}>{t.whatsapp.customerInsights}</h2>
-        {loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', marginBottom: '10px' }}>
+          <input
+            className="input"
+            value={contactQuery}
+            onChange={(e) => {
+              setContactQuery(e.target.value);
+              setContactsPage(1);
+            }}
+            placeholder={t.whatsapp.searchPlaceholder}
+          />
+          <select
+            className="input"
+            value={contactsPageSize}
+            onChange={(e) => {
+              setContactsPageSize(Number(e.target.value));
+              setContactsPage(1);
+            }}
+            style={{ width: '120px' }}
+          >
+            <option value={8}>8 / page</option>
+            <option value={12}>12 / page</option>
+            <option value={20}>20 / page</option>
+          </select>
+        </div>
+        <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+          {t.whatsapp.totalContacts}: {contactsTotal} • {t.whatsapp.currentPageItems}: {contacts.length}/{contactsPageSize}
+        </div>
+        {loading || loadingContacts ? (
           <p>{t.common.loading}</p>
         ) : contacts.length === 0 ? (
           <p style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noContacts}</p>

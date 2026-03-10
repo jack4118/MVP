@@ -218,6 +218,14 @@ export interface WhatsAppContactSummary {
   } | null;
 }
 
+export interface WhatsAppContactsPage {
+  items: WhatsAppContactSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export const authApi = {
   register: async (email: string, password: string): Promise<ApiResponse<User>> => {
     try {
@@ -451,8 +459,8 @@ export const whatsappApi = {
     return response.data;
   },
 
-  getContacts: async (limit: number = 50): Promise<ApiResponse<WhatsAppContactSummary[]>> => {
-    const response = await api.get<ApiResponse<WhatsAppContactSummary[]>>('/whatsapp/contacts', { params: { limit } });
+  getContacts: async (params?: { q?: string; page?: number; pageSize?: number }): Promise<ApiResponse<WhatsAppContactsPage>> => {
+    const response = await api.get<ApiResponse<WhatsAppContactsPage>>('/whatsapp/contacts', { params });
     return response.data;
   },
 
