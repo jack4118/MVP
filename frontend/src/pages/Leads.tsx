@@ -1,24 +1,24 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  leadsApi,
-  aiApi,
-  usageApi,
-  Lead,
-  UsageInfo,
-  FollowUpStylePreset,
-  PaymentStylePreset,
-  LeadStatus,
-  OutputFormat,
-} from '../services/api';
-import { useLanguage, translate } from '../contexts/LanguageContext';
+import { Lead, LeadStatus, UsageInfo, leadsApi, usageApi } from '../services/api';
+import { translate, useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
 import UpgradeModal from '../components/UpgradeModal';
+import AppLogo from '../components/AppLogo';
+import AiComposerFields from '../components/AiComposerFields';
+import AiStatusPanel from '../components/AiStatusPanel';
+import AiUsageCard from '../components/AiUsageCard';
 import { shouldGateCopyForFree } from '../utils/paywall';
 import { trackProductEvent } from '../utils/analytics';
-
-const aiPresetsEnabled = import.meta.env.VITE_FEATURE_AI_PRESETS !== 'false';
+import {
+  createInitialAiConfig,
+  generateAiMessage,
+  GenerationStage,
+  getDefaultQuickConfigForLead,
+  getEventPurpose,
+  SharedAiConfig,
+} from '../features/ai/shared';
 
 const Leads = () => {
   const { t, language } = useLanguage();
@@ -35,25 +35,23 @@ const Leads = () => {
     status: 'new' as LeadStatus,
   });
 
-  // Filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'status'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // AI Modal states
   const [showAiModal, setShowAiModal] = useState(false);
-  const [generatedText, setGeneratedText] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
   const [currentLead, setCurrentLead] = useState<Lead | null>(null);
+  const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
+  const [generatedText, setGeneratedText] = useState('');
+  const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
+  const [generationDebug, setGenerationDebug] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
-  const [followUpStylePreset, setFollowUpStylePreset] = useState<FollowUpStylePreset>('gentle_nudge');
-  const [paymentStylePreset, setPaymentStylePreset] = useState<PaymentStylePreset>('friendly_reminder');
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>('chat');
-  const [objective, setObjective] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     loadLeads();
@@ -66,8 +64,8 @@ const Leads = () => {
       if (response.success && response.data) {
         setUsageInfo(response.data);
       }
-    } catch (err) {
-      // Silently fail - usage info is optional
+    } catch (_err) {
+      // Optional surface
     }
   };
 
@@ -88,11 +86,9 @@ const Leads = () => {
     }
   };
 
-  // Filter and sort leads
   const filteredAndSortedLeads = useMemo(() => {
     let filtered = [...allLeads];
 
-    // Apply search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -103,15 +99,13 @@ const Leads = () => {
       );
     }
 
-    // Apply status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter((lead) => lead.status === statusFilter);
     }
 
-    // Apply sorting
     filtered.sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortBy) {
         case 'name':
           comparison = a.name.localeCompare(b.name);
@@ -119,12 +113,10 @@ const Leads = () => {
         case 'status':
           comparison = a.status.localeCompare(b.status);
           break;
-        case 'date':
         default:
-          const dateA = new Date(a.lastActivityAt || a.createdAt).getTime();
-          const dateB = new Date(b.lastActivityAt || b.createdAt).getTime();
-          comparison = dateA - dateB;
-          break;
+          comparison =
+            new Date(a.lastActivityAt || a.createdAt).getTime() -
+            new Date(b.lastActivityAt || b.createdAt).getTime();
       }
 
       return sortOrder === 'asc' ? comparison : -comparison;
@@ -133,7 +125,6 @@ const Leads = () => {
     return filtered;
   }, [allLeads, searchTerm, statusFilter, sortBy, sortOrder]);
 
-  // Update displayed leads when filters change
   useEffect(() => {
     setLeads(filteredAndSortedLeads);
   }, [filteredAndSortedLeads]);
@@ -151,11 +142,11 @@ const Leads = () => {
       }
       setShowForm(false);
       setEditingLead(null);
-      setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
+      setFormData({ name: '', contact: '', notes: '', status: 'new' });
       setError('');
       loadLeads();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t.common.error);
     }
   };
 
@@ -175,7 +166,7 @@ const Leads = () => {
       await leadsApi.updateLeadStatus(leadId, newStatus);
       loadLeads();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t.common.error);
     }
   };
 
@@ -188,41 +179,62 @@ const Leads = () => {
 
   const calculateDaysPassed = (lead: Lead): number => {
     const lastActivity = lead.lastActivityAt || lead.createdAt;
-    const now = Date.now();
-    const activityTime = new Date(lastActivity).getTime();
-    return Math.floor((now - activityTime) / (1000 * 60 * 60 * 24));
+    return Math.floor((Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24));
   };
 
-  const handleAiFollowUp = async (lead: Lead) => {
-    setCurrentLead(lead);
-    setShowAiModal(true);
+  const closeAiModal = () => {
+    if (aiLoading) {
+      return;
+    }
+    setShowAiModal(false);
+    setCurrentLead(null);
+    setConfig(createInitialAiConfig());
     setGeneratedText('');
+    setGenerationDebug(null);
+    setGenerationStage('ready');
+    setAdvancedOpen(false);
+  };
+
+  const openAiModalForLead = (lead: Lead) => {
+    setCurrentLead(lead);
+    setConfig(getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)));
+    setGeneratedText('');
+    setGenerationDebug(null);
+    setGenerationStage('ready');
+    setShowAiModal(true);
     setError('');
-    if (!objective.trim()) {
+    setAdvancedOpen(false);
+  };
+
+  const handleGenerate = async () => {
+    if (!currentLead) {
+      return;
+    }
+    if (!config.objective.trim()) {
       setError(t.ai.objectiveRequired);
       return;
     }
+
     setAiLoading(true);
-    trackProductEvent('ai_generate_clicked', { purpose: 'follow_up', leadId: lead.id });
+    setError('');
+    setGenerationStage('thinking');
+    setGeneratedText('');
+    setGenerationDebug(null);
+    trackProductEvent('ai_generate_clicked', {
+      purpose: getEventPurpose(config.purpose),
+      leadId: currentLead.id,
+    });
 
     try {
-      const daysPassed = calculateDaysPassed(lead);
-      const response = await aiApi.generateFollowUp({
-        leadId: lead.id,
-        leadName: lead.name,
-        objective: objective.trim(),
-        status: lead.status,
-        daysPassed,
-        tone: 'polite',
-        stylePreset: aiPresetsEnabled ? followUpStylePreset : undefined,
-        outputFormat,
-        language,
-      });
-
+      const response = await generateAiMessage({ config, lead: currentLead, language });
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
-        trackProductEvent('ai_generate_success', { purpose: 'follow_up', leadId: lead.id });
-        // Update usage info from response
+        setGenerationDebug(response.data.debug || null);
+        setGenerationStage('done');
+        trackProductEvent('ai_generate_success', {
+          purpose: getEventPurpose(config.purpose),
+          leadId: currentLead.id,
+        });
         if (response.usage) {
           setUsageInfo(response.usage);
           if (response.usage.aiUsageThisMonth === 1) {
@@ -231,88 +243,23 @@ const Leads = () => {
         } else {
           await loadUsageInfo();
         }
-      } else {
-        // Check if it's a limit error
-        if (response.error?.code === 'AI_LIMIT_REACHED') {
-          trackProductEvent('ai_generate_failed_limit', { purpose: 'follow_up' });
-          setUpgradeSource('ai_limit');
-          setShowUpgradeModal(true);
-          if (response.usage) {
-            setUsageInfo(response.usage);
-          }
-        }
-        setError(response.error?.message || t.ai.failedToGenerate);
-        setShowAiModal(false);
+        return;
       }
-    } catch (err: any) {
-      // Check if it's a limit error from axios response
-      if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose: 'follow_up' });
+
+      setGenerationStage('ready');
+      if (response.error?.code === 'AI_LIMIT_REACHED') {
+        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
         setUpgradeSource('ai_limit');
         setShowUpgradeModal(true);
-        if (err?.response?.data?.usage) {
-          setUsageInfo(err.response.data.usage);
-        }
-      }
-      setError(err instanceof Error ? err.message : t.common.error);
-      setShowAiModal(false);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const handleAiPayment = async (lead: Lead) => {
-    setCurrentLead(lead);
-    setShowAiModal(true);
-    setGeneratedText('');
-    setError('');
-    if (!objective.trim()) {
-      setError(t.ai.objectiveRequired);
-      return;
-    }
-    setAiLoading(true);
-    trackProductEvent('ai_generate_clicked', { purpose: 'payment', leadId: lead.id });
-
-    try {
-      const response = await aiApi.generatePayment({
-        leadId: lead.id,
-        leadName: lead.name,
-        objective: objective.trim(),
-        tone: 'polite',
-        stylePreset: aiPresetsEnabled ? paymentStylePreset : undefined,
-        outputFormat,
-        language,
-      });
-
-      if (response.success && response.data) {
-        setGeneratedText(response.data.text);
-        trackProductEvent('ai_generate_success', { purpose: 'payment', leadId: lead.id });
-        // Update usage info from response
         if (response.usage) {
           setUsageInfo(response.usage);
-          if (response.usage.aiUsageThisMonth === 1) {
-            trackProductEvent('first_value_moment', { source: 'leads_quick_ai' });
-          }
-        } else {
-          await loadUsageInfo();
         }
-      } else {
-        // Check if it's a limit error
-        if (response.error?.code === 'AI_LIMIT_REACHED') {
-          trackProductEvent('ai_generate_failed_limit', { purpose: 'payment' });
-          setUpgradeSource('ai_limit');
-          setShowUpgradeModal(true);
-          if (response.usage) {
-            setUsageInfo(response.usage);
-          }
-        }
-        setError(response.error?.message || t.ai.failedToGenerate);
-        setShowAiModal(false);
       }
+      setError(response.error?.message || t.ai.failedToGenerate);
     } catch (err: any) {
-      // Check if it's a limit error from axios response
+      setGenerationStage('ready');
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose: 'payment' });
+        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
         setUpgradeSource('ai_limit');
         setShowUpgradeModal(true);
         if (err?.response?.data?.usage) {
@@ -320,7 +267,6 @@ const Leads = () => {
         }
       }
       setError(err instanceof Error ? err.message : t.common.error);
-      setShowAiModal(false);
     } finally {
       setAiLoading(false);
     }
@@ -343,25 +289,9 @@ const Leads = () => {
       await navigator.clipboard.writeText(generatedText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch (_err) {
       setError(t.common.error);
     }
-  };
-
-  const handleRegenerateFromModal = async () => {
-    if (!currentLead) return;
-    if (currentLead.status === 'closed') {
-      await handleAiPayment(currentLead);
-      return;
-    }
-    await handleAiFollowUp(currentLead);
-  };
-
-  const openAiModalForLead = (lead: Lead) => {
-    setCurrentLead(lead);
-    setShowAiModal(true);
-    setGeneratedText('');
-    setError('');
   };
 
   const statusColors: Record<string, string> = {
@@ -374,13 +304,13 @@ const Leads = () => {
   };
 
   const statusOptions = [
-    { value: 'all', label: 'All Status' },
-    { value: 'new', label: 'New' },
-    { value: 'contacted', label: 'Contacted' },
-    { value: 'interested', label: 'Interested' },
-    { value: 'waiting_reply', label: 'Waiting Reply' },
-    { value: 'not_interested', label: 'Not Interested' },
-    { value: 'closed', label: 'Closed' },
+    { value: 'all', label: t.leads.allStatus },
+    { value: 'new', label: t.status.new },
+    { value: 'contacted', label: t.status.contacted },
+    { value: 'interested', label: t.status.interested },
+    { value: 'waiting_reply', label: t.status.waiting_reply },
+    { value: 'not_interested', label: t.status.not_interested },
+    { value: 'closed', label: t.status.closed },
   ];
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all';
@@ -401,30 +331,27 @@ const Leads = () => {
       <header className="page-header">
         <div className="header-left">
           <Link to="/dashboard" className="home-link">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
             </svg>
           </Link>
-          <h1 className="page-title">{t.leads.title}</h1>
+          <div>
+            <AppLogo compact />
+            <h1 className="page-title">{t.leads.title}</h1>
+          </div>
         </div>
         <div className="header-actions">
+          <Link to="/pricing" className="btn btn-secondary">
+            {t.pricing.pricing}
+          </Link>
           <LanguageToggle />
           <ThemeToggle />
           <button
             onClick={() => {
               setShowForm(true);
               setEditingLead(null);
-              setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
+              setFormData({ name: '', contact: '', notes: '', status: 'new' });
               setError('');
             }}
             className="btn btn-primary"
@@ -440,7 +367,6 @@ const Leads = () => {
         </div>
       )}
 
-      {/* Filters Section */}
       <div className="card filters-card">
         <div className="filters-header">
           <h3>{t.leads.filtersAndSearch}</h3>
@@ -463,11 +389,7 @@ const Leads = () => {
           </div>
           <div className="filter-group">
             <label className="form-label">{t.leads.status}</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="input"
-            >
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input">
               {statusOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -477,11 +399,7 @@ const Leads = () => {
           </div>
           <div className="filter-group">
             <label className="form-label">{t.leads.sortBy}</label>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'name' | 'date' | 'status')}
-              className="input"
-            >
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'name' | 'date' | 'status')} className="input">
               <option value="date">{t.leads.date}</option>
               <option value="name">{t.leads.name}</option>
               <option value="status">{t.leads.status}</option>
@@ -489,11 +407,7 @@ const Leads = () => {
           </div>
           <div className="filter-group">
             <label className="form-label">{t.leads.order}</label>
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
-              className="input"
-            >
+            <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')} className="input">
               <option value="desc">{t.leads.descending}</option>
               <option value="asc">{t.leads.ascending}</option>
             </select>
@@ -565,7 +479,7 @@ const Leads = () => {
                 onClick={() => {
                   setShowForm(false);
                   setEditingLead(null);
-                  setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
+                  setFormData({ name: '', contact: '', notes: '', status: 'new' });
                 }}
                 className="btn btn-secondary"
               >
@@ -579,27 +493,14 @@ const Leads = () => {
       {leads.length === 0 ? (
         <div className="card empty-state">
           <div className="empty-icon">📋</div>
-          <h3>
-            {hasActiveFilters ? t.leads.noLeadsMatch : t.leads.noLeads}
-          </h3>
-          <p>
-            {hasActiveFilters
-              ? t.leads.noLeadsMatchMessage
-              : t.leads.noLeadsMessage}
-          </p>
+          <h3>{hasActiveFilters ? t.leads.noLeadsMatch : t.leads.noLeads}</h3>
+          <p>{hasActiveFilters ? t.leads.noLeadsMatchMessage : t.leads.noLeadsMessage}</p>
           {hasActiveFilters ? (
             <button onClick={clearFilters} className="btn btn-primary">
               {t.leads.clearFilters}
             </button>
           ) : (
-            <button
-              onClick={() => {
-                setShowForm(true);
-                setEditingLead(null);
-                setFormData({ name: '', contact: '', notes: '', status: 'new' as LeadStatus });
-              }}
-              className="btn btn-primary"
-            >
+            <button onClick={() => setShowForm(true)} className="btn btn-primary">
               {t.leads.createLead}
             </button>
           )}
@@ -628,7 +529,7 @@ const Leads = () => {
                       value={lead.status}
                       onChange={(e) => handleStatusChange(lead.id, e.target.value as LeadStatus)}
                       className="status-select"
-                      style={{ 
+                      style={{
                         backgroundColor: statusColors[lead.status] || 'transparent',
                         color: 'white',
                         border: 'none',
@@ -652,31 +553,14 @@ const Leads = () => {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {lead.status === 'waiting_reply' && (
-                        <button
-                          onClick={() => openAiModalForLead(lead)}
-                          className="btn btn-primary"
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          {t.leads.helpFollowUp}
+                      {(lead.status === 'waiting_reply' || lead.status === 'closed') && (
+                        <button onClick={() => openAiModalForLead(lead)} className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }}>
+                          {lead.status === 'closed' ? t.leads.helpCollectPayment : t.leads.helpFollowUp}
                         </button>
                       )}
-                      {lead.status === 'closed' && (
-                        <button
-                          onClick={() => openAiModalForLead(lead)}
-                          className="btn btn-primary"
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          {t.leads.helpCollectPayment}
-                        </button>
-                      )}
-                    <button
-                      onClick={() => handleEdit(lead)}
-                      className="btn btn-secondary"
-                      style={{ padding: '6px 12px', fontSize: '12px' }}
-                    >
-                      {t.common.edit}
-                    </button>
+                      <button onClick={() => handleEdit(lead)} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
+                        {t.common.edit}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -686,173 +570,66 @@ const Leads = () => {
         </div>
       )}
 
-      {/* AI Modal */}
-      {showAiModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => {
-            if (!aiLoading) {
-              setShowAiModal(false);
-              setGeneratedText('');
-              setCurrentLead(null);
-            }
-          }}
-        >
-          <div
-            className="card"
-            style={{
-              maxWidth: '600px',
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              position: 'relative',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2>{t.leads.aiModalTitle}</h2>
-              <button
-                onClick={() => {
-                  setShowAiModal(false);
-                  setGeneratedText('');
-                  setCurrentLead(null);
-                }}
-                className="btn btn-secondary"
-                style={{ padding: '6px 12px' }}
-                disabled={aiLoading}
-              >
+      {showAiModal && currentLead && (
+        <div className="modal-shell" onClick={closeAiModal}>
+          <div className="card quick-ai-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="quick-ai-header">
+              <div>
+                <h2>{t.leads.quickAiTitle}</h2>
+                <p>{t.leads.quickAiSubtitle}</p>
+              </div>
+              <button onClick={closeAiModal} className="btn btn-secondary" disabled={aiLoading}>
                 {t.common.close}
               </button>
             </div>
 
-            {currentLead && (
-              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                <strong>{t.leads.name}:</strong> {currentLead.name}
-                {currentLead.contact && (
-                  <>
-                    <br />
-                    <strong>{t.leads.contact}:</strong> {currentLead.contact}
-                  </>
-                )}
+            <div className="quick-ai-context">
+              <div>
+                <span>{t.leads.name}</span>
+                <strong>{currentLead.name}</strong>
               </div>
-            )}
+              <div>
+                <span>{t.leads.contact}</span>
+                <strong>{currentLead.contact || '-'}</strong>
+              </div>
+              <div>
+                <span>{t.leads.status}</span>
+                <strong>{t.status[currentLead.status]}</strong>
+              </div>
+            </div>
 
-            {currentLead && (
-              <div className="form-group" style={{ marginBottom: '16px' }}>
-                <label className="form-label">{t.ai.objective} *</label>
-                <textarea
-                  value={objective}
-                  onChange={(e) => setObjective(e.target.value)}
-                  className="input"
-                  rows={3}
-                  placeholder={t.ai.objectivePlaceholder}
+            <AiUsageCard usageInfo={usageInfo} compact onUpgrade={() => setShowUpgradeModal(true)} />
+
+            <div className="quick-ai-layout">
+              <div className="quick-ai-config">
+                <AiComposerFields
+                  config={config}
+                  onChange={(patch) => setConfig((current) => ({ ...current, ...patch }))}
+                  compact
+                  advancedOpen={advancedOpen}
+                  onToggleAdvanced={() => setAdvancedOpen((value) => !value)}
                 />
-              </div>
-            )}
 
-            {aiPresetsEnabled && currentLead && (
-              <div className="form-group" style={{ marginBottom: '16px' }}>
-                <label className="form-label">{t.ai.stylePreset}</label>
-                {currentLead.status === 'closed' ? (
-                  <select
-                    value={paymentStylePreset}
-                    onChange={(e) => setPaymentStylePreset(e.target.value as PaymentStylePreset)}
-                    className="input"
-                  >
-                    <option value="friendly_reminder">{t.ai.paymentPresetFriendlyReminder}</option>
-                    <option value="due_today">{t.ai.paymentPresetDueToday}</option>
-                    <option value="overdue_escalation">{t.ai.paymentPresetOverdueEscalation}</option>
-                  </select>
-                ) : (
-                  <select
-                    value={followUpStylePreset}
-                    onChange={(e) => setFollowUpStylePreset(e.target.value as FollowUpStylePreset)}
-                    className="input"
-                  >
-                    <option value="gentle_nudge">{t.ai.followUpPresetGentleNudge}</option>
-                    <option value="value_reminder">{t.ai.followUpPresetValueReminder}</option>
-                    <option value="meeting_request">{t.ai.followUpPresetMeetingRequest}</option>
-                  </select>
-                )}
+                <button onClick={handleGenerate} className="btn btn-primary quick-ai-generate" disabled={aiLoading}>
+                  {aiLoading ? (
+                    <>
+                      <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></div>
+                      <span>{t.ai.generating}</span>
+                    </>
+                  ) : generatedText ? (
+                    <span>{t.ai.regenerateVariant}</span>
+                  ) : (
+                    <span>{t.ai.generateText}</span>
+                  )}
+                </button>
               </div>
-            )}
 
-            {currentLead && (
-              <div className="form-group" style={{ marginBottom: '16px' }}>
-                <label className="form-label">{t.ai.outputFormat}</label>
-                <select
-                  value={outputFormat}
-                  onChange={(e) => setOutputFormat(e.target.value as OutputFormat)}
-                  className="input"
-                >
-                  <option value="chat">{t.ai.formatChat}</option>
-                  <option value="email">{t.ai.formatEmail}</option>
-                  <option value="whatsapp">{t.ai.formatWhatsapp}</option>
-                </select>
-              </div>
-            )}
-
-            {usageInfo && usageInfo.plan === 'free' && (
-              <div style={{ 
-                marginBottom: '16px', 
-                padding: '12px', 
-                backgroundColor: 'var(--warning)', 
-                color: 'var(--bg-primary)',
-                borderRadius: '8px',
-                fontSize: '14px',
-                textAlign: 'center',
-              }}>
-                {usageInfo.aiLimit !== null
-                  ? translate(t.pricing.aiMessagesLeft, { count: usageInfo.aiRemaining ?? 0 })
-                  : t.pricing.aiMessagesLeftUnlimited}
-                {usageInfo.aiLimit !== null && (
-                  <div style={{ marginTop: '8px' }}>
-                    <div style={{ fontSize: '12px', marginBottom: '6px' }}>
-                      {translate(t.pricing.usageProgress, { used: usageInfo.aiUsageThisMonth, limit: usageInfo.aiLimit })}
-                    </div>
-                    <div style={{ width: '100%', height: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '999px', overflow: 'hidden' }}>
-                      <div style={{ width: `${usageInfo.aiUsagePercent}%`, height: '100%', background: 'var(--bg-primary)' }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {aiLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px' }}>
-                <div className="spinner" style={{ margin: '0 auto' }}></div>
-                <p style={{ marginTop: '16px' }}>{t.ai.generating}</p>
-              </div>
-            ) : (
-              <>
-                {currentLead && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <button
-                      onClick={handleRegenerateFromModal}
-                      className="btn btn-primary"
-                      style={{ width: '100%' }}
-                    >
-                      {generatedText ? t.ai.regenerateVariant : t.ai.generateText}
-                    </button>
-                  </div>
-                )}
+              <div className="quick-ai-result">
                 {generatedText && usageInfo?.plan === 'free' && (
-                  <div style={{ marginBottom: '12px', padding: '10px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '14px' }}>
+                  <div className="post-success-card post-success-card-compact">
                     <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
                     <button
                       className="btn btn-primary"
-                      style={{ marginTop: '8px', padding: '6px 10px', fontSize: '12px' }}
                       onClick={() => {
                         setUpgradeSource('post_success');
                         setShowUpgradeModal(true);
@@ -862,39 +639,30 @@ const Leads = () => {
                     </button>
                   </div>
                 )}
+
                 <textarea
                   value={generatedText}
-                  readOnly
-                  className="input"
-                  style={{
-                    minHeight: '200px',
-                    fontFamily: 'inherit',
-                    resize: 'vertical',
-                  }}
+                  onChange={(e) => setGeneratedText(e.target.value)}
+                  className="input generated-textarea quick-ai-textarea"
                   placeholder={t.ai.generatedTextPlaceholder}
+                  rows={12}
                 />
-                {generatedText && (
-                  <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                    <button onClick={handleRegenerateFromModal} className="btn btn-secondary">
-                      {t.ai.regenerateVariant}
-                    </button>
-                    <button 
-                      onClick={handleCopyText} 
-                      className="btn btn-success"
-                    >
-                      {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
+
+                <div className="quick-ai-actions">
+                  <button onClick={handleCopyText} className="btn btn-success" disabled={!generatedText}>
+                    {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
+                  </button>
+                </div>
+
+                <AiStatusPanel generationStage={generationStage} generationDebug={generationDebug} />
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Upgrade Modal */}
-      <UpgradeModal 
-        isOpen={showUpgradeModal} 
+      <UpgradeModal
+        isOpen={showUpgradeModal}
         source={upgradeSource}
         generatedCount={usageInfo?.aiUsageThisMonth || 0}
         onClose={() => setShowUpgradeModal(false)}

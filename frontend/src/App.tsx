@@ -8,6 +8,8 @@ import Leads from './pages/Leads';
 import Reminders from './pages/Reminders';
 import AI from './pages/AI';
 import WhatsApp from './pages/WhatsApp';
+import Pricing from './pages/Pricing';
+import AgentProgram from './pages/AgentProgram';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -66,6 +68,22 @@ const AppRoutes = () => {
         element={
           <PrivateRoute>
             <WhatsApp />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/pricing"
+        element={
+          <PrivateRoute>
+            <Pricing />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/agent"
+        element={
+          <PrivateRoute>
+            <AgentProgram />
           </PrivateRoute>
         }
       />

@@ -74,40 +74,26 @@ const UpgradeModal = ({
           {translate(t.pricing.valueMessagesCreated, { count: generatedCount })}
         </p>
 
-        <div style={{ marginBottom: '24px' }}>
-          <h3 style={{ marginBottom: '16px' }}>{t.pricing.proPlan}</h3>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            <li style={{ padding: '8px 0', display: 'flex', alignItems: 'center' }}>
-              <span style={{ marginRight: '8px', fontSize: '18px' }}>✓</span>
-              {t.pricing.unlimitedLeads}
-            </li>
-            <li style={{ padding: '8px 0', display: 'flex', alignItems: 'center' }}>
-              <span style={{ marginRight: '8px', fontSize: '18px' }}>✓</span>
-              {t.pricing.unlimitedAi}
-            </li>
-            <li style={{ padding: '8px 0', display: 'flex', alignItems: 'center' }}>
-              <span style={{ marginRight: '8px', fontSize: '18px' }}>✓</span>
-              {t.pricing.oneClickCopy}
-            </li>
-            <li style={{ padding: '8px 0', display: 'flex', alignItems: 'center' }}>
-              <span style={{ marginRight: '8px', fontSize: '18px' }}>✓</span>
-              {t.pricing.futureFeatures}
-            </li>
-          </ul>
-        </div>
-
-        <div style={{ 
-          padding: '16px', 
-          backgroundColor: 'var(--bg-secondary)', 
-          borderRadius: '8px',
-          marginBottom: '24px',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' }}>
-            {t.pricing.pricePerMonth}
+        <div className="upgrade-plan-grid">
+          <div className="upgrade-plan-card">
+            <div className="upgrade-plan-label">{t.pricing.upgradeModalStarterLabel}</div>
+            <div className="upgrade-plan-price">RM29{t.pricing.monthlySuffix}</div>
+            <p>{t.pricing.starterDescription}</p>
           </div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-            {t.pricing.pricePerMonthUsd}
+          <div className="upgrade-plan-card upgrade-plan-card-highlight">
+            <div className="upgrade-plan-label">{t.pricing.proPlan}</div>
+            <div className="upgrade-plan-price">RM49{t.pricing.monthlySuffix}</div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0 0' }}>
+              <li style={{ padding: '6px 0' }}>✓ {t.pricing.unlimitedLeads}</li>
+              <li style={{ padding: '6px 0' }}>✓ {t.pricing.unlimitedAi}</li>
+              <li style={{ padding: '6px 0' }}>✓ {t.pricing.oneClickCopy}</li>
+              <li style={{ padding: '6px 0' }}>✓ {t.pricing.futureFeatures}</li>
+            </ul>
+          </div>
+          <div className="upgrade-plan-card upgrade-plan-card-muted">
+            <div className="upgrade-plan-label">{t.pricing.upgradeModalBusinessLabel}</div>
+            <div className="upgrade-plan-price">RM79{t.pricing.monthlySuffix}</div>
+            <p>{t.pricing.businessDescription}</p>
           </div>
         </div>
 

@@ -1,38 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  aiApi,
-  leadsApi,
-  usageApi,
-  whatsappApi,
+  AiHistoryItem,
   Lead,
   UsageInfo,
-  FollowUpStylePreset,
-  PaymentStylePreset,
-  OutputFormat,
-  AiHistoryItem,
-  AiTone,
-  ConversationMode,
-  EmojiDensity,
-  AiGenerationDebug,
+  usageApi,
+  whatsappApi,
+  leadsApi,
+  aiApi,
 } from '../services/api';
-import { useLanguage, translate } from '../contexts/LanguageContext';
+import { translate, useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
 import UpgradeModal from '../components/UpgradeModal';
+import AppLogo from '../components/AppLogo';
+import AiUsageCard from '../components/AiUsageCard';
+import AiStatusPanel from '../components/AiStatusPanel';
+import AiComposerFields from '../components/AiComposerFields';
 import { shouldGateCopyForFree } from '../utils/paywall';
 import { trackProductEvent } from '../utils/analytics';
-
-const aiPresetsEnabled = import.meta.env.VITE_FEATURE_AI_PRESETS !== 'false';
+import {
+  createInitialAiConfig,
+  generateAiMessage,
+  GenerationStage,
+  getEventPurpose,
+  getHistoryPurposeLabel,
+  getHistoryStyleLabel,
+  SharedAiConfig,
+} from '../features/ai/shared';
 
 const AI = () => {
+  const { t, language } = useLanguage();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [purpose, setPurpose] = useState<'follow-up' | 'payment'>('follow-up');
+  const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [generationStage, setGenerationStage] = useState<'idle' | 'thinking' | 'done'>('idle');
-  const [generationDebug, setGenerationDebug] = useState<AiGenerationDebug | null>(null);
+  const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
+  const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
@@ -42,19 +47,6 @@ const AI = () => {
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
-  const { t, language } = useLanguage();
-  const [formData, setFormData] = useState({
-    daysPassed: 0,
-    tone: 'polite' as AiTone,
-    objective: '',
-    amount: 0,
-    dueDate: '',
-    outputFormat: 'chat' as OutputFormat,
-    conversationMode: 'standard' as ConversationMode,
-    emojiDensity: 'medium' as EmojiDensity,
-    followUpStylePreset: 'gentle_nudge' as FollowUpStylePreset,
-    paymentStylePreset: 'friendly_reminder' as PaymentStylePreset,
-  });
 
   useEffect(() => {
     loadLeads();
@@ -80,7 +72,7 @@ const AI = () => {
         setUsageInfo(response.data);
       }
     } catch (_err) {
-      // Usage is optional for rendering
+      // Optional surface
     }
   };
 
@@ -91,7 +83,7 @@ const AI = () => {
         setHistory(response.data);
       }
     } catch (_err) {
-      // Non-blocking section
+      // Non-blocking
     }
   };
 
@@ -100,18 +92,23 @@ const AI = () => {
     setShowUpgradeModal(true);
   };
 
+  const updateConfig = (patch: Partial<SharedAiConfig>) => {
+    setConfig((current) => ({ ...current, ...patch }));
+    setError('');
+  };
+
   const handleGenerate = async () => {
     if (!selectedLead) {
       setError(t.ai.pleaseSelectLead);
       return;
     }
-    if (!formData.objective.trim()) {
+    if (!config.objective.trim()) {
       setError(t.ai.objectiveRequired);
       return;
     }
 
     trackProductEvent('ai_generate_clicked', {
-      purpose,
+      purpose: getEventPurpose(config.purpose),
       leadId: selectedLead.id,
     });
 
@@ -123,36 +120,7 @@ const AI = () => {
     setWhatsAppPhone(selectedLead.contact || '');
 
     try {
-      let response;
-      if (purpose === 'follow-up') {
-        response = await aiApi.generateFollowUp({
-          leadId: selectedLead.id,
-          leadName: selectedLead.name,
-          objective: formData.objective.trim(),
-          status: selectedLead.status,
-          daysPassed: formData.daysPassed,
-          tone: formData.tone,
-          stylePreset: aiPresetsEnabled ? formData.followUpStylePreset : undefined,
-          conversationMode: formData.conversationMode,
-          emojiDensity: formData.emojiDensity,
-          outputFormat: formData.outputFormat,
-          language,
-        });
-      } else {
-        response = await aiApi.generatePayment({
-          leadId: selectedLead.id,
-          leadName: selectedLead.name,
-          objective: formData.objective.trim(),
-          amount: formData.amount > 0 ? formData.amount : undefined,
-          dueDate: formData.dueDate || undefined,
-          tone: formData.tone,
-          stylePreset: aiPresetsEnabled ? formData.paymentStylePreset : undefined,
-          conversationMode: formData.conversationMode,
-          emojiDensity: formData.emojiDensity,
-          outputFormat: formData.outputFormat,
-          language,
-        });
-      }
+      const response = await generateAiMessage({ config, lead: selectedLead, language });
 
       if (response.success && response.data) {
         setGeneratedText(response.data.text);
@@ -169,25 +137,26 @@ const AI = () => {
         }
 
         trackProductEvent('ai_generate_success', {
-          purpose,
+          purpose: getEventPurpose(config.purpose),
           leadId: selectedLead.id,
         });
         await loadHistory(historyPurpose);
-      } else {
-        setGenerationStage('idle');
-        if (response.error?.code === 'AI_LIMIT_REACHED') {
-          trackProductEvent('ai_generate_failed_limit', { purpose });
-          openUpgradeModal('ai_limit');
-          if (response.usage) {
-            setUsageInfo(response.usage);
-          }
-        }
-        setError(response.error?.message || t.ai.failedToGenerate);
+        return;
       }
+
+      setGenerationStage('ready');
+      if (response.error?.code === 'AI_LIMIT_REACHED') {
+        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
+        openUpgradeModal('ai_limit');
+        if (response.usage) {
+          setUsageInfo(response.usage);
+        }
+      }
+      setError(response.error?.message || t.ai.failedToGenerate);
     } catch (err: any) {
-      setGenerationStage('idle');
+      setGenerationStage('ready');
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose });
+        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
         openUpgradeModal('ai_limit');
         if (err?.response?.data?.usage) {
           setUsageInfo(err.response.data.usage);
@@ -220,10 +189,6 @@ const AI = () => {
     }
   };
 
-  const handleRegenerate = async () => {
-    await handleGenerate();
-  };
-
   const handleSendWhatsApp = async () => {
     if (!generatedText.trim()) {
       return;
@@ -244,7 +209,6 @@ const AI = () => {
 
       if (!response.success) {
         setError(response.error?.message || t.common.error);
-        return;
       }
     } catch (err) {
       const message =
@@ -257,44 +221,6 @@ const AI = () => {
   };
 
   const getStatusLabel = (status: string) => t.status[status as keyof typeof t.status] || status;
-  const humanizeKey = (value: string) =>
-    value
-      .split('_')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-
-  const getHistoryPurposeLabel = (purposeValue: 'follow_up' | 'payment') => {
-    if (purposeValue === 'follow_up') {
-      return t.ai.historyFollowUp;
-    }
-    return t.ai.historyPayment;
-  };
-
-  const getHistoryStyleLabel = (purposeValue: 'follow_up' | 'payment', stylePreset?: string | null) => {
-    if (!stylePreset) {
-      return '';
-    }
-
-    if (purposeValue === 'follow_up') {
-      const map: Record<string, string> = {
-        gentle_nudge: t.ai.followUpPresetGentleNudge,
-        value_reminder: t.ai.followUpPresetValueReminder,
-        meeting_request: t.ai.followUpPresetMeetingRequest,
-        deadline_push: t.ai.followUpPresetDeadlinePush,
-        social_proof: t.ai.followUpPresetSocialProof,
-      };
-      return map[stylePreset] || humanizeKey(stylePreset);
-    }
-
-    const map: Record<string, string> = {
-      friendly_reminder: t.ai.paymentPresetFriendlyReminder,
-      due_today: t.ai.paymentPresetDueToday,
-      overdue_escalation: t.ai.paymentPresetOverdueEscalation,
-      installment_offer: t.ai.paymentPresetInstallmentOffer,
-      soft_final_notice: t.ai.paymentPresetSoftFinalNotice,
-    };
-    return map[stylePreset] || humanizeKey(stylePreset);
-  };
 
   return (
     <div className="page-container">
@@ -306,9 +232,15 @@ const AI = () => {
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
             </svg>
           </Link>
-          <h1 className="page-title">{t.ai.title}</h1>
+          <div>
+            <AppLogo compact />
+            <h1 className="page-title">{t.ai.title}</h1>
+          </div>
         </div>
         <div className="header-actions">
+          <Link to="/pricing" className="btn btn-secondary">
+            {t.pricing.pricing}
+          </Link>
           <LanguageToggle />
           <ThemeToggle />
         </div>
@@ -322,33 +254,21 @@ const AI = () => {
 
       <div className="ai-generator-grid">
         <div className="card">
-          <h2>{t.ai.configuration}</h2>
+          <div className="section-heading">
+            <h2>{t.ai.configuration}</h2>
+            <p>{t.ai.configurationSubtitle}</p>
+          </div>
 
-          {usageInfo && usageInfo.plan === 'free' && (
-            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--warning)', color: 'var(--bg-primary)', borderRadius: '8px', fontSize: '14px', textAlign: 'center' }}>
-              {usageInfo.aiLimit !== null
-                ? translate(t.pricing.aiMessagesLeft, { count: usageInfo.aiRemaining ?? 0 })
-                : t.pricing.aiMessagesLeftUnlimited}
-              {usageInfo.aiLimit !== null && (
-                <div style={{ marginTop: '10px' }}>
-                  <div style={{ fontSize: '12px', marginBottom: '6px' }}>
-                    {translate(t.pricing.usageProgress, { used: usageInfo.aiUsageThisMonth, limit: usageInfo.aiLimit })}
-                  </div>
-                  <div style={{ width: '100%', height: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '999px', overflow: 'hidden' }}>
-                    <div style={{ width: `${usageInfo.aiUsagePercent}%`, height: '100%', background: 'var(--bg-primary)' }} />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          <AiUsageCard usageInfo={usageInfo} onUpgrade={() => openUpgradeModal('generic')} />
 
           <div className="form-group">
             <label className="form-label">{t.ai.selectLead} *</label>
             <select
               value={selectedLead?.id || ''}
               onChange={(e) => {
-                const lead = leads.find((item) => item.id === e.target.value);
-                setSelectedLead(lead || null);
+                const lead = leads.find((item) => item.id === e.target.value) || null;
+                setSelectedLead(lead);
+                setWhatsAppPhone(lead?.contact || '');
                 setError('');
               }}
               className="input"
@@ -362,163 +282,7 @@ const AI = () => {
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">{t.ai.purpose} *</label>
-            <select
-              value={purpose}
-              onChange={(e) => {
-                setPurpose(e.target.value as 'follow-up' | 'payment');
-                setError('');
-              }}
-              className="input"
-            >
-              <option value="follow-up">{t.ai.followUp}</option>
-              <option value="payment">{t.ai.payment}</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.ai.objective} *</label>
-            <textarea
-              value={formData.objective}
-              onChange={(e) => setFormData({ ...formData, objective: e.target.value })}
-              className="input"
-              rows={3}
-              placeholder={t.ai.objectivePlaceholder}
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.ai.outputFormat}</label>
-            <select
-              value={formData.outputFormat}
-              onChange={(e) => setFormData({ ...formData, outputFormat: e.target.value as OutputFormat })}
-              className="input"
-            >
-              <option value="chat">{t.ai.formatChat}</option>
-              <option value="email">{t.ai.formatEmail}</option>
-              <option value="whatsapp">{t.ai.formatWhatsapp}</option>
-            </select>
-          </div>
-
-          {purpose === 'follow-up' ? (
-            <>
-              <div className="form-group">
-                <label className="form-label">{t.ai.daysPassed}</label>
-                <input
-                  type="number"
-                  value={formData.daysPassed}
-                  onChange={(e) => setFormData({ ...formData, daysPassed: parseInt(e.target.value, 10) || 0 })}
-                  min="0"
-                  className="input"
-                  placeholder={t.ai.daysPassedPlaceholder}
-                />
-              </div>
-
-              {aiPresetsEnabled && (
-                <div className="form-group">
-                  <label className="form-label">{t.ai.stylePreset}</label>
-                  <select
-                    value={formData.followUpStylePreset}
-                    onChange={(e) => setFormData({ ...formData, followUpStylePreset: e.target.value as FollowUpStylePreset })}
-                    className="input"
-                  >
-                    <option value="gentle_nudge">{t.ai.followUpPresetGentleNudge}</option>
-                    <option value="value_reminder">{t.ai.followUpPresetValueReminder}</option>
-                    <option value="meeting_request">{t.ai.followUpPresetMeetingRequest}</option>
-                    <option value="deadline_push">{t.ai.followUpPresetDeadlinePush}</option>
-                    <option value="social_proof">{t.ai.followUpPresetSocialProof}</option>
-                  </select>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="form-group">
-                <label className="form-label">{t.ai.amount}</label>
-                <input
-                  type="number"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
-                  min="0"
-                  step="0.01"
-                  className="input"
-                  placeholder={t.ai.amountPlaceholder}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{t.ai.dueDate}</label>
-                <input
-                  type="date"
-                  value={formData.dueDate}
-                  onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                  className="input"
-                />
-              </div>
-
-              {aiPresetsEnabled && (
-                <div className="form-group">
-                  <label className="form-label">{t.ai.stylePreset}</label>
-                  <select
-                    value={formData.paymentStylePreset}
-                    onChange={(e) => setFormData({ ...formData, paymentStylePreset: e.target.value as PaymentStylePreset })}
-                    className="input"
-                  >
-                    <option value="friendly_reminder">{t.ai.paymentPresetFriendlyReminder}</option>
-                    <option value="due_today">{t.ai.paymentPresetDueToday}</option>
-                    <option value="overdue_escalation">{t.ai.paymentPresetOverdueEscalation}</option>
-                    <option value="installment_offer">{t.ai.paymentPresetInstallmentOffer}</option>
-                    <option value="soft_final_notice">{t.ai.paymentPresetSoftFinalNotice}</option>
-                  </select>
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="form-group">
-            <label className="form-label">{t.ai.tone}</label>
-            <select
-              value={formData.tone}
-              onChange={(e) => setFormData({ ...formData, tone: e.target.value as AiTone })}
-              className="input"
-            >
-              <option value="polite">{t.ai.polite}</option>
-              <option value="friendly">{t.ai.friendly}</option>
-              <option value="professional">{t.ai.professional}</option>
-              <option value="casual">{t.ai.casual}</option>
-              <option value="assertive">{t.ai.assertive}</option>
-              <option value="empathetic">{t.ai.empathetic}</option>
-              <option value="urgent">{t.ai.urgent}</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.ai.replyMode}</label>
-            <select
-              value={formData.conversationMode}
-              onChange={(e) => setFormData({ ...formData, conversationMode: e.target.value as ConversationMode })}
-              className="input"
-            >
-              <option value="standard">{t.ai.replyModeStandard}</option>
-              <option value="humor">{t.ai.replyModeHumor}</option>
-              <option value="banter">{t.ai.replyModeBanter}</option>
-              <option value="direct">{t.ai.replyModeDirect}</option>
-              <option value="consultative">{t.ai.replyModeConsultative}</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.ai.emojiLevel}</label>
-            <select
-              value={formData.emojiDensity}
-              onChange={(e) => setFormData({ ...formData, emojiDensity: e.target.value as EmojiDensity })}
-              className="input"
-            >
-              <option value="low">{t.ai.emojiLow}</option>
-              <option value="medium">{t.ai.emojiMedium}</option>
-              <option value="high">{t.ai.emojiHigh}</option>
-            </select>
-          </div>
+          <AiComposerFields config={config} onChange={updateConfig} />
 
           <button onClick={handleGenerate} disabled={loading || !selectedLead} className="btn btn-primary" style={{ width: '100%' }}>
             {loading ? (
@@ -532,12 +296,15 @@ const AI = () => {
           </button>
         </div>
 
-        <div className="card">
+        <div className="card ai-result-card">
           <div className="generated-text-header">
-            <h2>{t.ai.generatedText}</h2>
+            <div>
+              <h2>{t.ai.generatedText}</h2>
+              <p>{t.ai.resultPanelSubtitle}</p>
+            </div>
             {generatedText && (
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={handleRegenerate} className="btn btn-secondary" disabled={loading}>
+                <button onClick={handleGenerate} className="btn btn-secondary" disabled={loading}>
                   {t.ai.regenerateVariant}
                 </button>
                 <button onClick={handleCopy} className="btn btn-success">
@@ -548,13 +315,9 @@ const AI = () => {
           </div>
 
           {generatedText && usageInfo?.plan === 'free' && (
-            <div style={{ marginBottom: '12px', padding: '10px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '14px' }}>
+            <div className="post-success-card">
               <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
-              <button
-                className="btn btn-primary"
-                style={{ marginTop: '8px', padding: '6px 10px', fontSize: '12px' }}
-                onClick={() => openUpgradeModal('post_success')}
-              >
+              <button className="btn btn-primary" onClick={() => openUpgradeModal('post_success')}>
                 {t.pricing.upgradePrompt}
               </button>
             </div>
@@ -567,8 +330,9 @@ const AI = () => {
             placeholder={t.ai.generatedTextPlaceholder}
             rows={15}
           />
+
           {generatedText && (
-            <div style={{ marginTop: '10px', display: 'grid', gap: '8px' }}>
+            <div className="whatsapp-send-panel">
               <input
                 className="input"
                 value={whatsAppPhone}
@@ -580,69 +344,8 @@ const AI = () => {
               </button>
             </div>
           )}
-          <div className={`ai-state-panel ai-state-${generationStage}`} style={{ marginTop: '12px' }}>
-            <div className="ai-state-visual" aria-hidden="true">
-              {generationStage === 'idle' && <div className="ai-state-orbit"></div>}
-              {generationStage === 'thinking' && (
-                <div className="ai-state-dots">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-              )}
-              {generationStage === 'done' && <div className="ai-state-check">OK</div>}
-            </div>
-            <div className="ai-state-text">
-              <div className="ai-state-title">
-                {generationStage === 'idle' && t.ai.statusIdleTitle}
-                {generationStage === 'thinking' && t.ai.statusThinkingTitle}
-                {generationStage === 'done' && t.ai.statusDoneTitle}
-              </div>
-              <div className="ai-state-desc">
-                {generationStage === 'idle' && t.ai.statusIdleDesc}
-                {generationStage === 'thinking' && t.ai.statusThinkingDesc}
-                {generationStage === 'done' && t.ai.statusDoneDesc}
-              </div>
-              {generationDebug && (
-                <div className="ai-debug-grid">
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugLanguage}</span>
-                    <strong>{generationDebug.requested.language}</strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugTone}</span>
-                    <strong>{generationDebug.requested.tone}</strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugMode}</span>
-                    <strong>{generationDebug.requested.conversationMode}</strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugEmoji}</span>
-                    <strong>
-                      {generationDebug.checks.emojiCount} ({generationDebug.checks.emojiMin}-{generationDebug.checks.emojiMax})
-                    </strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugEmojiMatch}</span>
-                    <strong>{generationDebug.checks.emojiInRange ? t.ai.debugYes : t.ai.debugNo}</strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugModeMatch}</span>
-                    <strong>{generationDebug.checks.modeSignalDetected ? t.ai.debugYes : t.ai.debugNo}</strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugObjective}</span>
-                    <strong>{generationDebug.checks.objectiveCoverageRatio}</strong>
-                  </div>
-                  <div className="ai-debug-item">
-                    <span>{t.ai.debugObjectiveMatch}</span>
-                    <strong>{generationDebug.checks.objectiveCoveragePass ? t.ai.debugYes : t.ai.debugNo}</strong>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+
+          <AiStatusPanel generationStage={generationStage} generationDebug={generationDebug} />
         </div>
       </div>
 
@@ -685,15 +388,7 @@ const AI = () => {
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {history.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  padding: '12px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-color)',
-                  background: 'linear-gradient(135deg, rgba(80,140,200,0.08), rgba(60,180,120,0.06))',
-                }}
-              >
+              <div key={item.id} className="ai-history-item">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '6px' }}>
                   <strong>{item.lead.name}</strong>
                   <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
@@ -702,12 +397,10 @@ const AI = () => {
                 </div>
                 <div className="ai-history-tags">
                   <span className={`ai-tag ${item.purpose === 'payment' ? 'ai-tag-payment' : 'ai-tag-followup'}`}>
-                    {getHistoryPurposeLabel(item.purpose)}
+                    {getHistoryPurposeLabel(t, item.purpose)}
                   </span>
                   {item.stylePreset && (
-                    <span className="ai-tag ai-tag-style">
-                      {getHistoryStyleLabel(item.purpose, item.stylePreset)}
-                    </span>
+                    <span className="ai-tag ai-tag-style">{getHistoryStyleLabel(t, item.purpose, item.stylePreset)}</span>
                   )}
                 </div>
                 <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{item.content}</div>

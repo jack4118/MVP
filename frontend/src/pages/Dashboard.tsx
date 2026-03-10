@@ -5,6 +5,7 @@ import { useLanguage, translate } from '../contexts/LanguageContext';
 import { leadsApi, Lead } from '../services/api';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
+import AppLogo from '../components/AppLogo';
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -48,6 +49,7 @@ const Dashboard = () => {
     <div className="page-container">
       <header className="page-header">
         <div>
+          <AppLogo />
           <h1 className="page-title">{t.dashboard.title}</h1>
           <p className="page-subtitle">{translate(t.dashboard.welcomeBack, { email: user?.email || '' })}</p>
         </div>
@@ -94,6 +96,12 @@ const Dashboard = () => {
         </div>
       )}
 
+      <div className="card hero-card">
+        <p className="eyebrow">{t.dashboard.heroTitle}</p>
+        <h2>{t.dashboard.welcome}</h2>
+        <p>{t.dashboard.heroDescription}</p>
+      </div>
+
       <nav className="dashboard-nav">
         <Link to="/leads" className="nav-card">
           <div className="nav-icon">👥</div>
@@ -121,6 +129,20 @@ const Dashboard = () => {
           <div>
             <h3>{t.dashboard.whatsappIntegration}</h3>
             <p>{t.dashboard.whatsappIntegrationDescription}</p>
+          </div>
+        </Link>
+        <Link to="/pricing" className="nav-card">
+          <div className="nav-icon">💸</div>
+          <div>
+            <h3>{t.dashboard.pricing}</h3>
+            <p>{t.dashboard.pricingDescription}</p>
+          </div>
+        </Link>
+        <Link to="/agent" className="nav-card">
+          <div className="nav-icon">🧭</div>
+          <div>
+            <h3>{t.dashboard.agentProgram}</h3>
+            <p>{t.dashboard.agentProgramDescription}</p>
           </div>
         </Link>
       </nav>

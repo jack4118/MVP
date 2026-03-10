@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
+import AppLogo from '../components/AppLogo';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -58,10 +59,12 @@ const Login = () => {
       </div>
       <div className="login-card">
         <div className="login-header-content">
+          <AppLogo />
           <h1 className="login-title">{isRegister ? t.auth.createAccount : t.auth.welcomeBack}</h1>
           <p className="login-subtitle">
             {isRegister ? t.auth.signUpToStart : t.auth.signInToContinue}
           </p>
+          <p className="login-subtitle">{t.auth.brandTagline}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
