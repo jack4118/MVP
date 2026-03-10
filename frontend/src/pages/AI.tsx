@@ -257,6 +257,44 @@ const AI = () => {
   };
 
   const getStatusLabel = (status: string) => t.status[status as keyof typeof t.status] || status;
+  const humanizeKey = (value: string) =>
+    value
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+
+  const getHistoryPurposeLabel = (purposeValue: 'follow_up' | 'payment') => {
+    if (purposeValue === 'follow_up') {
+      return t.ai.historyFollowUp;
+    }
+    return t.ai.historyPayment;
+  };
+
+  const getHistoryStyleLabel = (purposeValue: 'follow_up' | 'payment', stylePreset?: string | null) => {
+    if (!stylePreset) {
+      return '';
+    }
+
+    if (purposeValue === 'follow_up') {
+      const map: Record<string, string> = {
+        gentle_nudge: t.ai.followUpPresetGentleNudge,
+        value_reminder: t.ai.followUpPresetValueReminder,
+        meeting_request: t.ai.followUpPresetMeetingRequest,
+        deadline_push: t.ai.followUpPresetDeadlinePush,
+        social_proof: t.ai.followUpPresetSocialProof,
+      };
+      return map[stylePreset] || humanizeKey(stylePreset);
+    }
+
+    const map: Record<string, string> = {
+      friendly_reminder: t.ai.paymentPresetFriendlyReminder,
+      due_today: t.ai.paymentPresetDueToday,
+      overdue_escalation: t.ai.paymentPresetOverdueEscalation,
+      installment_offer: t.ai.paymentPresetInstallmentOffer,
+      soft_final_notice: t.ai.paymentPresetSoftFinalNotice,
+    };
+    return map[stylePreset] || humanizeKey(stylePreset);
+  };
 
   return (
     <div className="page-container">
@@ -662,8 +700,15 @@ const AI = () => {
                     {new Date(item.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <div style={{ marginBottom: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {item.purpose} {item.stylePreset ? `• ${item.stylePreset}` : ''}
+                <div className="ai-history-tags">
+                  <span className={`ai-tag ${item.purpose === 'payment' ? 'ai-tag-payment' : 'ai-tag-followup'}`}>
+                    {getHistoryPurposeLabel(item.purpose)}
+                  </span>
+                  {item.stylePreset && (
+                    <span className="ai-tag ai-tag-style">
+                      {getHistoryStyleLabel(item.purpose, item.stylePreset)}
+                    </span>
+                  )}
                 </div>
                 <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{item.content}</div>
               </div>
