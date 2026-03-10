@@ -1,7 +1,8 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { storage } from '../utils/storage';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const PROD_API_URL = 'https://mvp-backend-rqzt.onrender.com';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_URL : 'http://localhost:3001');
 
 export type UserPlan = 'free' | 'pro';
 export type LeadStatus = 'new' | 'contacted' | 'interested' | 'waiting_reply' | 'not_interested' | 'closed';
