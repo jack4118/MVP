@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
 
+type WhatsAppView = 'setup' | 'inbox' | 'contacts';
+
 const WhatsApp = () => {
   const { t } = useLanguage();
+  const [activeView, setActiveView] = useState<WhatsAppView>('setup');
   const [connection, setConnection] = useState<WhatsAppConnection | null>(null);
   const [logs, setLogs] = useState<WhatsAppLogItem[]>([]);
   const [contacts, setContacts] = useState<WhatsAppContactSummary[]>([]);
@@ -51,6 +54,27 @@ const WhatsApp = () => {
     loadConversation(selectedPhone);
   }, [selectedPhone]);
 
+  const selectedContact = useMemo(
+    () => contacts.find((contact) => contact.phone === selectedPhone) || null,
+    [contacts, selectedPhone]
+  );
+
+  const totalMessages = useMemo(
+    () => contacts.reduce((sum, contact) => sum + contact.totalMessages, 0),
+    [contacts]
+  );
+
+  const totalFailedMessages = useMemo(
+    () => contacts.reduce((sum, contact) => sum + contact.failedCount, 0),
+    [contacts]
+  );
+
+  const tabs = [
+    { id: 'setup' as const, label: t.whatsapp.tabSetup },
+    { id: 'inbox' as const, label: t.whatsapp.tabInbox },
+    { id: 'contacts' as const, label: t.whatsapp.tabContacts },
+  ];
+
   const loadAll = async () => {
     try {
       setLoading(true);
@@ -87,9 +111,6 @@ const WhatsApp = () => {
       if (response.success && response.data) {
         const payload: any = response.data;
 
-        // Backward-compatible fallback:
-        // if backend still returns legacy array instead of paged object,
-        // paginate on frontend so page size always takes effect.
         if (Array.isArray(payload)) {
           const query = q.trim().toLowerCase();
           const filtered = query
@@ -236,6 +257,7 @@ const WhatsApp = () => {
       setSuccess(t.whatsapp.testSent);
       await loadAll();
       await loadConversation(testData.toPhone);
+      setActiveView('inbox');
     } catch (err) {
       const message =
         (err as any)?.response?.data?.error?.message ||
@@ -245,6 +267,300 @@ const WhatsApp = () => {
       setSending(false);
     }
   };
+
+  const renderSetupView = () => (
+    <div className="whatsapp-section-stack">
+      <div className="whatsapp-step-grid">
+        <section className="card whatsapp-panel">
+          <div className="section-heading">
+            <h2>{t.whatsapp.quickStartTitle}</h2>
+            <p>{t.whatsapp.quickStartDesc}</p>
+          </div>
+          <ol className="whatsapp-quickstart-list">
+            <li>{t.whatsapp.quickStartStep1}</li>
+            <li>{t.whatsapp.quickStartStep2}</li>
+            <li>{t.whatsapp.quickStartStep3}</li>
+            <li>{t.whatsapp.quickStartStep4}</li>
+          </ol>
+          <div className="whatsapp-quickstart-actions">
+            <a
+              className="btn btn-secondary"
+              href="https://developers.facebook.com/apps/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t.whatsapp.openMetaConsole}
+            </a>
+          </div>
+        </section>
+
+        <section className="card whatsapp-panel">
+          <div className="section-heading">
+            <h2>{t.whatsapp.setupPanelTitle}</h2>
+            <p>
+              {t.whatsapp.statusLabel}: {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
+              {connection?.displayPhone ? ` • ${connection.displayPhone}` : ''}
+            </p>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t.whatsapp.businessAccountId}</label>
+            <input className="input" value={formData.businessAccountId} onChange={(e) => setFormData({ ...formData, businessAccountId: e.target.value })} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t.whatsapp.phoneNumberId}</label>
+            <input className="input" value={formData.phoneNumberId} onChange={(e) => setFormData({ ...formData, phoneNumberId: e.target.value })} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t.whatsapp.accessToken}</label>
+            <input className="input" type="password" value={formData.accessToken} onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })} placeholder={t.whatsapp.tokenPlaceholder} />
+          </div>
+
+          <div className="whatsapp-form-actions">
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? t.common.loading : t.whatsapp.save}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleVerify}
+              disabled={
+                verifying ||
+                (!connection &&
+                  (!formData.businessAccountId.trim() || !formData.phoneNumberId.trim() || !formData.accessToken.trim()))
+              }
+            >
+              {verifying ? t.common.loading : t.whatsapp.verify}
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div className="whatsapp-step-grid">
+        <section className="card whatsapp-panel">
+          <div className="section-heading">
+            <h2>{t.whatsapp.testPanelTitle}</h2>
+            <p>{t.whatsapp.inboxSubtitle}</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t.whatsapp.targetPhone}</label>
+            <input className="input" value={testData.toPhone} onChange={(e) => setTestData({ ...testData, toPhone: e.target.value })} placeholder="60123456789" />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t.whatsapp.testMessage}</label>
+            <textarea className="input" rows={5} value={testData.content} onChange={(e) => setTestData({ ...testData, content: e.target.value })} />
+          </div>
+          <button className="btn btn-success" onClick={handleSendTest} disabled={sending}>
+            {sending ? t.common.loading : t.whatsapp.sendTest}
+          </button>
+        </section>
+
+        <section className="card whatsapp-panel">
+          <div className="section-heading">
+            <h2>{t.whatsapp.logs}</h2>
+            <p>{t.whatsapp.overviewSubtitle}</p>
+          </div>
+          <div className="simple-list">
+            {logs.length === 0 ? (
+              <div className="simple-list-item">
+                <div>
+                  <strong>{t.whatsapp.noLogs}</strong>
+                </div>
+              </div>
+            ) : (
+              logs.slice(0, 5).map((log) => (
+                <div key={log.id} className="simple-list-item">
+                  <div>
+                    <strong>{log.lead?.name || log.toPhone}</strong>
+                    <p>{log.content}</p>
+                  </div>
+                  <span className="task-pill">{log.status}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+
+  const renderInboxView = () => (
+    <section className="card whatsapp-panel">
+      <div className="section-heading">
+        <h2>{t.whatsapp.chatView}</h2>
+        <p>{t.whatsapp.inboxSubtitle}</p>
+      </div>
+      <div className="whatsapp-chat-layout">
+        <aside className="whatsapp-contact-pane">
+          <div className="whatsapp-pane-header">
+            <strong>{t.whatsapp.contacts}</strong>
+          </div>
+          <div className="whatsapp-contact-list">
+            {contacts.length === 0 ? (
+              <div className="whatsapp-empty-state">{t.whatsapp.noContacts}</div>
+            ) : (
+              contacts.map((contact) => (
+                <button
+                  key={`chat-${contact.phone}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPhone(contact.phone);
+                    setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
+                  }}
+                  className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
+                >
+                  <div>
+                    <strong>{contact.lead?.name || contact.phone}</strong>
+                    <p>{contact.phone}</p>
+                  </div>
+                  <div className="whatsapp-contact-preview">{contact.lastMessage}</div>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="whatsapp-pagination">
+            <button
+              className="btn btn-secondary"
+              disabled={loadingContacts || contactsPage <= 1}
+              onClick={() => setContactsPage((prev) => Math.max(1, prev - 1))}
+            >
+              {t.whatsapp.prevPage}
+            </button>
+            <span>
+              {t.whatsapp.pageLabel}: {contactsPage}/{contactsTotalPages}
+            </span>
+            <button
+              className="btn btn-secondary"
+              disabled={loadingContacts || contactsPage >= contactsTotalPages}
+              onClick={() => setContactsPage((prev) => Math.min(contactsTotalPages, prev + 1))}
+            >
+              {t.whatsapp.nextPage}
+            </button>
+          </div>
+        </aside>
+
+        <section className="whatsapp-conversation-pane">
+          <div className="whatsapp-pane-header">
+            <div>
+              <strong>{selectedContact?.lead?.name || selectedPhone || t.whatsapp.selectContact}</strong>
+              <p>{selectedContact?.phone || t.whatsapp.selectContact}</p>
+            </div>
+            <button className="btn btn-secondary" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
+              {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
+            </button>
+          </div>
+          <div className="whatsapp-chat-body">
+            {!selectedPhone ? (
+              <div className="whatsapp-empty-state">{t.whatsapp.selectContact}</div>
+            ) : conversation.length === 0 ? (
+              <div className="whatsapp-empty-state">{t.whatsapp.noMessages}</div>
+            ) : (
+              conversation.map((msg) => {
+                const outbound = msg.direction !== 'inbound';
+                return (
+                  <div
+                    key={msg.id}
+                    className={`whatsapp-message-bubble ${outbound ? 'whatsapp-message-outbound' : 'whatsapp-message-inbound'}`}
+                  >
+                    <div className="whatsapp-message-content">{msg.content}</div>
+                    <div className="whatsapp-message-meta">
+                      {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
+                    </div>
+                    {msg.error && <div className="whatsapp-message-error">{msg.error}</div>}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+
+  const renderContactsView = () => (
+    <section className="card whatsapp-panel">
+      <div className="section-heading">
+        <h2>{t.whatsapp.customerInsights}</h2>
+        <p>{t.whatsapp.contactsSubtitle}</p>
+      </div>
+
+      <div className="whatsapp-insight-toolbar">
+        <input
+          className="input"
+          value={contactQuery}
+          onChange={(e) => {
+            setContactQuery(e.target.value);
+            setContactsPage(1);
+          }}
+          placeholder={t.whatsapp.searchPlaceholder}
+        />
+        <select
+          className="input whatsapp-page-size"
+          value={contactsPageSize}
+          onChange={(e) => {
+            setContactsPageSize(Number(e.target.value));
+            setContactsPage(1);
+          }}
+        >
+          <option value={8}>8 / page</option>
+          <option value={12}>12 / page</option>
+          <option value={20}>20 / page</option>
+        </select>
+      </div>
+
+      <div className="page-subtitle whatsapp-insight-meta">
+        {t.whatsapp.totalContacts}: {contactsTotal} • {t.whatsapp.currentPageItems}: {contacts.length}/{contactsPageSize}
+      </div>
+
+      {loading || loadingContacts ? (
+        <p>{t.common.loading}</p>
+      ) : contacts.length === 0 ? (
+        <p className="page-subtitle">{t.whatsapp.noContacts}</p>
+      ) : (
+        <div className="whatsapp-insight-list">
+          {contacts.map((contact) => {
+            const sentRate = contact.totalMessages > 0
+              ? Math.round((contact.sentCount / contact.totalMessages) * 100)
+              : 0;
+
+            return (
+              <article key={contact.phone} className="whatsapp-insight-card">
+                <div className="whatsapp-insight-top">
+                  <div>
+                    <strong>{contact.lead?.name || contact.phone}</strong>
+                    <p>
+                      {contact.lead
+                        ? `${t.whatsapp.linkedLead}: ${contact.lead.name} (${contact.lead.status})`
+                        : `${t.whatsapp.phone}: ${contact.phone}`}
+                    </p>
+                  </div>
+                  <span className="task-pill">{contact.lastStatus}</span>
+                </div>
+                <div className="page-subtitle">
+                  {t.whatsapp.successRate}: {sentRate}% • {t.whatsapp.totalMessages}: {contact.totalMessages}
+                </div>
+                <div className="whatsapp-contact-preview">{contact.lastMessage}</div>
+                {contact.lastError && <div className="whatsapp-message-error">{contact.lastError}</div>}
+                <div className="whatsapp-form-actions">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
+                      setSelectedPhone(contact.phone);
+                      setActiveView('inbox');
+                    }}
+                  >
+                    {t.whatsapp.openConversation}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <div className="page-container">
@@ -267,279 +583,63 @@ const WhatsApp = () => {
       {error && <div className="alert alert-error"><span>{error}</span></div>}
       {success && <div className="alert alert-success"><span>{success}</span></div>}
 
-      <div className="card" style={{ marginBottom: '16px', border: '1px solid rgba(74, 222, 128, 0.35)' }}>
-        <h2 style={{ marginTop: 0 }}>{t.whatsapp.quickStartTitle}</h2>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '-4px' }}>{t.whatsapp.quickStartDesc}</p>
-        <ol style={{ margin: '8px 0 0', paddingLeft: '18px', display: 'grid', gap: '8px' }}>
-          <li>{t.whatsapp.quickStartStep1}</li>
-          <li>{t.whatsapp.quickStartStep2}</li>
-          <li>{t.whatsapp.quickStartStep3}</li>
-          <li>{t.whatsapp.quickStartStep4}</li>
-        </ol>
-        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <a
-            className="btn btn-secondary"
-            href="https://developers.facebook.com/apps/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            {t.whatsapp.openMetaConsole}
-          </a>
+      <section className="card whatsapp-overview">
+        <div className="section-heading">
+          <h2>{t.whatsapp.overviewTitle}</h2>
+          <p>{t.whatsapp.overviewSubtitle}</p>
         </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: '16px', background: 'linear-gradient(135deg, rgba(55,180,90,0.12), rgba(35,115,200,0.08))' }}>
-        <h2 style={{ marginTop: 0 }}>{t.whatsapp.setup}</h2>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          {t.whatsapp.statusLabel}: {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
-          {connection?.displayPhone ? ` • ${connection.displayPhone}` : ''}
-        </p>
-
-        <div className="form-group">
-          <label className="form-label">{t.whatsapp.businessAccountId}</label>
-          <input className="input" value={formData.businessAccountId} onChange={(e) => setFormData({ ...formData, businessAccountId: e.target.value })} />
+        <div className="whatsapp-kpi-grid">
+          <div className="simple-list-item">
+            <div>
+              <strong>{t.whatsapp.statusLabel}</strong>
+              <p>{connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}</p>
+            </div>
+            <span className={`task-pill ${connection?.isActive ? '' : 'task-pill-overdue'}`}>
+              {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
+            </span>
+          </div>
+          <div className="simple-list-item">
+            <div>
+              <strong>{t.whatsapp.connectedNumber}</strong>
+              <p>{connection?.displayPhone || t.whatsapp.notConnected}</p>
+            </div>
+            <span className="task-pill">{contactsTotal}</span>
+          </div>
+          <div className="simple-list-item">
+            <div>
+              <strong>{t.whatsapp.messageVolume}</strong>
+              <p>{t.whatsapp.totalMessages}</p>
+            </div>
+            <span className="task-pill">{totalMessages}</span>
+          </div>
+          <div className="simple-list-item">
+            <div>
+              <strong>{t.whatsapp.failedMessages}</strong>
+              <p>
+                {t.whatsapp.lastVerified}: {connection?.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString() : t.whatsapp.notVerifiedYet}
+              </p>
+            </div>
+            <span className={`task-pill ${totalFailedMessages > 0 ? 'task-pill-overdue' : ''}`}>{totalFailedMessages}</span>
+          </div>
         </div>
+      </section>
 
-        <div className="form-group">
-          <label className="form-label">{t.whatsapp.phoneNumberId}</label>
-          <input className="input" value={formData.phoneNumberId} onChange={(e) => setFormData({ ...formData, phoneNumberId: e.target.value })} />
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">{t.whatsapp.accessToken}</label>
-          <input className="input" type="password" value={formData.accessToken} onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })} placeholder={t.whatsapp.tokenPlaceholder} />
-        </div>
-
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? t.common.loading : t.whatsapp.save}</button>
+      <div className="whatsapp-view-switch">
+        {tabs.map((tab) => (
           <button
-            className="btn btn-secondary"
-            onClick={handleVerify}
-            disabled={
-              verifying ||
-              (!connection &&
-                (!formData.businessAccountId.trim() || !formData.phoneNumberId.trim() || !formData.accessToken.trim()))
-            }
+            key={tab.id}
+            type="button"
+            className={`whatsapp-view-tab ${activeView === tab.id ? 'whatsapp-view-tab-active' : ''}`}
+            onClick={() => setActiveView(tab.id)}
           >
-            {verifying ? t.common.loading : t.whatsapp.verify}
+            {tab.label}
           </button>
-        </div>
+        ))}
       </div>
 
-      <div className="card" style={{ marginBottom: '16px' }}>
-        <h2 style={{ marginTop: 0 }}>{t.whatsapp.sendTest}</h2>
-        <div className="form-group">
-          <label className="form-label">{t.whatsapp.targetPhone}</label>
-          <input className="input" value={testData.toPhone} onChange={(e) => setTestData({ ...testData, toPhone: e.target.value })} placeholder="60123456789" />
-        </div>
-        <div className="form-group">
-          <label className="form-label">{t.whatsapp.testMessage}</label>
-          <textarea className="input" rows={4} value={testData.content} onChange={(e) => setTestData({ ...testData, content: e.target.value })} />
-        </div>
-        <button className="btn btn-success" onClick={handleSendTest} disabled={sending}>{sending ? t.common.loading : t.whatsapp.sendTest}</button>
-      </div>
-
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>{t.whatsapp.chatView}</h2>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden', flex: '1 1 280px', minWidth: '260px' }}>
-            <div style={{ padding: '10px', borderBottom: '1px solid var(--border-color)', fontSize: '13px', color: 'var(--text-secondary)' }}>
-              {t.whatsapp.contacts}
-            </div>
-            <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
-              {contacts.length === 0 ? (
-                <div style={{ padding: '10px', color: 'var(--text-secondary)' }}>{t.whatsapp.noContacts}</div>
-              ) : (
-                contacts.map((contact) => (
-                  <button
-                    key={`chat-${contact.phone}`}
-                    type="button"
-                    onClick={() => {
-                      setSelectedPhone(contact.phone);
-                      setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
-                    }}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      border: 'none',
-                      borderBottom: '1px solid var(--border-color)',
-                      background: selectedPhone === contact.phone ? 'rgba(80,160,255,0.12)' : 'transparent',
-                      color: 'var(--text-primary)',
-                      padding: '10px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontWeight: 700 }}>{contact.lead?.name || contact.phone}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{contact.phone}</div>
-                    <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {contact.lastMessage}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-            <div style={{ padding: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
-              <button
-                className="btn btn-secondary"
-                disabled={loadingContacts || contactsPage <= 1}
-                onClick={() => setContactsPage((prev) => Math.max(1, prev - 1))}
-              >
-                {t.whatsapp.prevPage}
-              </button>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {t.whatsapp.pageLabel}: {contactsPage}/{contactsTotalPages}
-              </span>
-              <button
-                className="btn btn-secondary"
-                disabled={loadingContacts || contactsPage >= contactsTotalPages}
-                onClick={() => setContactsPage((prev) => Math.min(contactsTotalPages, prev + 1))}
-              >
-                {t.whatsapp.nextPage}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', minHeight: '420px', display: 'flex', flexDirection: 'column', flex: '2 1 420px', minWidth: '300px' }}>
-            <div style={{ padding: '10px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-              <strong>{selectedPhone || t.whatsapp.selectContact}</strong>
-              <button className="btn btn-secondary" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
-                {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
-              </button>
-            </div>
-            <div style={{ padding: '12px', display: 'grid', gap: '10px', overflowY: 'auto', maxHeight: '420px' }}>
-              {!selectedPhone ? (
-                <div style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.selectContact}</div>
-              ) : conversation.length === 0 ? (
-                <div style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noMessages}</div>
-              ) : (
-                conversation.map((msg) => {
-                  const outbound = msg.direction !== 'inbound';
-                  return (
-                    <div
-                      key={msg.id}
-                      style={{
-                        justifySelf: outbound ? 'end' : 'start',
-                        maxWidth: '85%',
-                        borderRadius: '10px',
-                        padding: '10px',
-                        background: outbound ? 'rgba(80,180,255,0.18)' : 'rgba(120,120,120,0.18)',
-                        border: '1px solid var(--border-color)',
-                      }}
-                    >
-                      <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
-                      <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
-                      </div>
-                      {msg.error && (
-                        <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--error)', whiteSpace: 'pre-wrap' }}>
-                          {msg.error}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>{t.whatsapp.customerInsights}</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', marginBottom: '10px' }}>
-          <input
-            className="input"
-            value={contactQuery}
-            onChange={(e) => {
-              setContactQuery(e.target.value);
-              setContactsPage(1);
-            }}
-            placeholder={t.whatsapp.searchPlaceholder}
-          />
-          <select
-            className="input"
-            value={contactsPageSize}
-            onChange={(e) => {
-              setContactsPageSize(Number(e.target.value));
-              setContactsPage(1);
-            }}
-            style={{ width: '120px' }}
-          >
-            <option value={8}>8 / page</option>
-            <option value={12}>12 / page</option>
-            <option value={20}>20 / page</option>
-          </select>
-        </div>
-        <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-          {t.whatsapp.totalContacts}: {contactsTotal} • {t.whatsapp.currentPageItems}: {contacts.length}/{contactsPageSize}
-        </div>
-        {loading || loadingContacts ? (
-          <p>{t.common.loading}</p>
-        ) : contacts.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noContacts}</p>
-        ) : (
-          <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
-            {contacts.map((contact) => {
-              const sentRate = contact.totalMessages > 0
-                ? Math.round((contact.sentCount / contact.totalMessages) * 100)
-                : 0;
-              return (
-                <div key={contact.phone} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                    <div>
-                      <strong>{contact.lead?.name || contact.phone}</strong>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {contact.lead ? `${t.whatsapp.linkedLead}: ${contact.lead.name} (${contact.lead.status})` : `${t.whatsapp.phone}: ${contact.phone}`}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      {new Date(contact.lastAt).toLocaleString()}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    {t.whatsapp.successRate}: {sentRate}% • {t.whatsapp.totalMessages}: {contact.totalMessages} • {t.whatsapp.lastStatus}: {contact.lastStatus}
-                  </div>
-                  <div style={{ marginTop: '6px', whiteSpace: 'pre-wrap' }}>{contact.lastMessage}</div>
-                  {contact.lastError && <div style={{ marginTop: '6px', color: 'var(--error)' }}>{contact.lastError}</div>}
-                  <div style={{ marginTop: '8px' }}>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
-                        setSelectedPhone(contact.phone);
-                      }}
-                    >
-                      {t.whatsapp.useThisNumber}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <h2 style={{ marginTop: 0 }}>{t.whatsapp.logs}</h2>
-        {loading ? (
-          <p>{t.common.loading}</p>
-        ) : logs.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)' }}>{t.whatsapp.noLogs}</p>
-        ) : (
-          <div style={{ display: 'grid', gap: '10px' }}>
-            {logs.map((log) => (
-              <div key={log.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
-                  <strong>{log.lead?.name || log.toPhone}</strong>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(log.createdAt).toLocaleString()}</span>
-                </div>
-                <div style={{ margin: '4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>status: {log.status} • to: {log.toPhone}</div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{log.content}</div>
-                {log.error && <div style={{ marginTop: '6px', color: 'var(--error)' }}>{log.error}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {activeView === 'setup' && renderSetupView()}
+      {activeView === 'inbox' && renderInboxView()}
+      {activeView === 'contacts' && renderContactsView()}
     </div>
   );
 };

@@ -16,7 +16,7 @@ const Landing = () => {
             {t.pricing.pricing}
           </Link>
           <Link to="/agent" className="btn btn-secondary">
-            {t.agent.waitlistTitle}
+            {t.agent.title}
           </Link>
           <LanguageToggle />
           <ThemeToggle />
