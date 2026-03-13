@@ -10,6 +10,7 @@ import usageRoutes from './routes/usage';
 import eventRoutes from './routes/events';
 import whatsAppRoutes from './routes/whatsapp';
 import internalRoutes from './routes/internal';
+import dashboardRoutes from './routes/dashboard';
 import { startReminderWorker } from './services/reminderWorker';
 
 dotenv.config();
@@ -70,6 +71,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/whatsapp', whatsAppRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/internal', internalRoutes);
 
 app.use(notFoundHandler);

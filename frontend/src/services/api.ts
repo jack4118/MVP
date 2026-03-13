@@ -5,7 +5,7 @@ const PROD_API_URL = 'https://mvp-backend-rqzt.onrender.com';
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_API_URL : 'http://localhost:3001');
 
 export type UserPlan = 'free' | 'pro';
-export type LeadStatus = 'new' | 'contacted' | 'interested' | 'waiting_reply' | 'not_interested' | 'closed';
+export type LeadStatus = 'new' | 'waiting_reply' | 'follow_up_due' | 'won' | 'lost';
 export type AiTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
 export type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
 export type EmojiDensity = 'low' | 'medium' | 'high';
@@ -101,7 +101,51 @@ export interface Lead {
   notes?: string;
   status: LeadStatus;
   lastActivityAt?: string;
+  lastInboundAt?: string | null;
+  lastOutboundAt?: string | null;
+  nextFollowUpAt?: string | null;
+  closedReason?: string | null;
   createdAt: string;
+}
+
+export interface TodayTask {
+  id: string;
+  type: string;
+  triggerAt: string;
+  isOverdue: boolean;
+  isSystemTask: boolean;
+  suggestedActions: string[];
+  lead: {
+    id: string;
+    name: string;
+    contact?: string | null;
+    status: LeadStatus;
+    nextFollowUpAt?: string | null;
+    lastInboundAt?: string | null;
+    lastOutboundAt?: string | null;
+  };
+}
+
+export interface DashboardSummary {
+  todayTasks: TodayTask[];
+  overdueFollowUps: number;
+  waitingPayment: number;
+  recentlyReplied: Array<{
+    id: string;
+    name: string;
+    contact?: string | null;
+    status: LeadStatus;
+    lastInboundAt?: string | null;
+  }>;
+  pipeline: Record<string, number>;
+  onboarding: {
+    hasConnectedWhatsApp: boolean;
+    connectedDisplayPhone?: string | null;
+    hasLeads: boolean;
+    hasSentFollowUp: boolean;
+    totalLeads: number;
+    sentMessagesCount: number;
+  };
 }
 
 export interface Reminder {
@@ -276,6 +320,8 @@ export const leadsApi = {
     contact?: string;
     notes?: string;
     status?: LeadStatus;
+    closedReason?: string;
+    nextFollowUpAt?: string;
   }): Promise<ApiResponse<Lead>> => {
     const response = await api.post<ApiResponse<Lead>>('/leads', data);
     return response.data;
@@ -288,6 +334,8 @@ export const leadsApi = {
       contact?: string;
       notes?: string;
       status?: LeadStatus;
+      closedReason?: string;
+      nextFollowUpAt?: string | null;
     }
   ): Promise<ApiResponse<Lead>> => {
     const response = await api.put<ApiResponse<Lead>>(`/leads/${id}`, data);
@@ -467,6 +515,13 @@ export const whatsappApi = {
 
   getMessages: async (phone: string, limit: number = 100): Promise<ApiResponse<WhatsAppLogItem[]>> => {
     const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/messages', { params: { phone, limit } });
+    return response.data;
+  },
+};
+
+export const dashboardApi = {
+  getSummary: async (): Promise<ApiResponse<DashboardSummary>> => {
+    const response = await api.get<ApiResponse<DashboardSummary>>('/dashboard/summary');
     return response.data;
   },
 };

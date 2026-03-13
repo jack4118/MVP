@@ -1267,6 +1267,117 @@ code {
   letter-spacing: -0.05em;
 }
 
+.landing-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(80, 170, 255, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(255, 216, 80, 0.12), transparent 24%),
+    var(--bg-primary);
+}
+
+.landing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.landing-main {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: 24px;
+}
+
+.landing-hero h1 {
+  margin: 0 0 16px;
+  font-size: clamp(2.6rem, 5vw, 4.4rem);
+  line-height: 1.02;
+}
+
+.landing-subtitle {
+  max-width: 760px;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+.landing-cta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.landing-proof-grid,
+.today-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.landing-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.landing-steps div,
+.today-task-card,
+.simple-list-item {
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.today-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.9fr);
+  gap: 16px;
+}
+
+.today-task-list,
+.simple-list {
+  display: grid;
+  gap: 12px;
+}
+
+.today-task-top,
+.simple-list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.today-task-top p,
+.simple-list-item p,
+.today-task-meta {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+
+.today-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.task-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(80, 170, 255, 0.18);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.task-pill-overdue {
+  background: rgba(255, 99, 71, 0.18);
+}
+
 @media (max-width: 768px) {
   .filters-grid {
     grid-template-columns: 1fr;
@@ -1295,6 +1406,7 @@ code {
   .pricing-grid,
   .agent-incentive-grid,
   .agent-stats-grid,
+  .today-dashboard-grid,
   .upgrade-plan-grid,
   .quick-ai-context,
   .ai-fields-grid {
@@ -1306,6 +1418,12 @@ code {
   .usage-card {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .landing-header,
+  .today-task-top,
+  .simple-list-item {
+    flex-direction: column;
   }
 
   .reminder-filter-grid {

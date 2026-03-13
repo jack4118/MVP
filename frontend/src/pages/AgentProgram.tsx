@@ -32,7 +32,7 @@ const AgentProgram = () => {
     <div className="page-container">
       <header className="page-header">
         <div className="header-left">
-          <Link to="/dashboard" className="home-link">
+          <Link to="/" className="home-link">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
@@ -40,7 +40,7 @@ const AgentProgram = () => {
           </Link>
           <div>
             <AppLogo compact />
-            <h1 className="page-title">{t.agent.title}</h1>
+            <h1 className="page-title">Partner Waitlist</h1>
           </div>
         </div>
         <div className="header-actions">
@@ -53,10 +53,13 @@ const AgentProgram = () => {
       </header>
 
       <section className="agent-hero card">
-        <p className="eyebrow">{t.agent.subtitle}</p>
-        <h2>{t.agent.heroTitle}</h2>
-        <p>{t.agent.heroDescription}</p>
-        <div className="agent-pilot-note">{t.agent.pilotNote}</div>
+        <p className="eyebrow">Not part of the core MVP</p>
+        <h2>Useful product first. Referral later.</h2>
+        <p>
+          We are keeping partner and referral mechanics deliberately lightweight until the WhatsApp follow-up workflow
+          is validated with paying SMB customers.
+        </p>
+        <div className="agent-pilot-note">Leave this visible as a waitlist/information page, not as a full agent program.</div>
       </section>
 
       <section className="agent-incentive-grid">

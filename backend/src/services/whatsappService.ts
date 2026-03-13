@@ -1,4 +1,5 @@
 import prisma from '../config/database';
+import { cancelPendingSystemTasks, normalizeLeadStatus, scheduleNextSystemFollowUp } from './followUpService';
 
 const META_GRAPH_BASE = process.env.META_GRAPH_BASE || 'https://graph.facebook.com';
 const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v22.0';
@@ -15,6 +16,22 @@ const toDateFromUnix = (value?: string | number): Date | null => {
     return null;
   }
   return new Date(n * 1000);
+};
+
+const normalizePhone = (value: string | null | undefined): string => {
+  if (!value) {
+    return '';
+  }
+  return value.replace(/[^\d]/g, '');
+};
+
+const phonesLikelyMatch = (left: string | null | undefined, right: string | null | undefined) => {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+  if (!a || !b) {
+    return false;
+  }
+  return a === b || a.endsWith(b) || b.endsWith(a);
 };
 
 export const getWhatsappConnection = async (userId: string) => {
@@ -109,7 +126,7 @@ export const verifyWhatsappConnection = async (userId: string) => {
 
 export const sendWhatsAppText = async (
   userId: string,
-  data: { toPhone: string; content: string; leadId?: string }
+  data: { toPhone: string; content: string; leadId?: string; scheduleFollowUp?: boolean }
 ) => {
   const connection = await prisma.whatsAppConnection.findUnique({ where: { userId } });
   if (!connection) {
@@ -180,6 +197,27 @@ export const sendWhatsAppText = async (
         rawPayload: payload,
       },
     });
+
+    if (data.leadId) {
+      await prisma.lead.update({
+        where: { id: data.leadId },
+        data: {
+          status: 'waiting_reply',
+          lastActivityAt: new Date(),
+          lastOutboundAt: new Date(),
+        },
+      });
+
+      if (data.scheduleFollowUp !== false) {
+        await scheduleNextSystemFollowUp({
+          userId,
+          leadId: data.leadId,
+          stepIndex: 0,
+          fromDate: new Date(),
+          force: true,
+        });
+      }
+    }
 
     return {
       sent: true,
@@ -274,6 +312,16 @@ export const processWhatsAppWebhook = async (body: any) => {
           const content =
             message?.text?.body ||
             (typeof message?.type === 'string' ? `[${message.type}]` : '[message]');
+          const userLeads = await prisma.lead.findMany({
+            where: {
+              userId: connection.userId,
+              contact: {
+                not: null,
+              },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          const resolvedLead = userLeads.find((lead) => phonesLikelyMatch(lead.contact, fromPhone)) || null;
 
           if (messageId) {
             const existing = await prisma.whatsAppMessageLog.findFirst({
@@ -292,6 +340,7 @@ export const processWhatsAppWebhook = async (body: any) => {
           await prisma.whatsAppMessageLog.create({
             data: {
               userId: connection.userId,
+              leadId: resolvedLead?.id || null,
               messageId: messageId || null,
               direction: 'inbound',
               fromPhone,
@@ -303,6 +352,20 @@ export const processWhatsAppWebhook = async (body: any) => {
               rawPayload: message,
             },
           });
+
+          if (resolvedLead) {
+            await prisma.lead.update({
+              where: { id: resolvedLead.id },
+              data: {
+                status: 'follow_up_due',
+                lastActivityAt: toDateFromUnix(message?.timestamp) || new Date(),
+                lastInboundAt: toDateFromUnix(message?.timestamp) || new Date(),
+                nextFollowUpAt: null,
+              },
+            });
+
+            await cancelPendingSystemTasks(resolvedLead.id);
+          }
           processed += 1;
         }
 
@@ -378,13 +441,6 @@ type ContactSummary = {
     name: string;
     status: string;
   } | null;
-};
-
-const normalizePhone = (value: string | null | undefined): string => {
-  if (!value) {
-    return '';
-  }
-  return value.replace(/[^\d]/g, '');
 };
 
 const getCounterpartyPhone = (log: { direction: string; toPhone: string; fromPhone: string | null }) => {

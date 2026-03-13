@@ -1,5 +1,6 @@
 import prisma from '../config/database';
 import { getWhatsappConnection, sendWhatsAppText } from './whatsappService';
+import { isClosedLeadStatus, scheduleNextSystemFollowUp } from './followUpService';
 
 type ReminderFilter = 'all' | 'pending' | 'done';
 type DispatchChannel = 'in_app' | 'whatsapp';
@@ -35,7 +36,7 @@ const buildDispatchMessage = (reminder: { type: string; lead: { name: string } }
       return `Hi ${reminder.lead.name}, this is your scheduled follow-up reminder. Please share a quick update when convenient.`;
     case 'follow_up':
     default:
-      return `Hi ${reminder.lead.name}, gentle follow-up on our previous discussion. Could you confirm your next-step timeline?`;
+      return `Hi ${reminder.lead.name}, just checking in on our previous conversation. Let me know if you would like me to resend the package or answer any questions.`;
   }
 };
 
@@ -90,6 +91,8 @@ export const createReminder = async (userId: string, data: { leadId: string; typ
       type: data.type,
       triggerAt: new Date(data.triggerAt),
       isDone: false,
+      isSystemTask: false,
+      stepIndex: 0,
     },
     include: includeLead,
   });
@@ -251,6 +254,14 @@ export const dispatchDueReminders = async () => {
   let processed = 0;
 
   for (const reminder of dueReminders) {
+    if (isClosedLeadStatus(reminder.lead.status)) {
+      await prisma.reminder.update({
+        where: { id: reminder.id },
+        data: { isDone: true, lastDispatchedAt: now },
+      });
+      continue;
+    }
+
     const slot = reminder.triggerAt.toISOString();
     const inAppKey = `${reminder.id}:in_app:${slot}`;
 
@@ -304,6 +315,7 @@ export const dispatchDueReminders = async () => {
             leadId: reminder.lead.id,
             toPhone: contactPhone,
             content,
+            scheduleFollowUp: false,
           });
 
           await createDispatchLog({
@@ -340,6 +352,23 @@ export const dispatchDueReminders = async () => {
         lastDispatchedAt: now,
       },
     });
+
+    if (reminder.isSystemTask && reminder.type === 'follow_up') {
+      await scheduleNextSystemFollowUp({
+        userId: reminder.lead.userId,
+        leadId: reminder.lead.id,
+        stepIndex: reminder.stepIndex + 1,
+        fromDate: now,
+      });
+    } else if (!reminder.isSystemTask) {
+      await prisma.lead.update({
+        where: { id: reminder.lead.id },
+        data: {
+          status: reminder.type === 'payment' ? 'won' : 'follow_up_due',
+          nextFollowUpAt: null,
+        },
+      });
+    }
   }
 
   return {

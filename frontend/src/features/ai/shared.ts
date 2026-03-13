@@ -56,7 +56,7 @@ export const createInitialAiConfig = (
 });
 
 export const getDefaultPurposeFromLeadStatus = (status?: LeadStatus): AiPurpose =>
-  status === 'closed' ? 'payment' : 'follow-up';
+  status === 'won' ? 'payment' : 'follow-up';
 
 export const getDefaultQuickConfigForLead = (lead: Lead, daysPassed: number): SharedAiConfig =>
   createInitialAiConfig(getDefaultPurposeFromLeadStatus(lead.status), {

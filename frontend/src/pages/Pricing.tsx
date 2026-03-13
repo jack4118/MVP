@@ -5,13 +5,16 @@ import LanguageToggle from '../components/LanguageToggle';
 import AppLogo from '../components/AppLogo';
 import { UsageInfo, usageApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
+import { storage } from '../utils/storage';
 
 const Pricing = () => {
   const { t } = useLanguage();
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
 
   useEffect(() => {
-    loadUsage();
+    if (storage.getToken()) {
+      loadUsage();
+    }
   }, []);
 
   const loadUsage = async () => {
@@ -64,7 +67,7 @@ const Pricing = () => {
     <div className="page-container">
       <header className="page-header">
         <div className="header-left">
-          <Link to="/dashboard" className="home-link">
+          <Link to="/" className="home-link">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
@@ -85,10 +88,10 @@ const Pricing = () => {
       </header>
 
       <section className="pricing-hero card">
-        <p className="eyebrow">{t.pricing.heroTitle}</p>
-        <h2>{t.pricing.compareTitle}</h2>
-        <p>{t.pricing.heroSubtitle}</p>
-        <p className="page-subtitle">{t.pricing.compareSubtitle}</p>
+        <p className="eyebrow">WhatsApp Follow-up Pricing</p>
+        <h2>Simple plans for teams that cannot afford to miss the next message.</h2>
+        <p>Starter is for solo operators. Pro is for businesses that need daily follow-up discipline.</p>
+        <p className="page-subtitle">Business stays hidden until the SMB workflow is proven.</p>
       </section>
 
       <section className="pricing-grid">
@@ -124,8 +127,8 @@ const Pricing = () => {
                 {t.pricing.unavailable}
               </button>
             ) : (
-              <Link to="/ai" className={`btn ${plan.highlight ? 'btn-primary' : 'btn-secondary'}`}>
-                {plan.id === 'pro' ? t.pricing.upgradeNow : t.ai.generateText}
+              <Link to="/login" className={`btn ${plan.highlight ? 'btn-primary' : 'btn-secondary'}`}>
+                {plan.id === 'pro' ? t.pricing.upgradeNow : 'Start Free Trial'}
               </Link>
             )}
           </article>

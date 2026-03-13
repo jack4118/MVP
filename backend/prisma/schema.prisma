@@ -20,6 +20,7 @@ model User {
   leads       Lead[]
   aiLogs      AiLog[]
   eventLogs   EventLog[]
+  followUpRules FollowUpRule[]
   whatsAppConnection WhatsAppConnection?
   whatsAppMessageLogs WhatsAppMessageLog[]
   reminderDispatchLogs ReminderDispatchLog[]
@@ -35,6 +36,10 @@ model Lead {
   notes          String?
   status         String    @default("new")
   lastActivityAt DateTime? @map("last_activity_at")
+  lastInboundAt  DateTime? @map("last_inbound_at")
+  lastOutboundAt DateTime? @map("last_outbound_at")
+  nextFollowUpAt DateTime? @map("next_follow_up_at")
+  closedReason   String?   @map("closed_reason")
   createdAt      DateTime  @default(now()) @map("created_at")
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -44,6 +49,7 @@ model Lead {
 
   @@index([userId])
   @@index([status])
+  @@index([nextFollowUpAt])
   @@map("leads")
 }
 
@@ -53,6 +59,8 @@ model Reminder {
   type      String   // follow_up / payment
   triggerAt DateTime @map("trigger_at")
   isDone    Boolean  @default(false) @map("is_done")
+  isSystemTask Boolean @default(false) @map("is_system_task")
+  stepIndex Int @default(0) @map("step_index")
   lastDispatchedAt DateTime? @map("last_dispatched_at")
   nextDispatchAt DateTime? @map("next_dispatch_at")
 
@@ -63,6 +71,22 @@ model Reminder {
   @@index([triggerAt])
   @@index([isDone])
   @@map("reminders")
+}
+
+model FollowUpRule {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  name       String
+  triggerDays Int     @map("trigger_days")
+  actionType String   @default("follow_up") @map("action_type")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@map("follow_up_rules")
 }
 
 model ReminderDispatchLog {

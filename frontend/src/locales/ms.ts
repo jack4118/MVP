@@ -227,6 +227,9 @@ export const ms = {
 
   status: {
     new: 'Baharu',
+    follow_up_due: 'Perlu Follow-up',
+    won: 'Menang',
+    lost: 'Hilang',
     contacted: 'Sudah Dihubungi',
     interested: 'Berminat',
     waiting_reply: 'Menunggu Balasan',

@@ -234,6 +234,9 @@ export const en = {
   // Status
   status: {
     new: 'New',
+    follow_up_due: 'Follow-up Due',
+    won: 'Won',
+    lost: 'Lost',
     contacted: 'Contacted',
     interested: 'Interested',
     waiting_reply: 'Waiting Reply',

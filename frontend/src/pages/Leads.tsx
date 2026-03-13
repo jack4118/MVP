@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Lead, LeadStatus, UsageInfo, leadsApi, usageApi } from '../services/api';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
@@ -22,6 +22,8 @@ import {
 
 const Leads = () => {
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [allLeads, setAllLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,15 +50,40 @@ const Leads = () => {
   const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sendingViaWhatsapp, setSendingViaWhatsapp] = useState(false);
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const returnTo = searchParams.get('return');
 
   useEffect(() => {
     loadLeads();
     loadUsageInfo();
   }, []);
+
+  useEffect(() => {
+    const leadId = searchParams.get('lead');
+    const action = searchParams.get('action');
+    if (!leadId || !allLeads.length) {
+      return;
+    }
+
+    const lead = allLeads.find((item) => item.id === leadId);
+    if (!lead) {
+      return;
+    }
+
+    openAiModalForLead(
+      lead,
+      action === 'payment_reminder'
+        ? { purpose: 'payment', objective: 'Follow up on payment and ask for a clear payment date.' }
+        : action === 'ask_budget'
+          ? { purpose: 'follow-up', objective: 'Ask for budget and next-step timing.' }
+          : { purpose: 'follow-up', objective: 'Send a concise follow-up and move the conversation forward.' }
+    );
+    setSearchParams({});
+  }, [searchParams, allLeads]);
 
   const loadUsageInfo = async () => {
     try {
@@ -195,9 +222,12 @@ const Leads = () => {
     setAdvancedOpen(false);
   };
 
-  const openAiModalForLead = (lead: Lead) => {
+  const openAiModalForLead = (lead: Lead, overrides?: Partial<SharedAiConfig>) => {
     setCurrentLead(lead);
-    setConfig(getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)));
+    setConfig({
+      ...getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)),
+      ...overrides,
+    });
     setGeneratedText('');
     setGenerationDebug(null);
     setGenerationStage('ready');
@@ -294,23 +324,47 @@ const Leads = () => {
     }
   };
 
+  const handleSendViaWhatsapp = async () => {
+    if (!currentLead?.contact || !generatedText.trim()) {
+      setError('Lead needs a WhatsApp number and generated message before sending.');
+      return;
+    }
+
+    try {
+      setSendingViaWhatsapp(true);
+      setError('');
+      await whatsappApi.sendText({
+        leadId: currentLead.id,
+        toPhone: currentLead.contact,
+        content: generatedText.trim(),
+      });
+      closeAiModal();
+      await loadLeads();
+      if (returnTo === 'dashboard') {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.common.error);
+    } finally {
+      setSendingViaWhatsapp(false);
+    }
+  };
+
   const statusColors: Record<string, string> = {
     new: 'var(--info)',
-    contacted: 'var(--primary)',
-    interested: 'var(--success)',
     waiting_reply: 'var(--warning)',
-    not_interested: 'var(--text-secondary)',
-    closed: 'var(--text-tertiary)',
+    follow_up_due: 'var(--primary)',
+    won: 'var(--success)',
+    lost: 'var(--text-secondary)',
   };
 
   const statusOptions = [
     { value: 'all', label: t.leads.allStatus },
     { value: 'new', label: t.status.new },
-    { value: 'contacted', label: t.status.contacted },
-    { value: 'interested', label: t.status.interested },
     { value: 'waiting_reply', label: t.status.waiting_reply },
-    { value: 'not_interested', label: t.status.not_interested },
-    { value: 'closed', label: t.status.closed },
+    { value: 'follow_up_due', label: t.status.follow_up_due },
+    { value: 'won', label: t.status.won },
+    { value: 'lost', label: t.status.lost },
   ];
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all';
@@ -463,11 +517,10 @@ const Leads = () => {
                 className="input"
               >
                 <option value="new">{t.status.new}</option>
-                <option value="contacted">{t.status.contacted}</option>
-                <option value="interested">{t.status.interested}</option>
                 <option value="waiting_reply">{t.status.waiting_reply}</option>
-                <option value="not_interested">{t.status.not_interested}</option>
-                <option value="closed">{t.status.closed}</option>
+                <option value="follow_up_due">{t.status.follow_up_due}</option>
+                <option value="won">{t.status.won}</option>
+                <option value="lost">{t.status.lost}</option>
               </select>
             </div>
             <div className="form-actions">
@@ -539,23 +592,33 @@ const Leads = () => {
                       }}
                     >
                       <option value="new">{t.status.new}</option>
-                      <option value="contacted">{t.status.contacted}</option>
-                      <option value="interested">{t.status.interested}</option>
                       <option value="waiting_reply">{t.status.waiting_reply}</option>
-                      <option value="not_interested">{t.status.not_interested}</option>
-                      <option value="closed">{t.status.closed}</option>
+                      <option value="follow_up_due">{t.status.follow_up_due}</option>
+                      <option value="won">{t.status.won}</option>
+                      <option value="lost">{t.status.lost}</option>
                     </select>
                   </td>
                   <td>
-                    {lead.lastActivityAt
-                      ? new Date(lead.lastActivityAt).toLocaleDateString()
-                      : new Date(lead.createdAt).toLocaleDateString()}
+                    {lead.nextFollowUpAt
+                      ? `Next: ${new Date(lead.nextFollowUpAt).toLocaleDateString()}`
+                      : lead.lastActivityAt
+                        ? new Date(lead.lastActivityAt).toLocaleDateString()
+                        : new Date(lead.createdAt).toLocaleDateString()}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {(lead.status === 'waiting_reply' || lead.status === 'closed') && (
+                      {(lead.status === 'waiting_reply' || lead.status === 'follow_up_due' || lead.status === 'won') && (
                         <button onClick={() => openAiModalForLead(lead)} className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }}>
-                          {lead.status === 'closed' ? t.leads.helpCollectPayment : t.leads.helpFollowUp}
+                          {lead.status === 'won' ? t.leads.helpCollectPayment : t.leads.helpFollowUp}
+                        </button>
+                      )}
+                      {lead.status !== 'won' && lead.status !== 'lost' && (
+                        <button
+                          onClick={() => handleStatusChange(lead.id, 'won')}
+                          className="btn btn-secondary"
+                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                        >
+                          Mark won
                         </button>
                       )}
                       <button onClick={() => handleEdit(lead)} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
@@ -651,6 +714,9 @@ const Leads = () => {
                 <div className="quick-ai-actions">
                   <button onClick={handleCopyText} className="btn btn-success" disabled={!generatedText}>
                     {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
+                  </button>
+                  <button onClick={handleSendViaWhatsapp} className="btn btn-primary" disabled={!generatedText || sendingViaWhatsapp || !currentLead.contact}>
+                    {sendingViaWhatsapp ? 'Sending...' : 'Send on WhatsApp'}
                   </button>
                 </div>
 

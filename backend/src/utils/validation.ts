@@ -2,11 +2,10 @@ import { z } from 'zod';
 
 export const leadStatusValues = [
   'new',
-  'contacted',
-  'interested',
   'waiting_reply',
-  'not_interested',
-  'closed',
+  'follow_up_due',
+  'won',
+  'lost',
 ] as const;
 
 export const leadStatusSchema = z.enum(leadStatusValues);
@@ -59,6 +58,8 @@ export const createLeadSchema = z.object({
   contact: z.string().optional(),
   notes: z.string().optional(),
   status: leadStatusSchema.optional(),
+  closedReason: z.string().max(200, 'closedReason is too long').optional(),
+  nextFollowUpAt: z.string().datetime('nextFollowUpAt must be a valid ISO datetime').optional(),
 });
 
 export const updateLeadSchema = z.object({
@@ -66,6 +67,8 @@ export const updateLeadSchema = z.object({
   contact: z.string().optional(),
   notes: z.string().optional(),
   status: leadStatusSchema.optional(),
+  closedReason: z.string().max(200, 'closedReason is too long').optional(),
+  nextFollowUpAt: z.string().datetime('nextFollowUpAt must be a valid ISO datetime').optional(),
 });
 
 export const updateLeadStatusSchema = z.object({

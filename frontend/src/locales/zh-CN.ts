@@ -234,6 +234,9 @@ export const zhCN = {
   // Status
   status: {
     new: '新建',
+    follow_up_due: '待跟进',
+    won: '成交',
+    lost: '丢单',
     contacted: '已联系',
     interested: '感兴趣',
     waiting_reply: '等待回复',
