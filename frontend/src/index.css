@@ -928,7 +928,8 @@ code {
   font-size: 48px;
   font-weight: 700;
   letter-spacing: -0.07em;
-  line-height: 0.95;
+  line-height: 1.08;
+  padding-bottom: 0.08em;
   background: linear-gradient(90deg, #3a86ff, #4f63ef 42%, #8f56f3 72%, #c36af2);
   -webkit-background-clip: text;
   background-clip: text;

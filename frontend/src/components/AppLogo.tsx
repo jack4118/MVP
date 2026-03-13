@@ -24,10 +24,9 @@ const AppLogo = ({ compact = false }: AppLogoProps) => {
           filter="url(#ezreply-logo-shadow)"
         />
         <path
-          d="M28 39 36.5 47.5 53.5 29.5"
-          fill="white"
+          d="M24.5 39.5 34.5 48.5 55.5 27.5"
           stroke="white"
-          strokeWidth="8"
+          strokeWidth="7"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
