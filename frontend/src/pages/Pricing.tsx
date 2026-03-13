@@ -88,10 +88,10 @@ const Pricing = () => {
       </header>
 
       <section className="pricing-hero card">
-        <p className="eyebrow">WhatsApp Follow-up Pricing</p>
-        <h2>Simple plans for teams that cannot afford to miss the next message.</h2>
-        <p>Starter is for solo operators. Pro is for businesses that need daily follow-up discipline.</p>
-        <p className="page-subtitle">Business stays hidden until the SMB workflow is proven.</p>
+        <p className="eyebrow">{t.pricing.heroTitle}</p>
+        <h2>{t.pricing.publicHeroTitle}</h2>
+        <p>{t.pricing.publicHeroBody}</p>
+        <p className="page-subtitle">{t.pricing.publicHeroFootnote}</p>
       </section>
 
       <section className="pricing-grid">
@@ -128,7 +128,7 @@ const Pricing = () => {
               </button>
             ) : (
               <Link to="/login" className={`btn ${plan.highlight ? 'btn-primary' : 'btn-secondary'}`}>
-                {plan.id === 'pro' ? t.pricing.upgradeNow : 'Start Free Trial'}
+                {plan.id === 'pro' ? t.pricing.upgradeNow : t.common.startFreeTrial}
               </Link>
             )}
           </article>

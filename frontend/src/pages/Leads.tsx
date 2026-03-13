@@ -716,7 +716,7 @@ const Leads = () => {
                     {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
                   </button>
                   <button onClick={handleSendViaWhatsapp} className="btn btn-primary" disabled={!generatedText || sendingViaWhatsapp || !currentLead.contact}>
-                    {sendingViaWhatsapp ? 'Sending...' : 'Send on WhatsApp'}
+                    {sendingViaWhatsapp ? t.dashboard.sending : t.dashboard.sendOnWhatsapp}
                   </button>
                 </div>
 

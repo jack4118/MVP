@@ -2,75 +2,75 @@ import { Link } from 'react-router-dom';
 import AppLogo from '../components/AppLogo';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const Landing = () => {
+  const { t } = useLanguage();
+
   return (
     <div className="landing-shell">
       <header className="landing-header">
         <AppLogo />
         <div className="header-actions">
           <Link to="/pricing" className="btn btn-secondary">
-            Pricing
+            {t.pricing.pricing}
           </Link>
           <Link to="/agent" className="btn btn-secondary">
-            Waitlist
+            {t.agent.waitlistTitle}
           </Link>
           <LanguageToggle />
           <ThemeToggle />
           <Link to="/login" className="btn btn-primary">
-            Start Free Trial
+            {t.common.startFreeTrial}
           </Link>
         </div>
       </header>
 
       <main className="landing-main">
         <section className="landing-hero card">
-          <p className="eyebrow">AI Follow-up Assistant for WhatsApp</p>
-          <h1>Never forget to follow up your customers again.</h1>
-          <p className="landing-subtitle">
-            EzReply helps small businesses track leads, follow up at the right time, and close more deals on WhatsApp
-            without building a complicated CRM habit.
-          </p>
+          <p className="eyebrow">{t.landing.eyebrow}</p>
+          <h1>{t.landing.heroTitle}</h1>
+          <p className="landing-subtitle">{t.landing.heroSubtitle}</p>
           <div className="landing-cta-row">
             <Link to="/login" className="btn btn-primary">
-              Start Free Trial
+              {t.common.startFreeTrial}
             </Link>
             <Link to="/pricing" className="btn btn-secondary">
-              See Pricing
+              {t.landing.seePricing}
             </Link>
           </div>
         </section>
 
         <section className="landing-proof-grid">
           <article className="card">
-            <h3>What you sell</h3>
-            <p>Lead tracking, AI drafts, and automatic follow-up in one WhatsApp-first workflow.</p>
+            <h3>{t.landing.sellTitle}</h3>
+            <p>{t.landing.sellBody}</p>
           </article>
           <article className="card">
-            <h3>Who it is for</h3>
-            <p>Solo operators and small teams that live in WhatsApp and cannot afford to miss replies or payments.</p>
+            <h3>{t.landing.audienceTitle}</h3>
+            <p>{t.landing.audienceBody}</p>
           </article>
           <article className="card">
-            <h3>What changes daily</h3>
-            <p>Open one dashboard, see who needs attention, send the next message, and move on.</p>
+            <h3>{t.landing.dailyTitle}</h3>
+            <p>{t.landing.dailyBody}</p>
           </article>
         </section>
 
         <section className="landing-flow card">
-          <p className="eyebrow">Core Workflow</p>
-          <h2>Lead → Follow-up → Close</h2>
+          <p className="eyebrow">{t.landing.workflowEyebrow}</p>
+          <h2>{t.landing.workflowTitle}</h2>
           <div className="landing-steps">
             <div>
-              <strong>1. Capture leads</strong>
-              <span>Store contact, notes, and conversation context.</span>
+              <strong>{t.landing.step1Title}</strong>
+              <span>{t.landing.step1Body}</span>
             </div>
             <div>
-              <strong>2. Generate the next message</strong>
-              <span>Use quick actions like Follow-up, Ask budget, or Payment reminder.</span>
+              <strong>{t.landing.step2Title}</strong>
+              <span>{t.landing.step2Body}</span>
             </div>
             <div>
-              <strong>3. Let the system chase the next step</strong>
-              <span>When the customer goes quiet, EzReply queues the next follow-up task.</span>
+              <strong>{t.landing.step3Title}</strong>
+              <span>{t.landing.step3Body}</span>
             </div>
           </div>
         </section>

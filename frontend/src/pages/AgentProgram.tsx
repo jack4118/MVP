@@ -1,20 +1,22 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
 import AppLogo from '../components/AppLogo';
 import { useLanguage } from '../contexts/LanguageContext';
 
-const mockRows = [
-  { referral: 'Aina Studio', status: 'Active', plan: 'Pro', commission: 'RM9.80', joined: '2026-02-22' },
-  { referral: 'Jun Repair', status: 'Trial', plan: 'Starter', commission: 'RM0.00', joined: '2026-03-02' },
-  { referral: 'Kite Agency', status: 'Active', plan: 'Pro', commission: 'RM9.80', joined: '2026-03-06' },
-];
-
 const AgentProgram = () => {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const referralLink = 'https://ezreply.app/ref/demo-agent';
+  const mockRows = useMemo(
+    () => [
+      { referral: 'Aina Studio', status: t.agent.mockStatusActive, plan: t.agent.mockPlanPro, commission: 'RM9.80', joined: '2026-02-22' },
+      { referral: 'Jun Repair', status: t.agent.mockStatusTrial, plan: t.agent.mockPlanStarter, commission: 'RM0.00', joined: '2026-03-02' },
+      { referral: 'Kite Agency', status: t.agent.mockStatusActive, plan: t.agent.mockPlanPro, commission: 'RM9.80', joined: '2026-03-06' },
+    ],
+    [t]
+  );
 
   const cards = [
     { label: t.agent.totalReferrals, value: '12' },
@@ -40,7 +42,7 @@ const AgentProgram = () => {
           </Link>
           <div>
             <AppLogo compact />
-            <h1 className="page-title">Partner Waitlist</h1>
+            <h1 className="page-title">{t.agent.waitlistTitle}</h1>
           </div>
         </div>
         <div className="header-actions">
@@ -53,13 +55,10 @@ const AgentProgram = () => {
       </header>
 
       <section className="agent-hero card">
-        <p className="eyebrow">Not part of the core MVP</p>
-        <h2>Useful product first. Referral later.</h2>
-        <p>
-          We are keeping partner and referral mechanics deliberately lightweight until the WhatsApp follow-up workflow
-          is validated with paying SMB customers.
-        </p>
-        <div className="agent-pilot-note">Leave this visible as a waitlist/information page, not as a full agent program.</div>
+        <p className="eyebrow">{t.agent.waitlistEyebrow}</p>
+        <h2>{t.agent.heroTitle}</h2>
+        <p>{t.agent.heroDescription}</p>
+        <div className="agent-pilot-note">{t.agent.waitlistNote}</div>
       </section>
 
       <section className="agent-incentive-grid">

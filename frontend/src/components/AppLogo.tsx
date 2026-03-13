@@ -9,25 +9,26 @@ const AppLogo = ({ compact = false }: AppLogoProps) => {
     <div className={`app-logo ${compact ? 'app-logo-compact' : ''}`}>
       <svg width={iconSize} height={iconSize} viewBox="0 0 72 72" fill="none" aria-hidden="true">
         <defs>
-          <linearGradient id="ezreply-logo-gradient" x1="6" y1="10" x2="66" y2="62" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#2DBDFF" />
-            <stop offset="0.45" stopColor="#3C5BEE" />
-            <stop offset="1" stopColor="#C25DF2" />
+          <linearGradient id="ezreply-logo-gradient" x1="10" y1="10" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#43B4FF" />
+            <stop offset="0.52" stopColor="#4B68F1" />
+            <stop offset="1" stopColor="#A05CF5" />
           </linearGradient>
           <filter id="ezreply-logo-shadow" x="0" y="0" width="72" height="72" filterUnits="userSpaceOnUse">
             <feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#5C53D6" floodOpacity="0.22" />
           </filter>
         </defs>
         <path
-          d="M14 18.8C14 11.73 19.73 6 26.8 6H46.4C53.47 6 59.2 11.73 59.2 18.8V40.68C59.2 47.75 53.47 53.48 46.4 53.48H30.41L17.98 63.2C16.39 64.44 14 63.31 14 61.29V50.01C9.23 47.93 6 43.17 6 37.68V18.8C6 11.73 11.73 6 18.8 6H26.8"
+          d="M14 16.5C14 10.15 19.15 5 25.5 5H46.5C55.61 5 63 12.39 63 21.5V35.5C63 44.61 55.61 52 46.5 52H31.42L20.5 61.17C18.72 62.66 16 61.39 16 59.07V50.79C10.18 47.58 6.25 41.39 6.25 34.28V26.5C6.25 20.98 10.73 16.5 16.25 16.5H14Z"
           fill="url(#ezreply-logo-gradient)"
           filter="url(#ezreply-logo-shadow)"
         />
         <path
-          d="M40.83 8.8 25.76 33.18h11.17L28.6 50.72 46.05 28.35H35.51L40.83 8.8Z"
+          d="M23.5 32.77 31.54 40.81 48.48 23.87"
           fill="white"
           stroke="white"
-          strokeWidth="3"
+          strokeWidth="7"
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
       </svg>

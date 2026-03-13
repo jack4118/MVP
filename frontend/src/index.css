@@ -923,6 +923,7 @@ code {
 }
 
 .app-logo-wordmark span {
+  display: inline-block;
   font-size: 42px;
   font-weight: 800;
   letter-spacing: -0.05em;
@@ -930,6 +931,7 @@ code {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  transform: skewX(-8deg);
 }
 
 .app-logo-compact .app-logo-wordmark span {
