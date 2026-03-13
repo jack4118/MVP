@@ -487,5 +487,6 @@ export const en = {
     inboxSubtitle: 'Pick a contact and read the thread without mixing it with setup controls.',
     contactsSubtitle: 'Browse customer activity, search, and then jump into the right conversation.',
     openConversation: 'Open conversation',
+    jumpToLatest: 'Jump to latest',
   },
 };

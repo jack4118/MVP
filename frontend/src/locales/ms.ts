@@ -479,5 +479,6 @@ export const ms = {
     inboxSubtitle: 'Pilih contact dan fokus pada thread tanpa campurkan semua tetapan sekali gus.',
     contactsSubtitle: 'Semak aktiviti pelanggan, cari nombor, kemudian lompat ke perbualan yang betul.',
     openConversation: 'Buka perbualan',
+    jumpToLatest: 'Pergi ke mesej terbaru',
   },
 };

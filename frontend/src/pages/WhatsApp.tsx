@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -22,6 +22,7 @@ const WhatsApp = () => {
   const [selectedPhone, setSelectedPhone] = useState('');
   const [conversation, setConversation] = useState<WhatsAppLogItem[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
+  const conversationBodyRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -54,6 +55,18 @@ const WhatsApp = () => {
     loadConversation(selectedPhone);
   }, [selectedPhone]);
 
+  useEffect(() => {
+    if (activeView !== 'inbox' || !selectedPhone || conversation.length === 0) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      if (conversationBodyRef.current) {
+        conversationBodyRef.current.scrollTop = conversationBodyRef.current.scrollHeight;
+      }
+    });
+  }, [activeView, selectedPhone, conversation]);
+
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.phone === selectedPhone) || null,
     [contacts, selectedPhone]
@@ -74,6 +87,15 @@ const WhatsApp = () => {
     { id: 'inbox' as const, label: t.whatsapp.tabInbox },
     { id: 'contacts' as const, label: t.whatsapp.tabContacts },
   ];
+
+  const scrollConversationToLatest = () => {
+    if (conversationBodyRef.current) {
+      conversationBodyRef.current.scrollTo({
+        top: conversationBodyRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  };
 
   const loadAll = async () => {
     try {
@@ -450,7 +472,7 @@ const WhatsApp = () => {
               {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
             </button>
           </div>
-          <div className="whatsapp-chat-body">
+          <div className="whatsapp-chat-body" ref={conversationBodyRef}>
             {!selectedPhone ? (
               <div className="whatsapp-empty-state">{t.whatsapp.selectContact}</div>
             ) : conversation.length === 0 ? (
@@ -473,6 +495,11 @@ const WhatsApp = () => {
               })
             )}
           </div>
+          {selectedPhone && conversation.length > 0 && (
+            <button type="button" className="whatsapp-scroll-latest" onClick={scrollConversationToLatest}>
+              {t.whatsapp.jumpToLatest}
+            </button>
+          )}
         </section>
       </div>
     </section>

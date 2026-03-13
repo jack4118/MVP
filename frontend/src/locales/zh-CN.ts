@@ -487,5 +487,6 @@ export const zhCN = {
     inboxSubtitle: '先选联系人，再专注看对话内容，不把设置区混在一起。',
     contactsSubtitle: '浏览客户活跃情况、搜索号码，然后再跳进正确的对话。',
     openConversation: '打开对话',
+    jumpToLatest: '跳到最新消息',
   },
 };
