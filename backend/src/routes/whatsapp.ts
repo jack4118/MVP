@@ -111,6 +111,23 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
         },
       });
     }
+    if (
+      error instanceof Error &&
+      (
+        error.message.toLowerCase().includes('re-engagement message') ||
+        error.message.toLowerCase().includes('outside the allowed window') ||
+        error.message.toLowerCase().includes('24 hours') ||
+        error.message.toLowerCase().includes('24-hour')
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'This contact is outside the 24-hour WhatsApp window. Use an approved template message first, or wait for the customer to reply before sending free-form text.',
+          code: 'WHATSAPP_TEMPLATE_REQUIRED',
+        },
+      });
+    }
     next(error);
   }
 });

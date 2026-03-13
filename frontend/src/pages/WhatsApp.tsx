@@ -431,6 +431,11 @@ const WhatsApp = () => {
                       <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
                         {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
                       </div>
+                      {msg.error && (
+                        <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--error)', whiteSpace: 'pre-wrap' }}>
+                          {msg.error}
+                        </div>
+                      )}
                     </div>
                   );
                 })
