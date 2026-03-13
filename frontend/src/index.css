@@ -914,20 +914,22 @@ code {
 .app-logo {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
 }
 
 .app-logo-compact {
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 4px;
 }
 
 .app-logo-wordmark span {
   display: inline-block;
-  font-size: 42px;
-  font-weight: 800;
-  letter-spacing: -0.05em;
-  background: linear-gradient(90deg, #247cff, #8a53f3 65%, #c25df2);
+  font-family: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -0.07em;
+  line-height: 0.95;
+  background: linear-gradient(90deg, #3a86ff, #4f63ef 42%, #8f56f3 72%, #c36af2);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -935,7 +937,7 @@ code {
 }
 
 .app-logo-compact .app-logo-wordmark span {
-  font-size: 26px;
+  font-size: 29px;
 }
 
 .section-heading {
@@ -1478,6 +1480,6 @@ code {
   }
 
   .app-logo-wordmark span {
-    font-size: 32px;
+    font-size: 34px;
   }
 }

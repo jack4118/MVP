@@ -3,31 +3,31 @@ interface AppLogoProps {
 }
 
 const AppLogo = ({ compact = false }: AppLogoProps) => {
-  const iconSize = compact ? 44 : 64;
+  const iconSize = compact ? 48 : 72;
 
   return (
     <div className={`app-logo ${compact ? 'app-logo-compact' : ''}`}>
-      <svg width={iconSize} height={iconSize} viewBox="0 0 72 72" fill="none" aria-hidden="true">
+      <svg width={iconSize} height={iconSize} viewBox="0 0 80 80" fill="none" aria-hidden="true">
         <defs>
-          <linearGradient id="ezreply-logo-gradient" x1="12" y1="12" x2="60" y2="58" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#4DB8FF" />
-            <stop offset="0.5" stopColor="#4B68F1" />
-            <stop offset="1" stopColor="#A15CF5" />
+          <linearGradient id="ezreply-logo-gradient" x1="12" y1="10" x2="66" y2="64" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#56B7FF" />
+            <stop offset="0.5" stopColor="#4A68F1" />
+            <stop offset="1" stopColor="#A25AF2" />
           </linearGradient>
-          <filter id="ezreply-logo-shadow" x="0" y="0" width="72" height="72" filterUnits="userSpaceOnUse">
-            <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#5C53D6" floodOpacity="0.18" />
+          <filter id="ezreply-logo-shadow" x="0" y="0" width="80" height="80" filterUnits="userSpaceOnUse">
+            <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#15233C" floodOpacity="0.16" />
           </filter>
         </defs>
         <path
-          d="M14 17.5C14 11.15 19.15 6 25.5 6H46.5C53.96 6 60 12.04 60 19.5V35C60 42.46 53.96 48.5 46.5 48.5H31.5L21.82 57.45C20.05 59.08 17.19 57.83 17.19 55.43V47.26C12.39 44.86 9 40.01 9 34.38V22.5C9 19.74 11.24 17.5 14 17.5Z"
+          d="M26 12C15.51 12 7 20.51 7 31V44C7 54.49 15.51 63 26 63H29V72.2C29 73.84 30.96 74.7 32.17 73.59L43.25 63H55C65.49 63 74 54.49 74 44V31C74 20.51 65.49 12 55 12H26Z"
           fill="url(#ezreply-logo-gradient)"
           filter="url(#ezreply-logo-shadow)"
         />
         <path
-          d="M24.5 31.5 31.5 38.5 45.5 24.5"
+          d="M28 39 36.5 47.5 53.5 29.5"
           fill="white"
           stroke="white"
-          strokeWidth="6.5"
+          strokeWidth="8"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
