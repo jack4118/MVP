@@ -20,6 +20,7 @@ export interface FollowUpData {
   objective: string;
   status?: string;
   daysPassed?: number;
+  variantCount?: number;
   tone?: FollowUpTone;
   stylePreset?: FollowUpStylePreset;
   conversationMode?: ConversationMode;
@@ -33,6 +34,7 @@ export interface PaymentData {
   objective: string;
   amount?: number;
   dueDate?: string;
+  variantCount?: number;
   tone?: PaymentTone;
   stylePreset?: PaymentStylePreset;
   conversationMode?: ConversationMode;
@@ -70,6 +72,12 @@ export interface GenerationDebugInfo {
     objectiveCoverageRatio: number;
     objectiveCoveragePass: boolean;
   };
+}
+
+export interface AiGenerationBundle {
+  text: string;
+  variants: string[];
+  cutoffSummary: string | null;
 }
 
 const presetsEnabled = process.env.FEATURE_AI_PRESETS !== 'false';
@@ -1066,11 +1074,164 @@ const formatFallbackMessage = (
   return baseMessage;
 };
 
+const normalizePhoneForAi = (value?: string | null): string => (value || '').replace(/[^\d]/g, '');
+
+const trimSnippet = (value: string, max: number = 120) => {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+  return `${normalized.slice(0, max - 1)}…`;
+};
+
+const parseTaggedSection = (payload: string, tag: string) => {
+  const match = payload.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
+  return match?.[1]?.trim() || '';
+};
+
+const getConversationCutoffContext = async (userId: string, leadId: string) => {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, userId },
+    select: {
+      id: true,
+      name: true,
+      contact: true,
+      status: true,
+      lastInboundAt: true,
+      lastOutboundAt: true,
+    },
+  });
+
+  if (!lead) {
+    return { cutoffSummary: null, transcript: '' };
+  }
+
+  const normalizedContact = normalizePhoneForAi(lead.contact);
+  const logs = await prisma.whatsAppMessageLog.findMany({
+    where: {
+      userId,
+      OR: [
+        { leadId },
+        ...(normalizedContact
+          ? [
+              { toPhone: normalizedContact },
+              { fromPhone: normalizedContact },
+            ]
+          : []),
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 8,
+  });
+
+  if (logs.length === 0) {
+    return {
+      cutoffSummary: lead.lastOutboundAt || lead.lastInboundAt
+        ? `No WhatsApp transcript stored, but lead is ${lead.status}. Last outbound: ${lead.lastOutboundAt || 'n/a'}. Last inbound: ${lead.lastInboundAt || 'n/a'}.`
+        : `No prior WhatsApp transcript is stored for ${lead.name}.`,
+      transcript: '',
+    };
+  }
+
+  const ordered = [...logs].reverse();
+  const lastInbound = [...ordered].reverse().find((item) => item.direction === 'inbound');
+  const lastOutbound = [...ordered].reverse().find((item) => item.direction === 'outbound');
+
+  const transcript = ordered
+    .map((log) => {
+      const actor = log.direction === 'inbound' ? 'customer' : 'you';
+      return `${log.createdAt.toISOString()} | ${actor} | ${log.status} | ${trimSnippet(log.content, 160)}`;
+    })
+    .join('\n');
+
+  const cutoffSummary = [
+    `Lead status: ${lead.status}.`,
+    lastOutbound ? `Last outbound: ${trimSnippet(lastOutbound.content)} (${lastOutbound.createdAt.toISOString()}).` : null,
+    lastInbound ? `Last inbound: ${trimSnippet(lastInbound.content)} (${lastInbound.createdAt.toISOString()}).` : null,
+    lastInbound
+      ? 'Use the last customer message as the cutoff point. Continue naturally from there instead of restarting the pitch.'
+      : 'There is no customer reply yet. Treat the last outbound message as the cutoff point and continue naturally.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return { cutoffSummary, transcript };
+};
+
+const buildVariantPrompt = (
+  basePrompt: string,
+  cutoffSummary: string | null,
+  transcript: string,
+  language: Language,
+  purpose: 'follow_up' | 'payment',
+  variantCount: number
+) => {
+  const formatHint =
+    language === 'zh-CN'
+      ? `请返回以下标签格式，不要加代码块：\n<CUTOFF>一句话总结当前对话进度</CUTOFF>\n<VARIANT_1>...</VARIANT_1>\n<VARIANT_2>...</VARIANT_2>\n<VARIANT_3>...</VARIANT_3>`
+      : language === 'ms'
+        ? `Pulangkan dalam format tag ini sahaja tanpa code block:\n<CUTOFF>Ringkasan ringkas tahap perbualan sekarang</CUTOFF>\n<VARIANT_1>...</VARIANT_1>\n<VARIANT_2>...</VARIANT_2>\n<VARIANT_3>...</VARIANT_3>`
+        : `Return only this tagged format without code fences:\n<CUTOFF>One short summary of where the conversation currently stands</CUTOFF>\n<VARIANT_1>...</VARIANT_1>\n<VARIANT_2>...</VARIANT_2>\n<VARIANT_3>...</VARIANT_3>`;
+
+  const diversityHint =
+    language === 'zh-CN'
+      ? `请给 ${variantCount} 个不同版本：第 1 个最稳妥，第 2 个更温和，第 3 个更直接。都必须可直接发送。`
+      : language === 'ms'
+        ? `Berikan ${variantCount} versi berbeza: versi 1 paling selamat, versi 2 lebih mesra, versi 3 lebih terus. Semua mesti terus boleh dihantar.`
+        : `Give ${variantCount} distinct variants: variant 1 safest, variant 2 warmer, variant 3 more direct. All must be sendable as-is.`;
+
+  const contextBlock = cutoffSummary
+    ? `\n\nConversation cutoff memory:\n${cutoffSummary}${transcript ? `\n\nRecent WhatsApp transcript (latest at bottom):\n${transcript}` : ''}`
+    : '';
+
+  const purposeHint =
+    purpose === 'payment'
+      ? language === 'zh-CN'
+        ? '重点保持付款确认为第一优先。'
+        : language === 'ms'
+          ? 'Utamakan pengesahan masa pembayaran.'
+          : 'Keep payment timing as the first priority.'
+      : language === 'zh-CN'
+        ? '重点自然承接上一次对话，而不是重新开一个新话题。'
+        : language === 'ms'
+          ? 'Sambung secara natural daripada perbualan terakhir, jangan mula semula dari kosong.'
+          : 'Continue naturally from the last conversation instead of restarting from zero.';
+
+  return `${basePrompt}${contextBlock}\n\n${diversityHint}\n${purposeHint}\n${formatHint}`;
+};
+
+const extractVariantBundle = (
+  rawText: string,
+  language: Language,
+  outputFormat: OutputFormat
+): { cutoffSummary: string | null; variants: string[] } => {
+  const cutoffSummary = parseTaggedSection(rawText, 'CUTOFF') || null;
+  const variants = [1, 2, 3]
+    .map((index) => parseTaggedSection(rawText, `VARIANT_${index}`))
+    .filter(Boolean)
+    .map((text) => ensureEmojiRange(enforceOutputFormatConsistency(cleanGeneratedMessage(text), outputFormat), outputFormat, detectEmojiPreference(text)));
+
+  if (variants.length > 0) {
+    return { cutoffSummary, variants };
+  }
+
+  const cleaned = ensureEmojiRange(
+    enforceOutputFormatConsistency(cleanGeneratedMessage(rawText), outputFormat),
+    outputFormat,
+    detectEmojiPreference(rawText)
+  );
+
+  return {
+    cutoffSummary,
+    variants: cleaned ? [cleaned] : [],
+  };
+};
+
 export const generateFollowUpText = async (
   userId: string,
   leadId: string,
   data: FollowUpData
-): Promise<string> => {
+): Promise<AiGenerationBundle> => {
   const tone = data.tone || 'polite';
   const daysPassed = data.daysPassed || 0;
   const language = data.language || 'en';
@@ -1081,6 +1242,8 @@ export const generateFollowUpText = async (
   const selectedPreset: FollowUpStylePreset = presetsEnabled ? data.stylePreset || 'gentle_nudge' : 'gentle_nudge';
   const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
+  const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
+  const { cutoffSummary, transcript } = await getConversationCutoffContext(userId, leadId);
 
   const systemPrompt = getAdvisorPersona(language);
 
@@ -1109,40 +1272,16 @@ export const generateFollowUpText = async (
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
   const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, language, 'follow_up', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    const completion = await generateCompletion(systemPrompt, promptWithFormat);
-    let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
-    generatedText = await enforceDraftConfig(systemPrompt, generatedText, {
-      language,
-      outputFormat,
-      purpose: 'follow_up',
-      tone,
-      conversationMode,
-      emojiPreference,
-    });
-    generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'follow_up', objectiveItems);
-
-    if (getObjectiveCoverageRatio(generatedText, objectiveItems) < getObjectiveCoverageThreshold(objectiveItems)) {
-      const strictPrompt = `${promptWithFormat}\n\nRewrite now: ensure all objective items are explicitly covered. Keep it concise and natural.`;
-      const retryCompletion = await generateCompletion(systemPrompt, strictPrompt);
-      const retriedText = cleanGeneratedMessage(retryCompletion.choices[0]?.message?.content || '');
-      if (retriedText.trim()) {
-        generatedText = await enforceDraftConfig(systemPrompt, retriedText, {
-          language,
-          outputFormat,
-          purpose: 'follow_up',
-          tone,
-          conversationMode,
-          emojiPreference,
-        });
-        generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'follow_up', objectiveItems);
-      }
-    }
+    const completion = await generateCompletion(systemPrompt, bundlePrompt);
+    const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
+    let generatedText = parsed.variants[0] || '';
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -1158,7 +1297,11 @@ export const generateFollowUpText = async (
       },
     });
 
-    return generatedText;
+    return {
+      text: generatedText,
+      variants: parsed.variants.slice(0, variantCount),
+      cutoffSummary: parsed.cutoffSummary || cutoffSummary,
+    };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
     console.error(`[AI] Follow-up generation failed (${errorKind})`, error?.message || error);
@@ -1189,7 +1332,11 @@ export const generateFollowUpText = async (
       },
     });
 
-    return fallbackText;
+    return {
+      text: fallbackText,
+      variants: [fallbackText],
+      cutoffSummary,
+    };
   }
 };
 
@@ -1197,7 +1344,7 @@ export const generatePaymentText = async (
   userId: string,
   leadId: string,
   data: PaymentData
-): Promise<string> => {
+): Promise<AiGenerationBundle> => {
   const tone = data.tone || 'polite';
   const amount = data.amount;
   const dueDate = data.dueDate;
@@ -1209,6 +1356,8 @@ export const generatePaymentText = async (
   const selectedPreset: PaymentStylePreset = presetsEnabled ? data.stylePreset || 'friendly_reminder' : 'friendly_reminder';
   const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
+  const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
+  const { cutoffSummary, transcript } = await getConversationCutoffContext(userId, leadId);
 
   let daysOverdue = 0;
   if (dueDate) {
@@ -1244,40 +1393,16 @@ export const generatePaymentText = async (
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
   const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, language, 'payment', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    const completion = await generateCompletion(systemPrompt, promptWithFormat);
-    let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
-    generatedText = await enforceDraftConfig(systemPrompt, generatedText, {
-      language,
-      outputFormat,
-      purpose: 'payment',
-      tone,
-      conversationMode,
-      emojiPreference,
-    });
-    generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'payment', objectiveItems);
-
-    if (getObjectiveCoverageRatio(generatedText, objectiveItems) < getObjectiveCoverageThreshold(objectiveItems)) {
-      const strictPrompt = `${promptWithFormat}\n\nRewrite now: include every objective item. Keep payment timing first, then cover the remaining objectives naturally.`;
-      const retryCompletion = await generateCompletion(systemPrompt, strictPrompt);
-      const retriedText = cleanGeneratedMessage(retryCompletion.choices[0]?.message?.content || '');
-      if (retriedText.trim()) {
-        generatedText = await enforceDraftConfig(systemPrompt, retriedText, {
-          language,
-          outputFormat,
-          purpose: 'payment',
-          tone,
-          conversationMode,
-          emojiPreference,
-        });
-        generatedText = await enforceObjectiveCoverage(systemPrompt, generatedText, language, 'payment', objectiveItems);
-      }
-    }
+    const completion = await generateCompletion(systemPrompt, bundlePrompt);
+    const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
+    let generatedText = parsed.variants[0] || '';
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -1293,7 +1418,11 @@ export const generatePaymentText = async (
       },
     });
 
-    return generatedText;
+    return {
+      text: generatedText,
+      variants: parsed.variants.slice(0, variantCount),
+      cutoffSummary: parsed.cutoffSummary || cutoffSummary,
+    };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
     console.error(`[AI] Payment generation failed (${errorKind})`, error?.message || error);
@@ -1324,7 +1453,11 @@ export const generatePaymentText = async (
       },
     });
 
-    return fallbackText;
+    return {
+      text: fallbackText,
+      variants: [fallbackText],
+      cutoffSummary,
+    };
   }
 };
 

@@ -9,9 +9,7 @@ import {
   whatsappApi,
 } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
-import AppLogo from '../components/AppLogo';
+import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import AiComposerFields from '../components/AiComposerFields';
 import AiStatusPanel from '../components/AiStatusPanel';
 import {
@@ -24,7 +22,7 @@ import {
 import { translate, useLanguage } from '../contexts/LanguageContext';
 
 const Dashboard = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { language, t } = useLanguage();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +31,9 @@ const Dashboard = () => {
   const [activeTask, setActiveTask] = useState<DashboardSummary['todayTasks'][number] | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
+  const [generatedVariants, setGeneratedVariants] = useState<string[]>([]);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [cutoffSummary, setCutoffSummary] = useState('');
   const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
   const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -150,6 +151,9 @@ const Dashboard = () => {
       ...(objectiveByAction[action] || objectiveByAction.send_follow_up),
     });
     setGeneratedText('');
+    setGeneratedVariants([]);
+    setSelectedVariantIndex(0);
+    setCutoffSummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setAdvancedOpen(false);
@@ -164,6 +168,9 @@ const Dashboard = () => {
     setActiveTask(null);
     setConfig(createInitialAiConfig());
     setGeneratedText('');
+    setGeneratedVariants([]);
+    setSelectedVariantIndex(0);
+    setCutoffSummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setAdvancedOpen(false);
@@ -192,13 +199,20 @@ const Dashboard = () => {
     setAiLoading(true);
     setGenerationStage('thinking');
     setGeneratedText('');
+    setGeneratedVariants([]);
+    setSelectedVariantIndex(0);
+    setCutoffSummary('');
     setGenerationDebug(null);
     setError('');
 
     try {
       const response = await generateAiMessage({ config, lead, language });
       if (response.success && response.data) {
-        setGeneratedText(response.data.text);
+        const variants = response.data.variants?.length ? response.data.variants : [response.data.text];
+        setGeneratedVariants(variants);
+        setSelectedVariantIndex(0);
+        setGeneratedText(variants[0] || response.data.text);
+        setCutoffSummary(response.data.cutoffSummary || '');
         setGenerationDebug(response.data.debug || null);
         setGenerationStage('done');
         return;
@@ -282,24 +296,10 @@ const Dashboard = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div>
-          <AppLogo />
-          <h1 className="page-title">{t.dashboard.todayTasksTitle}</h1>
-          <p className="page-subtitle">{t.dashboard.todayTasksSubtitle}</p>
-          <p className="page-subtitle">{translate(t.dashboard.signedInAs, { email: user?.email || 'user' })}</p>
-        </div>
-        <div className="header-actions">
-          <Link to="/pricing" className="btn btn-secondary">
-            {t.pricing.pricing}
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-          <button onClick={logout} className="btn btn-danger">
-            {t.auth.logout}
-          </button>
-        </div>
-      </header>
+      <AuthenticatedHeader
+        title={t.dashboard.todayTasksTitle}
+        subtitle={translate(t.dashboard.signedInAs, { email: user?.email || 'user' })}
+      />
 
       {error && <div className="alert alert-error">{error}</div>}
 
@@ -487,9 +487,42 @@ const Dashboard = () => {
               </div>
 
               <div className="quick-ai-result">
+                {cutoffSummary && (
+                  <div className="ai-cutoff-card ai-cutoff-card-compact">
+                    <strong>{t.ai.conversationCutoff}</strong>
+                    <p>{cutoffSummary}</p>
+                  </div>
+                )}
+
+                {generatedVariants.length > 1 && (
+                  <div className="ai-variant-row">
+                    {generatedVariants.map((_, index) => (
+                      <button
+                        key={`dashboard-variant-${index}`}
+                        type="button"
+                        className={`btn ${selectedVariantIndex === index ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => {
+                          setSelectedVariantIndex(index);
+                          setGeneratedText(generatedVariants[index] || '');
+                        }}
+                      >
+                        {translate(t.ai.variantOption, { index: index + 1 })}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <textarea
                   value={generatedText}
-                  onChange={(e) => setGeneratedText(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setGeneratedText(next);
+                    setGeneratedVariants((current) =>
+                      current.length === 0
+                        ? [next]
+                        : current.map((item, index) => (index === selectedVariantIndex ? next : item))
+                    );
+                  }}
                   className="input generated-textarea quick-ai-textarea"
                   placeholder={t.ai.generatedTextPlaceholder}
                   rows={12}

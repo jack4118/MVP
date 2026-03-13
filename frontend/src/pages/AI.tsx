@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   AiHistoryItem,
   Lead,
@@ -10,10 +9,8 @@ import {
   aiApi,
 } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
 import UpgradeModal from '../components/UpgradeModal';
-import AppLogo from '../components/AppLogo';
+import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import AiUsageCard from '../components/AiUsageCard';
 import AiStatusPanel from '../components/AiStatusPanel';
 import AiComposerFields from '../components/AiComposerFields';
@@ -35,6 +32,9 @@ const AI = () => {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
+  const [generatedVariants, setGeneratedVariants] = useState<string[]>([]);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [cutoffSummary, setCutoffSummary] = useState('');
   const [loading, setLoading] = useState(false);
   const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
   const [generationDebug, setGenerationDebug] = useState<any>(null);
@@ -117,13 +117,20 @@ const AI = () => {
     setGenerationDebug(null);
     setError('');
     setGeneratedText('');
+    setGeneratedVariants([]);
+    setSelectedVariantIndex(0);
+    setCutoffSummary('');
     setWhatsAppPhone(selectedLead.contact || '');
 
     try {
       const response = await generateAiMessage({ config, lead: selectedLead, language });
 
       if (response.success && response.data) {
-        setGeneratedText(response.data.text);
+        const variants = response.data.variants?.length ? response.data.variants : [response.data.text];
+        setGeneratedVariants(variants);
+        setSelectedVariantIndex(0);
+        setGeneratedText(variants[0] || response.data.text);
+        setCutoffSummary(response.data.cutoffSummary || '');
         setGenerationDebug(response.data.debug || null);
         setGenerationStage('done');
 
@@ -224,27 +231,7 @@ const AI = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div className="header-left">
-          <Link to="/dashboard" className="home-link">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-          </Link>
-          <div>
-            <AppLogo compact />
-            <h1 className="page-title">{t.ai.title}</h1>
-          </div>
-        </div>
-        <div className="header-actions">
-          <Link to="/pricing" className="btn btn-secondary">
-            {t.pricing.pricing}
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </header>
+      <AuthenticatedHeader title={t.ai.title} subtitle={t.ai.configurationSubtitle} />
 
       {error && (
         <div className="alert alert-error">
@@ -314,6 +301,31 @@ const AI = () => {
             )}
           </div>
 
+          {cutoffSummary && (
+            <div className="ai-cutoff-card">
+              <strong>{t.ai.conversationCutoff}</strong>
+              <p>{cutoffSummary}</p>
+            </div>
+          )}
+
+          {generatedVariants.length > 1 && (
+            <div className="ai-variant-row">
+              {generatedVariants.map((_, index) => (
+                <button
+                  key={`variant-${index}`}
+                  type="button"
+                  className={`btn ${selectedVariantIndex === index ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => {
+                    setSelectedVariantIndex(index);
+                    setGeneratedText(generatedVariants[index] || '');
+                  }}
+                >
+                  {translate(t.ai.variantOption, { index: index + 1 })}
+                </button>
+              ))}
+            </div>
+          )}
+
           {generatedText && usageInfo?.plan === 'free' && (
             <div className="post-success-card">
               <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
@@ -325,7 +337,15 @@ const AI = () => {
 
           <textarea
             value={generatedText}
-            onChange={(e) => setGeneratedText(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setGeneratedText(next);
+              setGeneratedVariants((current) =>
+                current.length === 0
+                  ? [next]
+                  : current.map((item, index) => (index === selectedVariantIndex ? next : item))
+              );
+            }}
             className="input generated-textarea"
             placeholder={t.ai.generatedTextPlaceholder}
             rows={15}

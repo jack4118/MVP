@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { remindersApi, Reminder, ReminderDispatchLog, leadsApi, Lead } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
+import AuthenticatedHeader from '../components/AuthenticatedHeader';
 
 const Reminders = () => {
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -123,21 +121,7 @@ const Reminders = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div className="header-left">
-          <Link to="/dashboard" className="home-link">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-          </Link>
-          <h1 className="page-title">{t.reminders.title}</h1>
-        </div>
-        <div className="header-actions">
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </header>
+      <AuthenticatedHeader title={t.reminders.title} subtitle={t.reminders.loadingReminders} />
 
       {error && (
         <div className="alert alert-error">

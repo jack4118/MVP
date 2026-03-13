@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
 import UpgradeModal from '../components/UpgradeModal';
-import AppLogo from '../components/AppLogo';
+import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import AiComposerFields from '../components/AiComposerFields';
 import AiStatusPanel from '../components/AiStatusPanel';
 import AiUsageCard from '../components/AiUsageCard';
@@ -46,6 +44,9 @@ const Leads = () => {
   const [currentLead, setCurrentLead] = useState<Lead | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
+  const [generatedVariants, setGeneratedVariants] = useState<string[]>([]);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [cutoffSummary, setCutoffSummary] = useState('');
   const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
   const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -217,6 +218,9 @@ const Leads = () => {
     setCurrentLead(null);
     setConfig(createInitialAiConfig());
     setGeneratedText('');
+    setGeneratedVariants([]);
+    setSelectedVariantIndex(0);
+    setCutoffSummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setAdvancedOpen(false);
@@ -229,6 +233,9 @@ const Leads = () => {
       ...overrides,
     });
     setGeneratedText('');
+    setGeneratedVariants([]);
+    setSelectedVariantIndex(0);
+    setCutoffSummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setShowAiModal(true);
@@ -258,7 +265,11 @@ const Leads = () => {
     try {
       const response = await generateAiMessage({ config, lead: currentLead, language });
       if (response.success && response.data) {
-        setGeneratedText(response.data.text);
+        const variants = response.data.variants?.length ? response.data.variants : [response.data.text];
+        setGeneratedVariants(variants);
+        setSelectedVariantIndex(0);
+        setGeneratedText(variants[0] || response.data.text);
+        setCutoffSummary(response.data.cutoffSummary || '');
         setGenerationDebug(response.data.debug || null);
         setGenerationStage('done');
         trackProductEvent('ai_generate_success', {
@@ -382,38 +393,21 @@ const Leads = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div className="header-left">
-          <Link to="/dashboard" className="home-link">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-          </Link>
-          <div>
-            <AppLogo compact />
-            <h1 className="page-title">{t.leads.title}</h1>
-          </div>
-        </div>
-        <div className="header-actions">
-          <Link to="/pricing" className="btn btn-secondary">
-            {t.pricing.pricing}
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-          <button
-            onClick={() => {
-              setShowForm(true);
-              setEditingLead(null);
-              setFormData({ name: '', contact: '', notes: '', status: 'new' });
-              setError('');
-            }}
-            className="btn btn-primary"
-          >
-            + {t.leads.addLead}
-          </button>
-        </div>
-      </header>
+      <AuthenticatedHeader title={t.leads.title} subtitle={t.dashboard.leadsNavBody} />
+
+      <div className="page-header-inline-actions">
+        <button
+          onClick={() => {
+            setShowForm(true);
+            setEditingLead(null);
+            setFormData({ name: '', contact: '', notes: '', status: 'new' });
+            setError('');
+          }}
+          className="btn btn-primary"
+        >
+          + {t.leads.addLead}
+        </button>
+      </div>
 
       {error && (
         <div className="alert alert-error">
@@ -688,6 +682,31 @@ const Leads = () => {
               </div>
 
               <div className="quick-ai-result">
+                {cutoffSummary && (
+                  <div className="ai-cutoff-card ai-cutoff-card-compact">
+                    <strong>{t.ai.conversationCutoff}</strong>
+                    <p>{cutoffSummary}</p>
+                  </div>
+                )}
+
+                {generatedVariants.length > 1 && (
+                  <div className="ai-variant-row">
+                    {generatedVariants.map((_, index) => (
+                      <button
+                        key={`leads-variant-${index}`}
+                        type="button"
+                        className={`btn ${selectedVariantIndex === index ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => {
+                          setSelectedVariantIndex(index);
+                          setGeneratedText(generatedVariants[index] || '');
+                        }}
+                      >
+                        {translate(t.ai.variantOption, { index: index + 1 })}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {generatedText && usageInfo?.plan === 'free' && (
                   <div className="post-success-card post-success-card-compact">
                     <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
@@ -705,7 +724,15 @@ const Leads = () => {
 
                 <textarea
                   value={generatedText}
-                  onChange={(e) => setGeneratedText(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setGeneratedText(next);
+                    setGeneratedVariants((current) =>
+                      current.length === 0
+                        ? [next]
+                        : current.map((item, index) => (index === selectedVariantIndex ? next : item))
+                    );
+                  }}
                   className="input generated-textarea quick-ai-textarea"
                   placeholder={t.ai.generatedTextPlaceholder}
                   rows={12}

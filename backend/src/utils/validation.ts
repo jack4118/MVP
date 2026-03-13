@@ -86,6 +86,7 @@ export const aiFollowUpSchema = z.object({
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
+  variantCount: z.number().int().min(1).max(5).optional().default(3),
 });
 
 export const aiPaymentSchema = z.object({
@@ -99,6 +100,7 @@ export const aiPaymentSchema = z.object({
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
+  variantCount: z.number().int().min(1).max(5).optional().default(3),
 });
 
 export const eventLogSchema = z.object({

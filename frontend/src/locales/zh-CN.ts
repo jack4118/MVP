@@ -27,6 +27,15 @@ export const zhCN = {
     signedInLabel: '已登录',
     openDashboard: '打开工作台',
   },
+  privateHeader: {
+    home: '仪表板',
+    leads: '线索',
+    whatsapp: 'WhatsApp',
+    ai: 'AI Studio',
+    reminders: '提醒',
+    viewSite: '查看官网',
+    signedInLabel: '当前登录',
+  },
 
   // Auth
   auth: {
@@ -280,9 +289,11 @@ export const zhCN = {
     generateText: '生成文本',
     generating: '生成中...',
     regenerateVariant: '重新生成版本',
+    variantOption: '版本 {index}',
     generatedText: '生成的文本',
     resultPanelSubtitle: '生成后可直接审阅、复制或发送。',
     generatedTextPlaceholder: '生成的文本将显示在这里...',
+    conversationCutoff: '对话记忆点',
     copy: '复制',
     showAdvanced: '显示高级选项',
     hideAdvanced: '隐藏高级选项',
@@ -402,7 +413,7 @@ export const zhCN = {
     heroTitle: '先把产品价值讲清楚，再谈 referral',
     heroDescription: '这个 pilot 保持轻量：推荐给真正需要更快 WhatsApp 跟进的团队，避免骚扰式触达，也别把它做成夸张的代理项目。',
     waitlistEyebrow: '不属于核心 MVP',
-    waitlistNote: '这个页面先作为候补 / 说明页保留，不把它包装成完整的代理系统。',
+    waitlistNote: '这个页面先作为候补 / 说明页保留，不把它包装成完整的合作后台。',
     incentiveTitle: '激励方式',
     incentiveCommission: '活跃 Pro 订阅可获得 20% recurring commission',
     incentiveDiscount: '新用户首月可享 30% 折扣',
@@ -494,5 +505,6 @@ export const zhCN = {
     openConversation: '打开对话',
     jumpToLatest: '跳到最新消息',
     unreadMessagesLabel: '未读消息',
+    unreadMessagesHint: '等待查看的客户新消息',
   },
 };

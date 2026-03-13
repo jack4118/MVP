@@ -217,6 +217,13 @@ export interface AiGenerationDebug {
   };
 }
 
+export interface AiGenerationResult {
+  text: string;
+  variants: string[];
+  cutoffSummary?: string | null;
+  debug?: AiGenerationDebug;
+}
+
 export interface WhatsAppConnection {
   id: string;
   userId: string;
@@ -419,8 +426,9 @@ export const aiApi = {
     emojiDensity?: EmojiDensity;
     outputFormat?: OutputFormat;
     language?: AppLanguage;
-  }): Promise<ApiResponse<{ text: string; debug?: AiGenerationDebug }>> => {
-    const response = await api.post<ApiResponse<{ text: string; debug?: AiGenerationDebug }>>('/ai/follow-up', data);
+    variantCount?: number;
+  }): Promise<ApiResponse<AiGenerationResult>> => {
+    const response = await api.post<ApiResponse<AiGenerationResult>>('/ai/follow-up', data);
     return response.data;
   },
 
@@ -436,8 +444,9 @@ export const aiApi = {
     emojiDensity?: EmojiDensity;
     outputFormat?: OutputFormat;
     language?: AppLanguage;
-  }): Promise<ApiResponse<{ text: string; debug?: AiGenerationDebug }>> => {
-    const response = await api.post<ApiResponse<{ text: string; debug?: AiGenerationDebug }>>('/ai/payment', data);
+    variantCount?: number;
+  }): Promise<ApiResponse<AiGenerationResult>> => {
+    const response = await api.post<ApiResponse<AiGenerationResult>>('/ai/payment', data);
     return response.data;
   },
 

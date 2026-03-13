@@ -74,13 +74,13 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
       });
     }
 
-    const generatedText = await generateFollowUpText(req.userId, leadId, validatedData);
+    const generatedResult = await generateFollowUpText(req.userId, leadId, validatedData);
     const followUpMode = validatedData.conversationMode || 'standard';
     const followUpTone = validatedData.tone || 'polite';
     const followUpEmoji = validatedData.emojiDensity || 'medium';
     const followUpLanguage = validatedData.language || 'en';
     const followUpFormat = validatedData.outputFormat || 'chat';
-    const debug = buildGenerationDebugInfo(generatedText, {
+    const debug = buildGenerationDebugInfo(generatedResult.text, {
       language: followUpLanguage,
       outputFormat: followUpFormat,
       purpose: 'follow_up',
@@ -95,9 +95,11 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
     const usageInfo = await getUsageInfo(req.userId);
 
     res.json({
-      success: true,
-      data: {
-        text: generatedText,
+        success: true,
+        data: {
+        text: generatedResult.text,
+        variants: generatedResult.variants,
+        cutoffSummary: generatedResult.cutoffSummary,
         debug,
       },
       usage: usageInfo,
@@ -157,13 +159,13 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
       });
     }
 
-    const generatedText = await generatePaymentText(req.userId, leadId, validatedData);
+    const generatedResult = await generatePaymentText(req.userId, leadId, validatedData);
     const paymentMode = validatedData.conversationMode || 'standard';
     const paymentTone = validatedData.tone || 'polite';
     const paymentEmoji = validatedData.emojiDensity || 'medium';
     const paymentLanguage = validatedData.language || 'en';
     const paymentFormat = validatedData.outputFormat || 'chat';
-    const debug = buildGenerationDebugInfo(generatedText, {
+    const debug = buildGenerationDebugInfo(generatedResult.text, {
       language: paymentLanguage,
       outputFormat: paymentFormat,
       purpose: 'payment',
@@ -178,9 +180,11 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
     const usageInfo = await getUsageInfo(req.userId);
 
     res.json({
-      success: true,
-      data: {
-        text: generatedText,
+        success: true,
+        data: {
+        text: generatedResult.text,
+        variants: generatedResult.variants,
+        cutoffSummary: generatedResult.cutoffSummary,
         debug,
       },
       usage: usageInfo,

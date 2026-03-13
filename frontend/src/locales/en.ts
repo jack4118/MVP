@@ -27,6 +27,15 @@ export const en = {
     signedInLabel: 'Signed in',
     openDashboard: 'Open Dashboard',
   },
+  privateHeader: {
+    home: 'Dashboard',
+    leads: 'Leads',
+    whatsapp: 'WhatsApp',
+    ai: 'AI Studio',
+    reminders: 'Reminders',
+    viewSite: 'View Site',
+    signedInLabel: 'Signed in',
+  },
 
   // Auth
   auth: {
@@ -280,9 +289,11 @@ export const en = {
     generateText: 'Generate Text',
     generating: 'Generating...',
     regenerateVariant: 'Regenerate Variant',
+    variantOption: 'Option {index}',
     generatedText: 'Generated Text',
     resultPanelSubtitle: 'Review, copy, or send the draft after generation.',
     generatedTextPlaceholder: 'Generated text will appear here...',
+    conversationCutoff: 'Conversation memory',
     copy: 'Copy',
     pleaseSelectLead: 'Please select a lead',
     failedToGenerate: 'Failed to generate text',
@@ -402,7 +413,7 @@ export const en = {
     heroTitle: 'Useful product first, referral second',
     heroDescription: 'This pilot keeps the offer simple: refer teams that need faster WhatsApp follow-up, avoid spammy outreach, and keep expectations clear.',
     waitlistEyebrow: 'Not part of the core MVP',
-    waitlistNote: 'Leave this visible as a waitlist/information page, not as a full agent program.',
+    waitlistNote: 'Leave this visible as a waitlist/information page, not as a full partner portal.',
     incentiveTitle: 'Offer',
     incentiveCommission: '20% recurring commission on active Pro subscriptions',
     incentiveDiscount: 'New users get 30% off their first month',
@@ -494,5 +505,6 @@ export const en = {
     openConversation: 'Open conversation',
     jumpToLatest: 'Jump to latest',
     unreadMessagesLabel: 'Unread messages',
+    unreadMessagesHint: 'Inbound messages waiting for review',
   },
 };

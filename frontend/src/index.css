@@ -916,9 +916,12 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 16px;
+  min-width: 0;
 }
 
 .landing-logo-link {
+  display: inline-flex;
+  align-items: center;
   color: inherit;
   text-decoration: none;
 }
@@ -934,8 +937,10 @@ code {
   font-size: 48px;
   font-weight: 700;
   letter-spacing: -0.07em;
-  line-height: 1.08;
-  padding-bottom: 0.08em;
+  line-height: 1.18;
+  padding: 0 0.04em 0.18em 0;
+  min-height: 1.22em;
+  overflow: visible;
   background: linear-gradient(90deg, #3a86ff, #4f63ef 42%, #8f56f3 72%, #c36af2);
   -webkit-background-clip: text;
   background-clip: text;
@@ -1040,6 +1045,16 @@ code {
 
 .whatsapp-overview {
   margin-bottom: 20px;
+}
+
+.whatsapp-unread-banner {
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: rgba(36, 124, 255, 0.35);
+  background: linear-gradient(135deg, rgba(36, 124, 255, 0.12), rgba(194, 93, 242, 0.1));
 }
 
 .whatsapp-kpi-grid {
@@ -1220,9 +1235,38 @@ code {
 .whatsapp-scroll-latest-fixed {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  bottom: 28px;
   z-index: 40;
   box-shadow: 0 14px 32px rgba(10, 18, 28, 0.28);
+}
+
+.ai-cutoff-card {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(36, 124, 255, 0.24);
+  background: rgba(36, 124, 255, 0.08);
+}
+
+.ai-cutoff-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.ai-cutoff-card p {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.ai-cutoff-card-compact {
+  margin-bottom: 10px;
+}
+
+.ai-variant-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .whatsapp-tab-badge,
@@ -1590,6 +1634,68 @@ code {
   margin-bottom: 32px;
 }
 
+.app-shell-header {
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.app-shell-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.app-shell-left > div:last-child {
+  min-width: 0;
+}
+
+.app-shell-right {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+  min-width: 0;
+}
+
+.app-shell-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.app-shell-nav-link {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.app-shell-nav-link:hover {
+  border-color: rgba(36, 124, 255, 0.35);
+  color: var(--text-primary);
+}
+
+.app-shell-nav-link-active {
+  color: var(--primary);
+  border-color: rgba(36, 124, 255, 0.42);
+  background: rgba(36, 124, 255, 0.1);
+}
+
+.app-shell-actions {
+  justify-content: flex-end;
+}
+
+.page-header-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -10px 0 20px;
+}
+
 .landing-header .header-actions {
   justify-content: flex-end;
 }
@@ -1718,7 +1824,7 @@ code {
 }
 
 [data-theme='dark'] .pricing-card-highlight {
-  background: linear-gradient(180deg, rgba(36, 124, 255, 0.18), rgba(17, 22, 31, 0.98));
+  background: linear-gradient(160deg, rgba(47, 90, 158, 0.94), rgba(84, 72, 148, 0.92));
   border-color: rgba(84, 170, 255, 0.55);
 }
 
@@ -1732,13 +1838,13 @@ code {
 }
 
 [data-theme='dark'] .pricing-card-highlight .plan-pill {
-  background: rgba(80, 170, 255, 0.16);
-  color: #9fd0ff;
+  background: rgba(243, 247, 255, 0.14);
+  color: #f3f7ff;
 }
 
 [data-theme='dark'] .pricing-card-highlight .plan-pill-current {
   background: rgba(30, 169, 113, 0.18);
-  color: #8bf0c3;
+  color: #dffff1;
 }
 
 [data-theme='dark'] .pricing-card-muted {
@@ -1801,6 +1907,8 @@ code {
   }
 
   .landing-header,
+  .app-shell-header,
+  .app-shell-left,
   .today-task-top,
   .simple-list-item,
   .whatsapp-insight-top,
@@ -1809,9 +1917,23 @@ code {
   }
 
   .page-header .header-actions,
-  .landing-header .header-actions {
+  .landing-header .header-actions,
+  .app-shell-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .app-shell-right,
+  .app-shell-nav {
+    width: 100%;
+    justify-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .app-shell-nav-link,
+  .page-header-inline-actions .btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .page-section-header {
@@ -1858,13 +1980,18 @@ code {
   .whatsapp-scroll-latest {
     left: 16px;
     right: 16px;
-    bottom: 16px;
+    bottom: 84px;
   }
 
   .whatsapp-scroll-latest-fixed {
     left: 16px;
     right: 16px;
-    bottom: 16px;
+    bottom: 84px;
+  }
+
+  .whatsapp-unread-banner {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .reminder-filter-grid {

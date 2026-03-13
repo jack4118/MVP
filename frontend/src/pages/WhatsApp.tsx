@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
+import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import { storage } from '../utils/storage';
 
 type WhatsAppView = 'setup' | 'inbox' | 'contacts';
@@ -26,9 +24,11 @@ const WhatsApp = () => {
   const [contactQuery, setContactQuery] = useState('');
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState('');
+  const [selectedByUser, setSelectedByUser] = useState(false);
   const [conversation, setConversation] = useState<WhatsAppLogItem[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const conversationBodyRef = useRef<HTMLDivElement | null>(null);
+  const unreadSignatureRef = useRef('');
   const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
   const [seenMessages, setSeenMessages] = useState<Record<string, string>>(() =>
     storage.getJson<Record<string, string>>(WHATSAPP_SEEN_KEY, {})
@@ -36,6 +36,7 @@ const WhatsApp = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [sending, setSending] = useState(false);
@@ -86,27 +87,31 @@ const WhatsApp = () => {
     });
   }, [activeView, selectedPhone, conversation]);
 
-  useEffect(() => {
-    if (!selectedPhone || conversation.length === 0) {
-      return;
-    }
-
-    const latestAt = conversation[conversation.length - 1]?.createdAt;
-    if (!latestAt) {
+  const markConversationSeen = (phone: string, timestamp?: string) => {
+    if (!phone || !timestamp) {
       return;
     }
 
     setSeenMessages((current) => {
-      if (current[selectedPhone] === latestAt) {
+      if (current[phone] === timestamp) {
         return current;
       }
 
       return {
         ...current,
-        [selectedPhone]: latestAt,
+        [phone]: timestamp,
       };
     });
-  }, [selectedPhone, conversation]);
+  };
+
+  useEffect(() => {
+    if (!selectedByUser || !selectedPhone || conversation.length === 0 || !isConversationAtBottom || activeView !== 'inbox') {
+      return;
+    }
+
+    const latestAt = conversation[conversation.length - 1]?.createdAt;
+    markConversationSeen(selectedPhone, latestAt);
+  }, [selectedByUser, selectedPhone, conversation, isConversationAtBottom, activeView]);
 
   useEffect(() => {
     const node = conversationBodyRef.current;
@@ -156,6 +161,43 @@ const WhatsApp = () => {
     [contacts, seenMessages]
   );
 
+  const latestUnreadContact = useMemo(() => {
+    if (!unreadContacts.length) {
+      return null;
+    }
+
+    return [...unreadContacts].sort(
+      (a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime()
+    )[0] || null;
+  }, [unreadContacts]);
+
+  useEffect(() => {
+    if (!latestUnreadContact) {
+      unreadSignatureRef.current = '';
+      setShowUnreadBanner(false);
+      return;
+    }
+
+    const signature = `${latestUnreadContact.phone}:${latestUnreadContact.lastAt}:${unreadContacts.length}`;
+    if (unreadSignatureRef.current !== signature) {
+      unreadSignatureRef.current = signature;
+      setShowUnreadBanner(true);
+    }
+  }, [latestUnreadContact, unreadContacts.length]);
+
+  useEffect(() => {
+    const baseTitle = 'EzReply';
+    if (unreadContacts.length > 0) {
+      document.title = `(${unreadContacts.length}) ${baseTitle}`;
+      return;
+    }
+
+    document.title = baseTitle;
+    return () => {
+      document.title = baseTitle;
+    };
+  }, [unreadContacts.length]);
+
   const tabs = [
     { id: 'setup' as const, label: t.whatsapp.tabSetup },
     { id: 'inbox' as const, label: t.whatsapp.tabInbox, count: unreadContacts.length },
@@ -169,7 +211,21 @@ const WhatsApp = () => {
         behavior: 'smooth',
       });
       setIsConversationAtBottom(true);
+      const latestAt = conversation[conversation.length - 1]?.createdAt;
+      markConversationSeen(selectedPhone, latestAt);
     }
+  };
+
+  const openUnreadConversation = () => {
+    if (!latestUnreadContact) {
+      return;
+    }
+
+    setActiveView('inbox');
+    setSelectedPhone(latestUnreadContact.phone);
+    setSelectedByUser(true);
+    setTestData((prev) => ({ ...prev, toPhone: latestUnreadContact.phone }));
+    setShowUnreadBanner(false);
   };
 
   const loadAll = async () => {
@@ -215,6 +271,22 @@ const WhatsApp = () => {
       if (response.success && response.data) {
         const payload: any = response.data;
 
+        const pickPreferredPhone = (items: WhatsAppContactSummary[]) => {
+          if (selectedPhone && items.some((item) => item.phone === selectedPhone)) {
+            return selectedPhone;
+          }
+
+          const firstUnread = items.find((item) => {
+            if (item.lastStatus !== 'received') {
+              return false;
+            }
+            const seenAt = seenMessages[item.phone];
+            return !seenAt || new Date(item.lastAt).getTime() > new Date(seenAt).getTime();
+          });
+
+          return firstUnread?.phone || items[0]?.phone || '';
+        };
+
         if (Array.isArray(payload)) {
           const query = q.trim().toLowerCase();
           const filtered = query
@@ -244,12 +316,10 @@ const WhatsApp = () => {
           setContactsTotalPages(totalPages);
           setContactsPage(clampedPage);
 
-          if (!selectedPhone && items.length > 0) {
-            const first = items[0]?.phone || '';
-            if (first) {
-              setSelectedPhone(first);
-              setTestData((prev) => ({ ...prev, toPhone: first }));
-            }
+          const preferredPhone = pickPreferredPhone(items);
+          if (preferredPhone) {
+            setSelectedPhone(preferredPhone);
+            setTestData((prev) => ({ ...prev, toPhone: preferredPhone }));
           }
           return;
         }
@@ -259,12 +329,10 @@ const WhatsApp = () => {
         setContactsTotalPages(payload.totalPages || 1);
         setContactsPage(payload.page || 1);
 
-        if (!selectedPhone && (payload.items || []).length > 0) {
-          const first = payload.items[0]?.phone || '';
-          if (first) {
-            setSelectedPhone(first);
-            setTestData((prev) => ({ ...prev, toPhone: first }));
-          }
+        const preferredPhone = pickPreferredPhone(payload.items || []);
+        if (preferredPhone) {
+          setSelectedPhone(preferredPhone);
+          setTestData((prev) => ({ ...prev, toPhone: preferredPhone }));
         }
       }
     } finally {
@@ -362,6 +430,7 @@ const WhatsApp = () => {
       await loadAll();
       await loadConversation(testData.toPhone);
       setActiveView('inbox');
+      setSelectedByUser(true);
     } catch (err) {
       const message =
         (err as any)?.response?.data?.error?.message ||
@@ -510,6 +579,7 @@ const WhatsApp = () => {
                   type="button"
                   onClick={() => {
                     setSelectedPhone(contact.phone);
+                    setSelectedByUser(true);
                     setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
                   }}
                   className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
@@ -582,11 +652,6 @@ const WhatsApp = () => {
               })
             )}
           </div>
-          {selectedPhone && conversation.length > 0 && !isConversationAtBottom && (
-            <button type="button" className="whatsapp-scroll-latest whatsapp-scroll-latest-fixed" onClick={scrollConversationToLatest}>
-              {t.whatsapp.jumpToLatest}
-            </button>
-          )}
         </section>
       </div>
     </section>
@@ -662,6 +727,7 @@ const WhatsApp = () => {
                     onClick={() => {
                       setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
                       setSelectedPhone(contact.phone);
+                      setSelectedByUser(true);
                       setActiveView('inbox');
                     }}
                   >
@@ -678,24 +744,30 @@ const WhatsApp = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div className="header-left">
-          <Link to="/dashboard" className="home-link">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-          </Link>
-          <h1 className="page-title">{t.whatsapp.title}</h1>
-        </div>
-        <div className="header-actions">
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </header>
+      <AuthenticatedHeader
+        title={t.whatsapp.title}
+        subtitle={connection?.isActive ? t.whatsapp.inboxSubtitle : t.whatsapp.setupPanelTitle}
+      />
 
       {error && <div className="alert alert-error"><span>{error}</span></div>}
       {success && <div className="alert alert-success"><span>{success}</span></div>}
+
+      {showUnreadBanner && latestUnreadContact && (
+        <section className="card whatsapp-unread-banner">
+          <div>
+            <strong>{t.whatsapp.unreadMessagesLabel}: {latestUnreadContact.lead?.name || latestUnreadContact.phone}</strong>
+            <p>{latestUnreadContact.lastMessage || t.whatsapp.unreadMessagesHint}</p>
+          </div>
+          <div className="whatsapp-form-actions">
+            <button type="button" className="btn btn-primary" onClick={openUnreadConversation}>
+              {t.whatsapp.openConversation}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => setShowUnreadBanner(false)}>
+              {t.common.close}
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="card whatsapp-overview">
         <div className="section-heading">
@@ -735,6 +807,13 @@ const WhatsApp = () => {
             </div>
             <span className={`task-pill ${totalFailedMessages > 0 ? 'task-pill-overdue' : ''}`}>{totalFailedMessages}</span>
           </div>
+          <div className="simple-list-item">
+            <div>
+              <strong>{t.whatsapp.unreadMessagesLabel}</strong>
+              <p>{t.whatsapp.unreadMessagesHint}</p>
+            </div>
+            <span className={`task-pill ${unreadContacts.length > 0 ? 'task-pill-overdue' : ''}`}>{unreadContacts.length}</span>
+          </div>
         </div>
       </section>
 
@@ -755,6 +834,12 @@ const WhatsApp = () => {
       {activeView === 'setup' && renderSetupView()}
       {activeView === 'inbox' && renderInboxView()}
       {activeView === 'contacts' && renderContactsView()}
+
+      {activeView === 'inbox' && selectedPhone && conversation.length > 0 && !isConversationAtBottom && (
+        <button type="button" className="whatsapp-scroll-latest whatsapp-scroll-latest-fixed" onClick={scrollConversationToLatest}>
+          {t.whatsapp.jumpToLatest}
+        </button>
+      )}
     </div>
   );
 };

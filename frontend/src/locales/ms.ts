@@ -26,6 +26,15 @@ export const ms = {
     signedInLabel: 'Sudah log masuk',
     openDashboard: 'Buka Dashboard',
   },
+  privateHeader: {
+    home: 'Dashboard',
+    leads: 'Leads',
+    whatsapp: 'WhatsApp',
+    ai: 'AI Studio',
+    reminders: 'Peringatan',
+    viewSite: 'Lihat Laman',
+    signedInLabel: 'Log masuk',
+  },
 
   auth: {
     login: 'Log Masuk',
@@ -274,9 +283,11 @@ export const ms = {
     generateText: 'Jana Teks',
     generating: 'Menjana...',
     regenerateVariant: 'Jana Semula Variasi',
+    variantOption: 'Pilihan {index}',
     generatedText: 'Teks Dijana',
     resultPanelSubtitle: 'Semak, salin, atau terus guna draf selepas dijana.',
     generatedTextPlaceholder: 'Teks yang dijana akan dipaparkan di sini...',
+    conversationCutoff: 'Memori perbualan',
     copy: 'Salin',
     showAdvanced: 'Tunjuk pilihan lanjutan',
     hideAdvanced: 'Sembunyi pilihan lanjutan',
@@ -394,7 +405,7 @@ export const ms = {
     heroTitle: 'Produk berguna dahulu, referral kemudian',
     heroDescription: 'Pilot ini sengaja ringkas: rujuk pasukan yang perlukan follow-up WhatsApp lebih laju, elak outreach spam, dan jaga expectation.',
     waitlistEyebrow: 'Bukan sebahagian daripada MVP teras',
-    waitlistNote: 'Biarkan halaman ini sebagai senarai tunggu / halaman info, bukan sebagai program ejen penuh.',
+    waitlistNote: 'Biarkan halaman ini sebagai senarai tunggu / halaman info, bukan sebagai portal partner penuh.',
     incentiveTitle: 'Tawaran',
     incentiveCommission: '20% komisen berulang untuk langganan Pro yang aktif',
     incentiveDiscount: 'Pengguna baharu dapat diskaun 30% untuk bulan pertama',
@@ -486,5 +497,6 @@ export const ms = {
     openConversation: 'Buka perbualan',
     jumpToLatest: 'Pergi ke mesej terbaru',
     unreadMessagesLabel: 'Mesej belum dibaca',
+    unreadMessagesHint: 'Mesej masuk yang masih belum disemak',
   },
 };

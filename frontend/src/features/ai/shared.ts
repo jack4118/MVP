@@ -161,6 +161,7 @@ export const generateAiMessage = async ({
       emojiDensity: config.emojiDensity,
       outputFormat: config.outputFormat,
       language,
+      variantCount: 3,
     });
   }
 
@@ -176,6 +177,7 @@ export const generateAiMessage = async ({
     emojiDensity: config.emojiDensity,
     outputFormat: config.outputFormat,
     language,
+    variantCount: 3,
   });
 };
 
