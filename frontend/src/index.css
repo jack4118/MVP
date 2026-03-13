@@ -931,7 +931,7 @@ code {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  transform: skewX(-8deg);
+  font-style: italic;
 }
 
 .app-logo-compact .app-logo-wordmark span {

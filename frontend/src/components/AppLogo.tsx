@@ -9,25 +9,25 @@ const AppLogo = ({ compact = false }: AppLogoProps) => {
     <div className={`app-logo ${compact ? 'app-logo-compact' : ''}`}>
       <svg width={iconSize} height={iconSize} viewBox="0 0 72 72" fill="none" aria-hidden="true">
         <defs>
-          <linearGradient id="ezreply-logo-gradient" x1="10" y1="10" x2="60" y2="60" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#43B4FF" />
-            <stop offset="0.52" stopColor="#4B68F1" />
-            <stop offset="1" stopColor="#A05CF5" />
+          <linearGradient id="ezreply-logo-gradient" x1="12" y1="12" x2="60" y2="58" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#4DB8FF" />
+            <stop offset="0.5" stopColor="#4B68F1" />
+            <stop offset="1" stopColor="#A15CF5" />
           </linearGradient>
           <filter id="ezreply-logo-shadow" x="0" y="0" width="72" height="72" filterUnits="userSpaceOnUse">
-            <feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#5C53D6" floodOpacity="0.22" />
+            <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#5C53D6" floodOpacity="0.18" />
           </filter>
         </defs>
         <path
-          d="M14 16.5C14 10.15 19.15 5 25.5 5H46.5C55.61 5 63 12.39 63 21.5V35.5C63 44.61 55.61 52 46.5 52H31.42L20.5 61.17C18.72 62.66 16 61.39 16 59.07V50.79C10.18 47.58 6.25 41.39 6.25 34.28V26.5C6.25 20.98 10.73 16.5 16.25 16.5H14Z"
+          d="M14 17.5C14 11.15 19.15 6 25.5 6H46.5C53.96 6 60 12.04 60 19.5V35C60 42.46 53.96 48.5 46.5 48.5H31.5L21.82 57.45C20.05 59.08 17.19 57.83 17.19 55.43V47.26C12.39 44.86 9 40.01 9 34.38V22.5C9 19.74 11.24 17.5 14 17.5Z"
           fill="url(#ezreply-logo-gradient)"
           filter="url(#ezreply-logo-shadow)"
         />
         <path
-          d="M23.5 32.77 31.54 40.81 48.48 23.87"
+          d="M24.5 31.5 31.5 38.5 45.5 24.5"
           fill="white"
           stroke="white"
-          strokeWidth="7"
+          strokeWidth="6.5"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
