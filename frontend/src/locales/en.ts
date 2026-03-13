@@ -23,6 +23,10 @@ export const en = {
     home: 'Home',
     startFreeTrial: 'Start Free Trial',
   },
+  publicHeader: {
+    signedInLabel: 'Signed in',
+    openDashboard: 'Open Dashboard',
+  },
 
   // Auth
   auth: {
@@ -122,7 +126,7 @@ export const en = {
     actionSendFollowUp: 'Send follow-up',
     actionAskBudget: 'Ask budget',
     actionPaymentReminder: 'Payment reminder',
-    actionMarkWon: 'Mark won',
+    actionMarkWon: 'Close deal',
     actionSnooze: 'Snooze 2 days',
     generateFailed: 'Failed to generate message',
     sendValidationError: 'Lead needs a WhatsApp number and generated message before sending.',
@@ -185,6 +189,7 @@ export const en = {
     searchPlaceholder: 'Search by name, contact, or notes...',
     helpFollowUp: 'Help me follow up',
     helpCollectPayment: 'Help me collect payment',
+    closeDeal: 'Close deal',
     aiModalTitle: 'Generated Message',
     copyMessage: 'Copy Message',
     quickAiTitle: 'Quick AI',
@@ -488,5 +493,6 @@ export const en = {
     contactsSubtitle: 'Browse customer activity, search, and then jump into the right conversation.',
     openConversation: 'Open conversation',
     jumpToLatest: 'Jump to latest',
+    unreadMessagesLabel: 'Unread messages',
   },
 };

@@ -4,12 +4,18 @@ import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogIte
 import { useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
 import LanguageToggle from '../components/LanguageToggle';
+import { storage } from '../utils/storage';
 
 type WhatsAppView = 'setup' | 'inbox' | 'contacts';
+const WHATSAPP_VIEW_KEY = 'whatsapp_active_view';
+const WHATSAPP_SEEN_KEY = 'whatsapp_seen_messages';
 
 const WhatsApp = () => {
   const { t } = useLanguage();
-  const [activeView, setActiveView] = useState<WhatsAppView>('setup');
+  const [activeView, setActiveView] = useState<WhatsAppView>(() => {
+    const saved = storage.getItem(WHATSAPP_VIEW_KEY) as WhatsAppView | null;
+    return saved === 'inbox' || saved === 'contacts' || saved === 'setup' ? saved : 'setup';
+  });
   const [connection, setConnection] = useState<WhatsAppConnection | null>(null);
   const [logs, setLogs] = useState<WhatsAppLogItem[]>([]);
   const [contacts, setContacts] = useState<WhatsAppContactSummary[]>([]);
@@ -23,6 +29,10 @@ const WhatsApp = () => {
   const [conversation, setConversation] = useState<WhatsAppLogItem[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const conversationBodyRef = useRef<HTMLDivElement | null>(null);
+  const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
+  const [seenMessages, setSeenMessages] = useState<Record<string, string>>(() =>
+    storage.getJson<Record<string, string>>(WHATSAPP_SEEN_KEY, {})
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -44,6 +54,14 @@ const WhatsApp = () => {
   }, []);
 
   useEffect(() => {
+    storage.setItem(WHATSAPP_VIEW_KEY, activeView);
+  }, [activeView]);
+
+  useEffect(() => {
+    storage.setJson(WHATSAPP_SEEN_KEY, seenMessages);
+  }, [seenMessages]);
+
+  useEffect(() => {
     loadContacts(contactQuery, contactsPage);
   }, [contactQuery, contactsPage, contactsPageSize]);
 
@@ -63,9 +81,48 @@ const WhatsApp = () => {
     requestAnimationFrame(() => {
       if (conversationBodyRef.current) {
         conversationBodyRef.current.scrollTop = conversationBodyRef.current.scrollHeight;
+        setIsConversationAtBottom(true);
       }
     });
   }, [activeView, selectedPhone, conversation]);
+
+  useEffect(() => {
+    if (!selectedPhone || conversation.length === 0) {
+      return;
+    }
+
+    const latestAt = conversation[conversation.length - 1]?.createdAt;
+    if (!latestAt) {
+      return;
+    }
+
+    setSeenMessages((current) => {
+      if (current[selectedPhone] === latestAt) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [selectedPhone]: latestAt,
+      };
+    });
+  }, [selectedPhone, conversation]);
+
+  useEffect(() => {
+    const node = conversationBodyRef.current;
+    if (!node) {
+      return;
+    }
+
+    const handleScroll = () => {
+      const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+      setIsConversationAtBottom(distanceFromBottom < 24);
+    };
+
+    handleScroll();
+    node.addEventListener('scroll', handleScroll);
+    return () => node.removeEventListener('scroll', handleScroll);
+  }, [selectedPhone, conversation, activeView]);
 
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.phone === selectedPhone) || null,
@@ -82,9 +139,26 @@ const WhatsApp = () => {
     [contacts]
   );
 
+  const unreadContacts = useMemo(
+    () =>
+      contacts.filter((contact) => {
+        if (contact.lastStatus !== 'received') {
+          return false;
+        }
+
+        const seenAt = seenMessages[contact.phone];
+        if (!seenAt) {
+          return true;
+        }
+
+        return new Date(contact.lastAt).getTime() > new Date(seenAt).getTime();
+      }),
+    [contacts, seenMessages]
+  );
+
   const tabs = [
     { id: 'setup' as const, label: t.whatsapp.tabSetup },
-    { id: 'inbox' as const, label: t.whatsapp.tabInbox },
+    { id: 'inbox' as const, label: t.whatsapp.tabInbox, count: unreadContacts.length },
     { id: 'contacts' as const, label: t.whatsapp.tabContacts },
   ];
 
@@ -94,6 +168,7 @@ const WhatsApp = () => {
         top: conversationBodyRef.current.scrollHeight,
         behavior: 'smooth',
       });
+      setIsConversationAtBottom(true);
     }
   };
 
@@ -107,6 +182,13 @@ const WhatsApp = () => {
       if (conn.success) {
         const existingConnection = conn.data || null;
         setConnection(existingConnection);
+        setActiveView((current) => {
+          if (!existingConnection?.isActive) {
+            return 'setup';
+          }
+
+          return current === 'setup' ? 'inbox' : current;
+        });
         if (existingConnection) {
           setFormData((prev) => ({
             ...prev,
@@ -432,8 +514,13 @@ const WhatsApp = () => {
                   }}
                   className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
                 >
-                  <div>
+                  <div className="whatsapp-contact-title-row">
                     <strong>{contact.lead?.name || contact.phone}</strong>
+                    {unreadContacts.some((item) => item.phone === contact.phone) && (
+                      <span className="unread-dot" aria-label={t.whatsapp.unreadMessagesLabel}></span>
+                    )}
+                  </div>
+                  <div>
                     <p>{contact.phone}</p>
                   </div>
                   <div className="whatsapp-contact-preview">{contact.lastMessage}</div>
@@ -495,8 +582,8 @@ const WhatsApp = () => {
               })
             )}
           </div>
-          {selectedPhone && conversation.length > 0 && (
-            <button type="button" className="whatsapp-scroll-latest" onClick={scrollConversationToLatest}>
+          {selectedPhone && conversation.length > 0 && !isConversationAtBottom && (
+            <button type="button" className="whatsapp-scroll-latest whatsapp-scroll-latest-fixed" onClick={scrollConversationToLatest}>
               {t.whatsapp.jumpToLatest}
             </button>
           )}
@@ -660,6 +747,7 @@ const WhatsApp = () => {
             onClick={() => setActiveView(tab.id)}
           >
             {tab.label}
+            {tab.count ? <span className="whatsapp-tab-badge">{tab.count}</span> : null}
           </button>
         ))}
       </div>

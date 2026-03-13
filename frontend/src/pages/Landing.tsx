@@ -1,30 +1,15 @@
 import { Link } from 'react-router-dom';
-import AppLogo from '../components/AppLogo';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../hooks/useAuth';
+import PublicHeader from '../components/PublicHeader';
 
 const Landing = () => {
   const { t } = useLanguage();
+  const { isAuthenticated } = useAuth();
 
   return (
     <div className="landing-shell">
-      <header className="landing-header">
-        <AppLogo />
-        <div className="header-actions">
-          <Link to="/pricing" className="btn btn-secondary">
-            {t.pricing.pricing}
-          </Link>
-          <Link to="/agent" className="btn btn-secondary">
-            {t.agent.title}
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-          <Link to="/login" className="btn btn-primary">
-            {t.common.startFreeTrial}
-          </Link>
-        </div>
-      </header>
+      <PublicHeader secondaryHref="/agent" secondaryLabel={t.agent.title} />
 
       <main className="landing-main">
         <section className="landing-hero card">
@@ -32,7 +17,7 @@ const Landing = () => {
           <h1>{t.landing.heroTitle}</h1>
           <p className="landing-subtitle">{t.landing.heroSubtitle}</p>
           <div className="landing-cta-row">
-            <Link to="/login" className="btn btn-primary">
+            <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn btn-primary">
               {t.common.startFreeTrial}
             </Link>
             <Link to="/pricing" className="btn btn-secondary">

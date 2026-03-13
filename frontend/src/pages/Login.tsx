@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useLanguage } from '../contexts/LanguageContext';
 import ThemeToggle from '../components/ThemeToggle';
@@ -12,9 +12,17 @@ const Login = () => {
   const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, register } = useAuth();
+  const { login, register, isAuthenticated, loading: authLoading } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo = new URLSearchParams(location.search).get('redirect') || '/dashboard';
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      navigate(redirectTo, { replace: true });
+    }
+  }, [authLoading, isAuthenticated, navigate, redirectTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +45,7 @@ const Login = () => {
           return;
         }
       }
-      navigate('/dashboard');
+      navigate(redirectTo, { replace: true });
     } catch (err: any) {
       if (err?.response?.data?.error?.message) {
         setError(err.response.data.error.message);

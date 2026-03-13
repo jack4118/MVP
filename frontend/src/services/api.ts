@@ -75,7 +75,8 @@ api.interceptors.response.use(
         storage.removeToken();
       } else if (!isLoginOrRegister) {
         storage.removeToken();
-        window.location.href = '/login';
+        const redirect = `${window.location.pathname}${window.location.search}`;
+        window.location.href = `/login?redirect=${encodeURIComponent(redirect)}`;
       }
     }
     return Promise.reject(error);

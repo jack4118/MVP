@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
 import AppLogo from '../components/AppLogo';
 import { useLanguage } from '../contexts/LanguageContext';
+import PublicHeader from '../components/PublicHeader';
 
 const AgentProgram = () => {
   const { t } = useLanguage();
@@ -32,27 +30,11 @@ const AgentProgram = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div className="header-left">
-          <Link to="/" className="home-link">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-          </Link>
-          <div>
-            <AppLogo compact />
-            <h1 className="page-title">{t.agent.waitlistTitle}</h1>
-          </div>
-        </div>
-        <div className="header-actions">
-          <Link to="/pricing" className="btn btn-secondary">
-            {t.pricing.pricing}
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </header>
+      <PublicHeader secondaryHref="/pricing" secondaryLabel={t.pricing.pricing} />
+      <div className="page-section-header">
+        <AppLogo compact />
+        <h1 className="page-title">{t.agent.title}</h1>
+      </div>
 
       <section className="agent-hero card">
         <p className="eyebrow">{t.agent.waitlistEyebrow}</p>

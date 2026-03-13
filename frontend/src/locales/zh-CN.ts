@@ -23,6 +23,10 @@ export const zhCN = {
     home: '主页',
     startFreeTrial: '开始免费试用',
   },
+  publicHeader: {
+    signedInLabel: '已登录',
+    openDashboard: '打开工作台',
+  },
 
   // Auth
   auth: {
@@ -122,7 +126,7 @@ export const zhCN = {
     actionSendFollowUp: '发送跟进',
     actionAskBudget: '询问预算',
     actionPaymentReminder: '付款提醒',
-    actionMarkWon: '标记成交',
+    actionMarkWon: '标记为已成交',
     actionSnooze: '延后 2 天',
     generateFailed: '生成消息失败',
     sendValidationError: '发送前需要线索的 WhatsApp 号码和已生成的消息。',
@@ -185,6 +189,7 @@ export const zhCN = {
     searchPlaceholder: '按姓名、联系方式或备注搜索...',
     helpFollowUp: '帮我跟进',
     helpCollectPayment: '帮我催款',
+    closeDeal: '标记为已成交',
     aiModalTitle: '生成的消息',
     copyMessage: '复制消息',
     quickAiTitle: 'Quick AI',
@@ -488,5 +493,6 @@ export const zhCN = {
     contactsSubtitle: '浏览客户活跃情况、搜索号码，然后再跳进正确的对话。',
     openConversation: '打开对话',
     jumpToLatest: '跳到最新消息',
+    unreadMessagesLabel: '未读消息',
   },
 };

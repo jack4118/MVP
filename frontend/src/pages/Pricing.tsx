@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import ThemeToggle from '../components/ThemeToggle';
-import LanguageToggle from '../components/LanguageToggle';
 import AppLogo from '../components/AppLogo';
+import PublicHeader from '../components/PublicHeader';
 import { UsageInfo, usageApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { storage } from '../utils/storage';
+import { useAuth } from '../hooks/useAuth';
 
 const Pricing = () => {
   const { t } = useLanguage();
+  const { isAuthenticated } = useAuth();
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
 
   useEffect(() => {
@@ -65,27 +66,11 @@ const Pricing = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <div className="header-left">
-          <Link to="/" className="home-link">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-          </Link>
-          <div>
-            <AppLogo compact />
-            <h1 className="page-title">{t.pricing.pricing}</h1>
-          </div>
-        </div>
-        <div className="header-actions">
-          <Link to="/agent" className="btn btn-secondary">
-            {t.agent.title}
-          </Link>
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </header>
+      <PublicHeader secondaryHref="/agent" secondaryLabel={t.agent.title} />
+      <div className="page-section-header">
+        <AppLogo compact />
+        <h1 className="page-title">{t.pricing.pricing}</h1>
+      </div>
 
       <section className="pricing-hero card">
         <p className="eyebrow">{t.pricing.heroTitle}</p>
@@ -127,7 +112,7 @@ const Pricing = () => {
                 {t.pricing.unavailable}
               </button>
             ) : (
-              <Link to="/login" className={`btn ${plan.highlight ? 'btn-primary' : 'btn-secondary'}`}>
+              <Link to={isAuthenticated ? '/dashboard' : '/login'} className={`btn ${plan.highlight ? 'btn-primary' : 'btn-secondary'}`}>
                 {plan.id === 'pro' ? t.pricing.upgradeNow : t.common.startFreeTrial}
               </Link>
             )}

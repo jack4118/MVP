@@ -22,6 +22,10 @@ export const ms = {
     home: 'Utama',
     startFreeTrial: 'Mulakan Percubaan Percuma',
   },
+  publicHeader: {
+    signedInLabel: 'Sudah log masuk',
+    openDashboard: 'Buka Dashboard',
+  },
 
   auth: {
     login: 'Log Masuk',
@@ -119,7 +123,7 @@ export const ms = {
     actionSendFollowUp: 'Hantar follow-up',
     actionAskBudget: 'Tanya bajet',
     actionPaymentReminder: 'Peringatan bayaran',
-    actionMarkWon: 'Tanda menang',
+    actionMarkWon: 'Tandakan deal selesai',
     actionSnooze: 'Tunda 2 hari',
     generateFailed: 'Gagal menjana mesej',
     sendValidationError: 'Lead perlukan nombor WhatsApp dan mesej dijana sebelum dihantar.',
@@ -181,6 +185,7 @@ export const ms = {
     searchPlaceholder: 'Cari mengikut nama, kontak, atau nota...',
     helpFollowUp: 'Bantu saya follow-up',
     helpCollectPayment: 'Bantu saya kutip bayaran',
+    closeDeal: 'Tandakan deal selesai',
     aiModalTitle: 'Mesej Dijana',
     copyMessage: 'Salin Mesej',
     quickAiTitle: 'Quick AI',
@@ -480,5 +485,6 @@ export const ms = {
     contactsSubtitle: 'Semak aktiviti pelanggan, cari nombor, kemudian lompat ke perbualan yang betul.',
     openConversation: 'Buka perbualan',
     jumpToLatest: 'Pergi ke mesej terbaru',
+    unreadMessagesLabel: 'Mesej belum dibaca',
   },
 };

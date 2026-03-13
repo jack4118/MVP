@@ -618,7 +618,7 @@ const Leads = () => {
                           className="btn btn-secondary"
                           style={{ padding: '6px 12px', fontSize: '12px' }}
                         >
-                          Mark won
+                          {t.leads.closeDeal}
                         </button>
                       )}
                       <button onClick={() => handleEdit(lead)} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }}>
