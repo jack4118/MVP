@@ -1802,6 +1802,12 @@ code {
   color: var(--text-secondary);
 }
 
+.landing-outcome {
+  margin-top: 18px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .landing-cta-row {
   display: flex;
   gap: 12px;
@@ -1809,26 +1815,150 @@ code {
   margin-top: 20px;
 }
 
-.landing-proof-grid,
+.landing-feature-grid,
+.landing-faq-grid,
 .today-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
 }
 
-.landing-steps {
+.landing-problem,
+.landing-solution,
+.landing-workflow,
+.landing-social-proof,
+.landing-pricing-bridge,
+.landing-final-cta {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
 }
 
-.landing-steps div,
+.landing-problem-quotes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.landing-problem-quotes blockquote,
+.landing-pricing-preview-card,
 .today-task-card,
 .simple-list-item {
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 16px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.landing-problem-quotes blockquote {
+  margin: 0;
+  font-weight: 600;
+}
+
+.landing-problem-punch {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.landing-problem-body,
+.landing-workflow-body,
+.landing-social-proof p,
+.landing-faq-card p,
+.public-footer p {
+  color: var(--text-secondary);
+}
+
+.landing-solution-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.landing-solution-flow span,
+.landing-workflow-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  font-weight: 700;
+  text-align: center;
+}
+
+.landing-workflow-line {
+  min-height: unset;
+  font-size: clamp(1.1rem, 3vw, 1.5rem);
+}
+
+.landing-social-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.landing-pricing-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-pricing-preview-card {
+  display: grid;
+  gap: 8px;
+}
+
+.landing-pricing-preview-card span {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+}
+
+.landing-pricing-preview-card p {
+  color: var(--text-secondary);
+}
+
+.landing-pricing-preview-card-highlight {
+  border-color: rgba(36, 124, 255, 0.38);
+  background: linear-gradient(135deg, rgba(36, 124, 255, 0.12), rgba(194, 93, 242, 0.12));
+}
+
+.landing-faq-card {
+  display: grid;
+  gap: 10px;
+}
+
+.public-footer {
+  max-width: 1120px;
+  margin: 24px auto 0;
+  display: grid;
+  gap: 16px;
+}
+
+.public-footer-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.public-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.public-footer-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.public-footer-links a:hover {
+  color: var(--primary);
+}
+
+.public-footer-note {
+  font-size: 13px;
 }
 
 .today-dashboard-grid {
@@ -1928,7 +2058,10 @@ code {
 }
 
 [data-theme='dark'] .pricing-note-card,
-[data-theme='dark'] .landing-steps div,
+[data-theme='dark'] .landing-problem-quotes blockquote,
+[data-theme='dark'] .landing-solution-flow span,
+[data-theme='dark'] .landing-workflow-line,
+[data-theme='dark'] .landing-pricing-preview-card,
 [data-theme='dark'] .today-task-card,
 [data-theme='dark'] .simple-list-item,
 [data-theme='dark'] .whatsapp-contact-pane,
@@ -1965,6 +2098,9 @@ code {
   .pricing-grid,
   .agent-incentive-grid,
   .agent-stats-grid,
+  .landing-problem-quotes,
+  .landing-solution-flow,
+  .landing-pricing-preview,
   .today-dashboard-grid,
   .upgrade-plan-grid,
   .whatsapp-kpi-grid,
@@ -2047,7 +2183,8 @@ code {
   .landing-cta-row .btn,
   .pricing-note-card .btn,
   .whatsapp-form-actions .btn,
-  .whatsapp-pagination .btn {
+  .whatsapp-pagination .btn,
+  .landing-pricing-bridge .btn {
     width: 100%;
   }
 
@@ -2108,6 +2245,11 @@ code {
   .data-table th,
   .data-table td {
     padding: 12px 8px;
+  }
+
+  .public-footer-links {
+    flex-direction: column;
+    gap: 10px;
   }
 }
 

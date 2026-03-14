@@ -5,12 +5,7 @@ import LanguageToggle from './LanguageToggle';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 
-interface PublicHeaderProps {
-  secondaryHref: string;
-  secondaryLabel: string;
-}
-
-const PublicHeader = ({ secondaryHref, secondaryLabel }: PublicHeaderProps) => {
+const PublicHeader = () => {
   const { t } = useLanguage();
   const { user, isAuthenticated, logout } = useAuth();
 
@@ -22,9 +17,6 @@ const PublicHeader = ({ secondaryHref, secondaryLabel }: PublicHeaderProps) => {
       <div className="header-actions">
         <Link to="/pricing" className="btn btn-secondary">
           {t.pricing.pricing}
-        </Link>
-        <Link to={secondaryHref} className="btn btn-secondary">
-          {secondaryLabel}
         </Link>
         <LanguageToggle />
         <ThemeToggle />

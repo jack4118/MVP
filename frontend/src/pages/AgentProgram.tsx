@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import AppLogo from '../components/AppLogo';
 import { useLanguage } from '../contexts/LanguageContext';
 import PublicHeader from '../components/PublicHeader';
+import PublicFooter from '../components/PublicFooter';
 
 const AgentProgram = () => {
   const { t } = useLanguage();
@@ -29,81 +29,80 @@ const AgentProgram = () => {
   };
 
   return (
-    <div className="page-container">
-      <PublicHeader secondaryHref="/pricing" secondaryLabel={t.pricing.pricing} />
-      <div className="page-section-header">
-        <AppLogo compact />
-        <h1 className="page-title">{t.agent.title}</h1>
-      </div>
+    <div className="landing-shell">
+      <PublicHeader />
+      <main className="landing-main">
+        <section className="agent-hero card">
+          <p className="eyebrow">{t.agent.waitlistEyebrow}</p>
+          <h1>{t.agent.title}</h1>
+          <h2>{t.agent.heroTitle}</h2>
+          <p>{t.agent.heroDescription}</p>
+          <div className="agent-pilot-note">{t.agent.waitlistNote}</div>
+        </section>
 
-      <section className="agent-hero card">
-        <p className="eyebrow">{t.agent.waitlistEyebrow}</p>
-        <h2>{t.agent.heroTitle}</h2>
-        <p>{t.agent.heroDescription}</p>
-        <div className="agent-pilot-note">{t.agent.waitlistNote}</div>
-      </section>
-
-      <section className="agent-incentive-grid">
-        <div className="card">
-          <h3>{t.agent.incentiveTitle}</h3>
-          <ul className="pricing-feature-list">
-            <li>{t.agent.incentiveCommission}</li>
-            <li>{t.agent.incentiveDiscount}</li>
-            <li>{t.agent.comingSoon}</li>
-          </ul>
-        </div>
-        <div className="card">
-          <h3>{t.agent.referralLink}</h3>
-          <div className="referral-link-box">{referralLink}</div>
-          <button className="btn btn-primary" onClick={handleCopy}>
-            {copied ? t.agent.copiedLink : t.agent.copyLink}
-          </button>
-        </div>
-      </section>
-
-      <section className="agent-stats-grid">
-        {cards.map((card) => (
-          <div key={card.label} className="card stat-card">
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
+        <section className="agent-incentive-grid">
+          <div className="card">
+            <h3>{t.agent.incentiveTitle}</h3>
+            <ul className="pricing-feature-list">
+              <li>{t.agent.incentiveCommission}</li>
+              <li>{t.agent.incentiveDiscount}</li>
+              <li>{t.agent.comingSoon}</li>
+            </ul>
           </div>
-        ))}
-      </section>
+          <div className="card">
+            <h3>{t.agent.referralLink}</h3>
+            <div className="referral-link-box">{referralLink}</div>
+            <button className="btn btn-primary" onClick={handleCopy}>
+              {copied ? t.agent.copiedLink : t.agent.copyLink}
+            </button>
+          </div>
+        </section>
 
-      <section className="card">
-        <div className="section-heading">
-          <h3>{t.agent.earningsTitle}</h3>
-          <p>{t.agent.emptyHint}</p>
-        </div>
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>{t.agent.tableReferral}</th>
-                <th>{t.agent.tableStatus}</th>
-                <th>{t.agent.tablePlan}</th>
-                <th>{t.agent.tableCommission}</th>
-                <th>{t.agent.tableJoined}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mockRows.map((row) => (
-                <tr key={`${row.referral}-${row.joined}`}>
-                  <td>{row.referral}</td>
-                  <td>{row.status}</td>
-                  <td>{row.plan}</td>
-                  <td>{row.commission}</td>
-                  <td>{row.joined}</td>
+        <section className="agent-stats-grid">
+          {cards.map((card) => (
+            <div key={card.label} className="card stat-card">
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+            </div>
+          ))}
+        </section>
+
+        <section className="card">
+          <div className="section-heading">
+            <h3>{t.agent.earningsTitle}</h3>
+            <p>{t.agent.emptyHint}</p>
+          </div>
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>{t.agent.tableReferral}</th>
+                  <th>{t.agent.tableStatus}</th>
+                  <th>{t.agent.tablePlan}</th>
+                  <th>{t.agent.tableCommission}</th>
+                  <th>{t.agent.tableJoined}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {mockRows.map((row) => (
+                  <tr key={`${row.referral}-${row.joined}`}>
+                    <td>{row.referral}</td>
+                    <td>{row.status}</td>
+                    <td>{row.plan}</td>
+                    <td>{row.commission}</td>
+                    <td>{row.joined}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <section className="card pricing-note-card">
-        <p>{t.agent.riskNote}</p>
-      </section>
+        <section className="card pricing-note-card">
+          <p>{t.agent.riskNote}</p>
+        </section>
+      </main>
+      <PublicFooter />
     </div>
   );
 };
