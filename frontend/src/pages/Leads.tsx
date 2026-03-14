@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
+import { getApiErrorMessage, Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 import UpgradeModal from '../components/UpgradeModal';
@@ -283,6 +283,9 @@ const Leads = () => {
     if (!lead.memorySummary || !lead.memoryUpdatedAt) {
       return true;
     }
+    if (lead.memoryLanguage !== language) {
+      return true;
+    }
     return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
   };
 
@@ -308,8 +311,8 @@ const Leads = () => {
         }));
         return refreshedLead;
       }
-    } catch (_err) {
-      // Non-blocking
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setRefreshingMemory(false);
     }
@@ -406,7 +409,7 @@ const Leads = () => {
           setUsageInfo(err.response.data.usage);
         }
       }
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setAiLoading(false);
     }
@@ -454,7 +457,7 @@ const Leads = () => {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setSendingViaWhatsapp(false);
     }

@@ -45,6 +45,18 @@ export interface ApiResponse<T> {
   usage?: UsageInfo;
 }
 
+export const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  if (axios.isAxiosError<ApiResponse<unknown>>(error)) {
+    return error.response?.data?.error?.message || error.message || fallback;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
+};
+
 const api: AxiosInstance = axios.create({
   baseURL: `${API_URL}/api`,
   headers: {
@@ -113,6 +125,7 @@ export interface Lead {
   status: LeadStatus;
   memorySummary?: string | null;
   memoryGoal?: string | null;
+  memoryLanguage?: AppLanguage | null;
   aiTonePreference?: AiTone | null;
   aiConversationMode?: ConversationMode | null;
   aiEmojiDensity?: EmojiDensity | null;

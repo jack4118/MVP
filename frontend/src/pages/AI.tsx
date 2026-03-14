@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AiHistoryItem,
+  getApiErrorMessage,
   Lead,
   UsageInfo,
   usageApi,
@@ -114,6 +115,9 @@ const AI = () => {
     if (!lead.memorySummary || !lead.memoryUpdatedAt) {
       return true;
     }
+    if (lead.memoryLanguage !== language) {
+      return true;
+    }
     return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
   };
 
@@ -144,8 +148,8 @@ const AI = () => {
         }));
         return refreshedLead;
       }
-    } catch (_err) {
-      // Non-blocking
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setRefreshingMemory(false);
     }
@@ -230,7 +234,7 @@ const AI = () => {
           setUsageInfo(err.response.data.usage);
         }
       }
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setLoading(false);
     }
@@ -282,7 +286,7 @@ const AI = () => {
       const message =
         (err as any)?.response?.data?.error?.message ||
         (err instanceof Error ? err.message : t.common.error);
-      setError(message);
+      setError(getApiErrorMessage(err, message));
     } finally {
       setSendingWhatsApp(false);
     }

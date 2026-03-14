@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   dashboardApi,
   DashboardSummary,
+  getApiErrorMessage,
   leadsApi,
   Lead,
   remindersApi,
@@ -121,6 +122,9 @@ const Dashboard = () => {
     if (!lead.memorySummary || !lead.memoryUpdatedAt) {
       return true;
     }
+    if (lead.memoryLanguage !== language) {
+      return true;
+    }
     return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
   };
 
@@ -143,8 +147,8 @@ const Dashboard = () => {
         }));
         return refreshedLead;
       }
-    } catch (_err) {
-      // Non-blocking
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setRefreshingMemory(false);
     }
@@ -278,7 +282,7 @@ const Dashboard = () => {
       setError(response.error?.message || t.dashboard.generateFailed);
     } catch (err) {
       setGenerationStage('ready');
-      setError(err instanceof Error ? err.message : t.dashboard.generateFailed);
+      setError(getApiErrorMessage(err, t.dashboard.generateFailed));
     } finally {
       setAiLoading(false);
     }
@@ -302,7 +306,7 @@ const Dashboard = () => {
       await loadSummary();
       closeQuickActionModal();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.dashboard.sendFailed);
+      setError(getApiErrorMessage(err, t.dashboard.sendFailed));
     } finally {
       setSending(false);
     }
