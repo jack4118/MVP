@@ -32,6 +32,7 @@ const WhatsApp = () => {
   const [loadingConversation, setLoadingConversation] = useState(false);
   const conversationBodyRef = useRef<HTMLDivElement | null>(null);
   const unreadSignatureRef = useRef('');
+  const hasAppliedPreferredViewRef = useRef(false);
   const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -59,7 +60,13 @@ const WhatsApp = () => {
       return;
     }
 
-    if (connection?.isActive && activeView === 'setup' && user?.inboxDefaultView) {
+    if (
+      !hasAppliedPreferredViewRef.current &&
+      connection?.isActive &&
+      activeView === 'setup' &&
+      user?.inboxDefaultView
+    ) {
+      hasAppliedPreferredViewRef.current = true;
       setActiveView(user.inboxDefaultView);
     }
   }, [user?.inboxDefaultView, connection?.isActive, activeView, searchParams]);
@@ -253,9 +260,13 @@ const WhatsApp = () => {
         setConnection(existingConnection);
         setActiveView((current) => {
           if (!existingConnection?.isActive) {
+            hasAppliedPreferredViewRef.current = false;
             return 'setup';
           }
 
+          if (current !== 'setup') {
+            hasAppliedPreferredViewRef.current = true;
+          }
           return current === 'setup' ? (user?.inboxDefaultView || 'inbox') : current;
         });
         if (existingConnection) {
