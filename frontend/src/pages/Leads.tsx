@@ -118,7 +118,7 @@ const Leads = () => {
         setError(response.error?.message || t.common.error);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setLoading(false);
     }
@@ -184,7 +184,7 @@ const Leads = () => {
       setError('');
       loadLeads();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     }
   };
 
@@ -204,7 +204,7 @@ const Leads = () => {
       await leadsApi.updateLeadStatus(leadId, newStatus);
       loadLeads();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     }
   };
 
@@ -251,7 +251,7 @@ const Leads = () => {
       setImportText('');
       await loadLeads();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.leads.importFailed);
+      setError(getApiErrorMessage(err, t.leads.importFailed));
     } finally {
       setImporting(false);
     }

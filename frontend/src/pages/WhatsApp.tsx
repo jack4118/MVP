@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
+import { getApiErrorMessage, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import { useAuth } from '../hooks/useAuth';
@@ -271,7 +271,7 @@ const WhatsApp = () => {
         setLogs(logResp.data);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setLoading(false);
     }
@@ -376,7 +376,7 @@ const WhatsApp = () => {
       setSuccess(t.whatsapp.saveSuccess);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setSaving(false);
     }
@@ -414,7 +414,7 @@ const WhatsApp = () => {
       setSuccess(`${t.whatsapp.verifySuccess}${response.data?.displayPhone ? ` (${response.data.displayPhone})` : ''}`);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setVerifying(false);
     }
@@ -440,10 +440,7 @@ const WhatsApp = () => {
       setActiveView('inbox');
       setSelectedByUser(true);
     } catch (err) {
-      const message =
-        (err as any)?.response?.data?.error?.message ||
-        (err instanceof Error ? err.message : t.common.error);
-      setError(message);
+      setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setSending(false);
     }

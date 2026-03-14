@@ -47,7 +47,23 @@ export interface ApiResponse<T> {
 
 export const getApiErrorMessage = (error: unknown, fallback: string): string => {
   if (axios.isAxiosError<ApiResponse<unknown>>(error)) {
-    return error.response?.data?.error?.message || error.message || fallback;
+    const payload = error.response?.data as
+      | (ApiResponse<unknown> & { message?: string; error?: { message?: string } | string })
+      | undefined;
+
+    if (typeof payload?.error === 'string' && payload.error.trim()) {
+      return payload.error;
+    }
+
+    if (payload?.error && typeof payload.error === 'object' && payload.error.message) {
+      return payload.error.message;
+    }
+
+    if (payload?.message) {
+      return payload.message;
+    }
+
+    return error.message || fallback;
   }
 
   if (error instanceof Error) {

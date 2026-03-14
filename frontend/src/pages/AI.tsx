@@ -75,7 +75,7 @@ const AI = () => {
         setLeads(response.data);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.common.error);
+      setError(getApiErrorMessage(err, t.common.error));
     }
   };
 
