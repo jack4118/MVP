@@ -75,6 +75,18 @@ export const updateLeadStatusSchema = z.object({
   status: leadStatusSchema,
 });
 
+export const importLeadsSchema = z.object({
+  csvText: z.string().optional(),
+  rows: z.array(
+    z.object({
+      name: z.string().min(1, 'Name is required'),
+      contact: z.string().optional(),
+      notes: z.string().optional(),
+      status: leadStatusSchema.optional(),
+    })
+  ).optional(),
+});
+
 export const aiFollowUpSchema = z.object({
   leadName: z.string().min(1, 'Lead name is required'),
   objective: z.string().min(3, 'Objective is required').max(300, 'Objective is too long'),
@@ -139,4 +151,8 @@ export const whatsappSendSchema = z.object({
   leadId: z.string().optional(),
   toPhone: z.string().min(6, 'toPhone is required'),
   content: z.string().min(1, 'content is required').max(5000, 'content is too long'),
+});
+
+export const whatsappMarkReadSchema = z.object({
+  phone: z.string().min(6, 'phone is required'),
 });

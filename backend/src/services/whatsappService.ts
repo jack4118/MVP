@@ -34,6 +34,77 @@ const phonesLikelyMatch = (left: string | null | undefined, right: string | null
   return a === b || a.endsWith(b) || b.endsWith(a);
 };
 
+const resolveLeadForPhone = async (userId: string, phone: string) => {
+  const leads = await prisma.lead.findMany({
+    where: {
+      userId,
+      contact: { not: null },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return leads.find((lead) => phonesLikelyMatch(lead.contact, phone)) || null;
+};
+
+const updateConversationState = async (params: {
+  userId: string;
+  phone: string;
+  leadId?: string | null;
+  messageId?: string | null;
+  preview?: string | null;
+  status?: string | null;
+  error?: string | null;
+  direction: 'inbound' | 'outbound';
+  messageAt: Date;
+  markUnread?: boolean;
+}) => {
+  const phone = normalizePhone(params.phone);
+  if (!phone) {
+    return null;
+  }
+
+  const existing = await prisma.whatsAppConversationState.findUnique({
+    where: {
+      userId_phone: {
+        userId: params.userId,
+        phone,
+      },
+    },
+  });
+
+  const data = {
+    leadId: params.leadId ?? existing?.leadId ?? null,
+    lastMessageId: params.messageId ?? existing?.lastMessageId ?? null,
+    lastMessagePreview: params.preview ?? existing?.lastMessagePreview ?? null,
+    lastDirection: params.direction,
+    lastStatus: params.status ?? existing?.lastStatus ?? null,
+    lastError: params.error ?? null,
+    lastMessageAt: params.messageAt,
+    lastInboundAt: params.direction === 'inbound' ? params.messageAt : existing?.lastInboundAt ?? null,
+    lastOutboundAt: params.direction === 'outbound' ? params.messageAt : existing?.lastOutboundAt ?? null,
+    unreadCount: params.direction === 'inbound'
+      ? params.markUnread === false
+        ? existing?.unreadCount ?? 0
+        : (existing?.unreadCount ?? 0) + 1
+      : existing?.unreadCount ?? 0,
+  };
+
+  return prisma.whatsAppConversationState.upsert({
+    where: {
+      userId_phone: {
+        userId: params.userId,
+        phone,
+      },
+    },
+    update: data,
+    create: {
+      userId: params.userId,
+      phone,
+      ...data,
+    },
+  });
+};
+
 export const getWhatsappConnection = async (userId: string) => {
   return prisma.whatsAppConnection.findUnique({
     where: { userId },
@@ -182,6 +253,8 @@ export const sendWhatsAppText = async (
 
     const messageId = payload?.messages?.[0]?.id || null;
 
+    const messageAt = new Date();
+
     await prisma.whatsAppMessageLog.create({
       data: {
         userId,
@@ -193,27 +266,40 @@ export const sendWhatsAppText = async (
         content: data.content,
         status: 'sent',
         error: null,
-        externalTimestamp: new Date(),
+        externalTimestamp: messageAt,
         rawPayload: payload,
       },
     });
 
-    if (data.leadId) {
+    const resolvedLeadId = data.leadId || (await resolveLeadForPhone(userId, toPhone))?.id || null;
+    await updateConversationState({
+      userId,
+      phone: toPhone,
+      leadId: resolvedLeadId,
+      messageId,
+      preview: data.content,
+      status: 'sent',
+      error: null,
+      direction: 'outbound',
+      messageAt,
+    });
+
+    if (resolvedLeadId) {
       await prisma.lead.update({
-        where: { id: data.leadId },
+        where: { id: resolvedLeadId },
         data: {
           status: 'waiting_reply',
-          lastActivityAt: new Date(),
-          lastOutboundAt: new Date(),
+          lastActivityAt: messageAt,
+          lastOutboundAt: messageAt,
         },
       });
 
       if (data.scheduleFollowUp !== false) {
         await scheduleNextSystemFollowUp({
           userId,
-          leadId: data.leadId,
+          leadId: resolvedLeadId,
           stepIndex: 0,
-          fromDate: new Date(),
+          fromDate: messageAt,
           force: true,
         });
       }
@@ -312,16 +398,8 @@ export const processWhatsAppWebhook = async (body: any) => {
           const content =
             message?.text?.body ||
             (typeof message?.type === 'string' ? `[${message.type}]` : '[message]');
-          const userLeads = await prisma.lead.findMany({
-            where: {
-              userId: connection.userId,
-              contact: {
-                not: null,
-              },
-            },
-            orderBy: { createdAt: 'desc' },
-          });
-          const resolvedLead = userLeads.find((lead) => phonesLikelyMatch(lead.contact, fromPhone)) || null;
+          const resolvedLead = await resolveLeadForPhone(connection.userId, fromPhone);
+          const messageAt = toDateFromUnix(message?.timestamp) || new Date();
 
           if (messageId) {
             const existing = await prisma.whatsAppMessageLog.findFirst({
@@ -348,9 +426,22 @@ export const processWhatsAppWebhook = async (body: any) => {
               content,
               status: 'received',
               error: null,
-              externalTimestamp: toDateFromUnix(message?.timestamp),
+              externalTimestamp: messageAt,
               rawPayload: message,
             },
+          });
+
+          await updateConversationState({
+            userId: connection.userId,
+            phone: fromPhone,
+            leadId: resolvedLead?.id || null,
+            messageId: messageId || null,
+            preview: content,
+            status: 'received',
+            error: null,
+            direction: 'inbound',
+            messageAt,
+            markUnread: true,
           });
 
           if (resolvedLead) {
@@ -358,8 +449,8 @@ export const processWhatsAppWebhook = async (body: any) => {
               where: { id: resolvedLead.id },
               data: {
                 status: 'follow_up_due',
-                lastActivityAt: toDateFromUnix(message?.timestamp) || new Date(),
-                lastInboundAt: toDateFromUnix(message?.timestamp) || new Date(),
+                lastActivityAt: messageAt,
+                lastInboundAt: messageAt,
                 nextFollowUpAt: null,
               },
             });
@@ -378,6 +469,7 @@ export const processWhatsAppWebhook = async (body: any) => {
 
           const recipient = sanitizePhone(status?.recipient_id || '');
           const statusValue = String(status?.status || 'sent');
+          const statusAt = toDateFromUnix(status?.timestamp) || new Date();
           const errorMessage = Array.isArray(status?.errors) && status.errors.length > 0
             ? status.errors.map((e: any) => e?.title || e?.message).filter(Boolean).join('; ')
             : null;
@@ -390,7 +482,7 @@ export const processWhatsAppWebhook = async (body: any) => {
             data: {
               status: statusValue,
               error: errorMessage,
-              externalTimestamp: toDateFromUnix(status?.timestamp),
+              externalTimestamp: statusAt,
               rawPayload: status,
             },
           });
@@ -406,11 +498,21 @@ export const processWhatsAppWebhook = async (body: any) => {
                 content: '[status webhook]',
                 status: statusValue,
                 error: errorMessage,
-                externalTimestamp: toDateFromUnix(status?.timestamp),
+                externalTimestamp: statusAt,
                 rawPayload: status,
               },
             });
           }
+
+          await updateConversationState({
+            userId: connection.userId,
+            phone: recipient,
+            messageId,
+            status: statusValue,
+            error: errorMessage,
+            direction: 'outbound',
+            messageAt: statusAt,
+          });
           processed += 1;
         }
       }
@@ -432,6 +534,7 @@ type ContactSummary = {
   totalMessages: number;
   sentCount: number;
   failedCount: number;
+  unreadCount: number;
   lastStatus: string;
   lastMessage: string;
   lastError: string | null;
@@ -468,7 +571,7 @@ const pickBestLeadMatch = (phone: string, leads: LeadLite[]): LeadLite | null =>
 export const getWhatsAppContactSummaries = async (userId: string, limit: number = 50): Promise<ContactSummary[]> => {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
 
-  const [logs, leads] = await Promise.all([
+  const [logs, leads, states] = await Promise.all([
     prisma.whatsAppMessageLog.findMany({
       where: { userId },
       include: {
@@ -493,6 +596,10 @@ export const getWhatsAppContactSummaries = async (userId: string, limit: number 
         contact: true,
       },
     }),
+    prisma.whatsAppConversationState.findMany({
+      where: { userId },
+      orderBy: [{ lastMessageAt: 'desc' }],
+    }),
   ]);
 
   const summaries = new Map<string, ContactSummary>();
@@ -511,6 +618,7 @@ export const getWhatsAppContactSummaries = async (userId: string, limit: number 
         totalMessages: 1,
         sentCount: ['sent', 'delivered', 'read'].includes(log.status) ? 1 : 0,
         failedCount: log.status === 'failed' ? 1 : 0,
+        unreadCount: 0,
         lastStatus: log.status,
         lastMessage: log.content,
         lastError: log.error,
@@ -532,9 +640,122 @@ export const getWhatsAppContactSummaries = async (userId: string, limit: number 
     }
   }
 
+  for (const state of states) {
+    const phone = normalizePhone(state.phone);
+    if (!phone) {
+      continue;
+    }
+
+    const existing = summaries.get(phone);
+    if (existing) {
+      existing.unreadCount = state.unreadCount;
+      existing.lastStatus = state.lastStatus || existing.lastStatus;
+      existing.lastMessage = state.lastMessagePreview || existing.lastMessage;
+      existing.lastError = state.lastError || existing.lastError;
+      existing.lastAt = state.lastMessageAt || existing.lastAt;
+      if (!existing.lead && state.leadId) {
+        const matchedLead = leads.find((lead) => lead.id === state.leadId);
+        if (matchedLead) {
+          existing.lead = { id: matchedLead.id, name: matchedLead.name, status: matchedLead.status };
+        }
+      }
+      continue;
+    }
+
+    const fallbackLead = state.leadId
+      ? leads.find((lead) => lead.id === state.leadId) || null
+      : pickBestLeadMatch(phone, leads);
+
+    summaries.set(phone, {
+      phone,
+      totalMessages: 0,
+      sentCount: 0,
+      failedCount: 0,
+      unreadCount: state.unreadCount,
+      lastStatus: state.lastStatus || 'received',
+      lastMessage: state.lastMessagePreview || '',
+      lastError: state.lastError,
+      lastAt: state.lastMessageAt || state.updatedAt,
+      lead: fallbackLead
+        ? { id: fallbackLead.id, name: fallbackLead.name, status: fallbackLead.status }
+        : null,
+    });
+  }
+
   return Array.from(summaries.values())
     .sort((a, b) => b.lastAt.getTime() - a.lastAt.getTime())
     .slice(0, safeLimit);
+};
+
+export const markWhatsAppConversationRead = async (userId: string, phone: string) => {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    throw new Error('Invalid phone number');
+  }
+
+  return prisma.whatsAppConversationState.upsert({
+    where: {
+      userId_phone: {
+        userId,
+        phone: normalizedPhone,
+      },
+    },
+    update: {
+      unreadCount: 0,
+      lastReadAt: new Date(),
+    },
+    create: {
+      userId,
+      phone: normalizedPhone,
+      unreadCount: 0,
+      lastReadAt: new Date(),
+    },
+  });
+};
+
+export const getUnreadConversationSummary = async (userId: string) => {
+  const [states, aggregate] = await Promise.all([
+    prisma.whatsAppConversationState.findMany({
+      where: {
+        userId,
+        unreadCount: { gt: 0 },
+      },
+      orderBy: [{ lastMessageAt: 'desc' }],
+      take: 10,
+      include: {
+        lead: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+          },
+        },
+      },
+    }),
+    prisma.whatsAppConversationState.aggregate({
+      where: {
+        userId,
+        unreadCount: { gt: 0 },
+      },
+      _sum: { unreadCount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  return {
+    unreadMessages: aggregate._sum.unreadCount || 0,
+    unreadConversations: aggregate._count._all || 0,
+    latestUnread: states.map((state) => ({
+      phone: state.phone,
+      unreadCount: state.unreadCount,
+      lastMessagePreview: state.lastMessagePreview,
+      lastMessageAt: state.lastMessageAt,
+      lastStatus: state.lastStatus,
+      lead: state.lead
+        ? { id: state.lead.id, name: state.lead.name, status: normalizeLeadStatus(state.lead.status) }
+        : null,
+    })),
+  };
 };
 
 export const getWhatsAppContactSummariesPaged = async (

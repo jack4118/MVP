@@ -8,9 +8,10 @@ import { useAuth } from '../hooks/useAuth';
 interface AuthenticatedHeaderProps {
   title: string;
   subtitle?: string;
+  whatsappUnreadCount?: number;
 }
 
-const AuthenticatedHeader = ({ title, subtitle }: AuthenticatedHeaderProps) => {
+const AuthenticatedHeader = ({ title, subtitle, whatsappUnreadCount = 0 }: AuthenticatedHeaderProps) => {
   const { t } = useLanguage();
   const { user, logout } = useAuth();
   const location = useLocation();
@@ -18,7 +19,7 @@ const AuthenticatedHeader = ({ title, subtitle }: AuthenticatedHeaderProps) => {
   const navItems = [
     { to: '/dashboard', label: t.privateHeader.home },
     { to: '/leads', label: t.privateHeader.leads },
-    { to: '/whatsapp', label: t.privateHeader.whatsapp },
+    { to: '/whatsapp', label: t.privateHeader.whatsapp, count: whatsappUnreadCount },
     { to: '/ai', label: t.privateHeader.ai },
     { to: '/reminders', label: t.privateHeader.reminders },
   ];
@@ -46,6 +47,7 @@ const AuthenticatedHeader = ({ title, subtitle }: AuthenticatedHeaderProps) => {
                 className={`app-shell-nav-link ${isActive ? 'app-shell-nav-link-active' : ''}`}
               >
                 {item.label}
+                {item.count ? <span className="app-shell-nav-count">{item.count}</span> : null}
               </Link>
             );
           })}

@@ -27,6 +27,7 @@ const Leads = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -56,6 +57,9 @@ const Leads = () => {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<null | { importedCount: number; skippedCount: number; totalRows: number }>(null);
   const returnTo = searchParams.get('return');
 
   useEffect(() => {
@@ -203,6 +207,48 @@ const Leads = () => {
     setStatusFilter('all');
     setSortBy('date');
     setSortOrder('desc');
+  };
+
+  const handleImportFile = async (file?: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    setImportText(text);
+  };
+
+  const handleImportLeads = async () => {
+    try {
+      setImporting(true);
+      setError('');
+      setImportSummary(null);
+      const response = await leadsApi.importLeads({ csvText: importText });
+      if (!response.success || !response.data) {
+        setError(response.error?.message || t.leads.importFailed);
+        if (response.usage) {
+          setUsageInfo(response.usage);
+        }
+        return;
+      }
+
+      setImportSummary({
+        importedCount: response.data.importedCount,
+        skippedCount: response.data.skippedCount,
+        totalRows: response.data.totalRows,
+      });
+      if (response.usage) {
+        setUsageInfo(response.usage);
+      } else {
+        await loadUsageInfo();
+      }
+      setImportText('');
+      await loadLeads();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.leads.importFailed);
+    } finally {
+      setImporting(false);
+    }
   };
 
   const calculateDaysPassed = (lead: Lead): number => {
@@ -398,6 +444,16 @@ const Leads = () => {
       <div className="page-header-inline-actions">
         <button
           onClick={() => {
+            setShowImport((value) => !value);
+            setImportSummary(null);
+            setError('');
+          }}
+          className="btn btn-secondary"
+        >
+          {t.leads.importContacts}
+        </button>
+        <button
+          onClick={() => {
             setShowForm(true);
             setEditingLead(null);
             setFormData({ name: '', contact: '', notes: '', status: 'new' });
@@ -467,6 +523,58 @@ const Leads = () => {
           </div>
         )}
       </div>
+
+      {showImport && (
+        <div className="card form-card">
+          <h2>{t.leads.importTitle}</h2>
+          <p className="page-subtitle">{t.leads.importDescription}</p>
+          <div className="form-group">
+            <label className="form-label">{t.leads.importTextareaLabel}</label>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              className="input"
+              rows={8}
+              placeholder={t.leads.importPlaceholder}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">{t.leads.importFileLabel}</label>
+            <input
+              type="file"
+              accept=".csv,text/csv,.txt"
+              className="input"
+              onChange={(e) => void handleImportFile(e.target.files?.[0] || null)}
+            />
+          </div>
+          {importSummary && (
+            <div className="alert alert-success">
+              <span>{translate(t.leads.importSummary, importSummary)}</span>
+            </div>
+          )}
+          <div className="form-actions">
+            <button
+              type="button"
+              onClick={handleImportLeads}
+              className="btn btn-primary"
+              disabled={importing || !importText.trim()}
+            >
+              {importing ? t.common.loading : t.leads.importSubmit}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowImport(false);
+                setImportText('');
+                setImportSummary(null);
+              }}
+              className="btn btn-secondary"
+            >
+              {t.common.cancel}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="card form-card">

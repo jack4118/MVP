@@ -131,12 +131,26 @@ export interface DashboardSummary {
   todayTasks: TodayTask[];
   overdueFollowUps: number;
   waitingPayment: number;
+  unreadMessages: number;
+  unreadConversations: number;
   recentlyReplied: Array<{
     id: string;
     name: string;
     contact?: string | null;
     status: LeadStatus;
     lastInboundAt?: string | null;
+  }>;
+  latestUnread: Array<{
+    phone: string;
+    unreadCount: number;
+    lastMessagePreview?: string | null;
+    lastMessageAt?: string | null;
+    lastStatus?: string | null;
+    lead?: {
+      id: string;
+      name: string;
+      status: LeadStatus;
+    } | null;
   }>;
   pipeline: Record<string, number>;
   onboarding: {
@@ -260,6 +274,7 @@ export interface WhatsAppContactSummary {
   totalMessages: number;
   sentCount: number;
   failedCount: number;
+  unreadCount: number;
   lastStatus: string;
   lastMessage: string;
   lastError?: string | null;
@@ -352,6 +367,31 @@ export const leadsApi = {
 
   updateLeadStatus: async (id: string, status: LeadStatus): Promise<ApiResponse<Lead>> => {
     const response = await api.put<ApiResponse<Lead>>(`/leads/${id}/status`, { status });
+    return response.data;
+  },
+
+  importLeads: async (data: {
+    csvText?: string;
+    rows?: Array<{
+      name: string;
+      contact?: string;
+      notes?: string;
+      status?: LeadStatus;
+    }>;
+  }): Promise<ApiResponse<{
+    created: Lead[];
+    importedCount: number;
+    skippedCount: number;
+    totalRows: number;
+    plan: UserPlan;
+  }>> => {
+    const response = await api.post<ApiResponse<{
+      created: Lead[];
+      importedCount: number;
+      skippedCount: number;
+      totalRows: number;
+      plan: UserPlan;
+    }>>('/leads/import', data);
     return response.data;
   },
 };
@@ -525,6 +565,11 @@ export const whatsappApi = {
 
   getMessages: async (phone: string, limit: number = 100): Promise<ApiResponse<WhatsAppLogItem[]>> => {
     const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/messages', { params: { phone, limit } });
+    return response.data;
+  },
+
+  markConversationRead: async (phone: string): Promise<ApiResponse<{ id: string; unreadCount: number }>> => {
+    const response = await api.post<ApiResponse<{ id: string; unreadCount: number }>>('/whatsapp/conversations/read', { phone });
     return response.data;
   },
 };

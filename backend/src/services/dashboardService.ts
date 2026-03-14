@@ -1,5 +1,6 @@
 import prisma from '../config/database';
 import { normalizeLeadStatus } from './followUpService';
+import { getUnreadConversationSummary } from './whatsappService';
 
 const endOfDay = (date: Date) => {
   const copy = new Date(date);
@@ -29,7 +30,7 @@ export const getDashboardSummary = async (userId: string) => {
   const threeDaysAgo = new Date(now);
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
-  const [tasks, recentlyReplied, leadCounts, connection, sentMessagesCount] = await Promise.all([
+  const [tasks, recentlyReplied, leadCounts, connection, sentMessagesCount, unreadSummary] = await Promise.all([
     prisma.reminder.findMany({
       where: {
         lead: { userId },
@@ -66,6 +67,7 @@ export const getDashboardSummary = async (userId: string) => {
         status: { in: ['sent', 'delivered', 'read'] },
       },
     }),
+    getUnreadConversationSummary(userId),
   ]);
 
   const overdueFollowUps = tasks.filter((task) => task.triggerAt < now && task.type === 'follow_up');
@@ -98,6 +100,9 @@ export const getDashboardSummary = async (userId: string) => {
       status: normalizeLeadStatus(lead.status),
       lastInboundAt: lead.lastInboundAt,
     })),
+    unreadMessages: unreadSummary.unreadMessages,
+    unreadConversations: unreadSummary.unreadConversations,
+    latestUnread: unreadSummary.latestUnread,
     pipeline: leadCounts.reduce<Record<string, number>>((acc, item) => {
       acc[normalizeLeadStatus(item.status)] = item._count.status;
       return acc;

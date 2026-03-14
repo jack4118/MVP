@@ -23,6 +23,7 @@ model User {
   followUpRules FollowUpRule[]
   whatsAppConnection WhatsAppConnection?
   whatsAppMessageLogs WhatsAppMessageLog[]
+  whatsAppConversationStates WhatsAppConversationState[]
   reminderDispatchLogs ReminderDispatchLog[]
 
   @@map("users")
@@ -46,6 +47,7 @@ model Lead {
   reminders  Reminder[]
   aiLogs     AiLog[]
   whatsAppMessageLogs WhatsAppMessageLog[]
+  whatsAppConversationStates WhatsAppConversationState[]
 
   @@index([userId])
   @@index([status])
@@ -188,4 +190,31 @@ model WhatsAppMessageLog {
   @@index([fromPhone])
   @@index([toPhone])
   @@map("whatsapp_message_logs")
+}
+
+model WhatsAppConversationState {
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  phone              String
+  leadId             String?  @map("lead_id")
+  lastMessageId      String?  @map("last_message_id")
+  lastMessagePreview String?  @map("last_message_preview")
+  lastDirection      String?  @map("last_direction")
+  lastStatus         String?  @map("last_status")
+  lastError          String?  @map("last_error")
+  lastMessageAt      DateTime? @map("last_message_at")
+  lastInboundAt      DateTime? @map("last_inbound_at")
+  lastOutboundAt     DateTime? @map("last_outbound_at")
+  lastReadAt         DateTime? @map("last_read_at")
+  unreadCount        Int      @default(0) @map("unread_count")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, phone])
+  @@index([userId, unreadCount])
+  @@index([userId, lastMessageAt])
+  @@map("whatsapp_conversation_states")
 }

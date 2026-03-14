@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
@@ -6,10 +7,10 @@ import { storage } from '../utils/storage';
 
 type WhatsAppView = 'setup' | 'inbox' | 'contacts';
 const WHATSAPP_VIEW_KEY = 'whatsapp_active_view';
-const WHATSAPP_SEEN_KEY = 'whatsapp_seen_messages';
 
 const WhatsApp = () => {
   const { t } = useLanguage();
+  const [searchParams] = useSearchParams();
   const [activeView, setActiveView] = useState<WhatsAppView>(() => {
     const saved = storage.getItem(WHATSAPP_VIEW_KEY) as WhatsAppView | null;
     return saved === 'inbox' || saved === 'contacts' || saved === 'setup' ? saved : 'setup';
@@ -30,9 +31,6 @@ const WhatsApp = () => {
   const conversationBodyRef = useRef<HTMLDivElement | null>(null);
   const unreadSignatureRef = useRef('');
   const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
-  const [seenMessages, setSeenMessages] = useState<Record<string, string>>(() =>
-    storage.getJson<Record<string, string>>(WHATSAPP_SEEN_KEY, {})
-  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -55,12 +53,23 @@ const WhatsApp = () => {
   }, []);
 
   useEffect(() => {
-    storage.setItem(WHATSAPP_VIEW_KEY, activeView);
-  }, [activeView]);
+    const nextView = searchParams.get('view');
+    const nextPhone = searchParams.get('phone');
+
+    if (nextView === 'inbox' || nextView === 'contacts' || nextView === 'setup') {
+      setActiveView(nextView);
+    }
+
+    if (nextPhone) {
+      setSelectedPhone(nextPhone);
+      setSelectedByUser(true);
+      setTestData((prev) => ({ ...prev, toPhone: nextPhone }));
+    }
+  }, [searchParams]);
 
   useEffect(() => {
-    storage.setJson(WHATSAPP_SEEN_KEY, seenMessages);
-  }, [seenMessages]);
+    storage.setItem(WHATSAPP_VIEW_KEY, activeView);
+  }, [activeView]);
 
   useEffect(() => {
     loadContacts(contactQuery, contactsPage);
@@ -87,30 +96,11 @@ const WhatsApp = () => {
     });
   }, [activeView, selectedPhone, conversation]);
 
-  const markConversationSeen = (phone: string, timestamp?: string) => {
-    if (!phone || !timestamp) {
-      return;
-    }
-
-    setSeenMessages((current) => {
-      if (current[phone] === timestamp) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [phone]: timestamp,
-      };
-    });
-  };
-
   useEffect(() => {
     if (!selectedByUser || !selectedPhone || conversation.length === 0 || !isConversationAtBottom || activeView !== 'inbox') {
       return;
     }
-
-    const latestAt = conversation[conversation.length - 1]?.createdAt;
-    markConversationSeen(selectedPhone, latestAt);
+    void markConversationRead(selectedPhone);
   }, [selectedByUser, selectedPhone, conversation, isConversationAtBottom, activeView]);
 
   useEffect(() => {
@@ -145,20 +135,8 @@ const WhatsApp = () => {
   );
 
   const unreadContacts = useMemo(
-    () =>
-      contacts.filter((contact) => {
-        if (contact.lastStatus !== 'received') {
-          return false;
-        }
-
-        const seenAt = seenMessages[contact.phone];
-        if (!seenAt) {
-          return true;
-        }
-
-        return new Date(contact.lastAt).getTime() > new Date(seenAt).getTime();
-      }),
-    [contacts, seenMessages]
+    () => contacts.filter((contact) => contact.unreadCount > 0),
+    [contacts]
   );
 
   const latestUnreadContact = useMemo(() => {
@@ -185,10 +163,15 @@ const WhatsApp = () => {
     }
   }, [latestUnreadContact, unreadContacts.length]);
 
+  const totalUnreadMessages = useMemo(
+    () => unreadContacts.reduce((sum, contact) => sum + contact.unreadCount, 0),
+    [unreadContacts]
+  );
+
   useEffect(() => {
     const baseTitle = 'EzReply';
-    if (unreadContacts.length > 0) {
-      document.title = `(${unreadContacts.length}) ${baseTitle}`;
+    if (totalUnreadMessages > 0) {
+      document.title = `(${totalUnreadMessages}) ${baseTitle}`;
       return;
     }
 
@@ -196,7 +179,26 @@ const WhatsApp = () => {
     return () => {
       document.title = baseTitle;
     };
-  }, [unreadContacts.length]);
+  }, [totalUnreadMessages]);
+
+  const markConversationRead = async (phone: string) => {
+    if (!phone) {
+      return;
+    }
+
+    try {
+      await whatsappApi.markConversationRead(phone);
+      setContacts((current) =>
+        current.map((contact) =>
+          contact.phone === phone
+            ? { ...contact, unreadCount: 0 }
+            : contact
+        )
+      );
+    } catch (_error) {
+      // ignore transient read-state errors in UI
+    }
+  };
 
   const tabs = [
     { id: 'setup' as const, label: t.whatsapp.tabSetup },
@@ -211,8 +213,7 @@ const WhatsApp = () => {
         behavior: 'smooth',
       });
       setIsConversationAtBottom(true);
-      const latestAt = conversation[conversation.length - 1]?.createdAt;
-      markConversationSeen(selectedPhone, latestAt);
+      void markConversationRead(selectedPhone);
     }
   };
 
@@ -276,13 +277,7 @@ const WhatsApp = () => {
             return selectedPhone;
           }
 
-          const firstUnread = items.find((item) => {
-            if (item.lastStatus !== 'received') {
-              return false;
-            }
-            const seenAt = seenMessages[item.phone];
-            return !seenAt || new Date(item.lastAt).getTime() > new Date(seenAt).getTime();
-          });
+          const firstUnread = items.find((item) => item.unreadCount > 0);
 
           return firstUnread?.phone || items[0]?.phone || '';
         };
@@ -429,6 +424,7 @@ const WhatsApp = () => {
       setSuccess(t.whatsapp.testSent);
       await loadAll();
       await loadConversation(testData.toPhone);
+      await markConversationRead(testData.toPhone);
       setActiveView('inbox');
       setSelectedByUser(true);
     } catch (err) {
@@ -586,7 +582,7 @@ const WhatsApp = () => {
                 >
                   <div className="whatsapp-contact-title-row">
                     <strong>{contact.lead?.name || contact.phone}</strong>
-                    {unreadContacts.some((item) => item.phone === contact.phone) && (
+                    {contact.unreadCount > 0 && (
                       <span className="unread-dot" aria-label={t.whatsapp.unreadMessagesLabel}></span>
                     )}
                   </div>
@@ -747,6 +743,7 @@ const WhatsApp = () => {
       <AuthenticatedHeader
         title={t.whatsapp.title}
         subtitle={connection?.isActive ? t.whatsapp.inboxSubtitle : t.whatsapp.setupPanelTitle}
+        whatsappUnreadCount={unreadContacts.length}
       />
 
       {error && <div className="alert alert-error"><span>{error}</span></div>}
@@ -812,7 +809,7 @@ const WhatsApp = () => {
               <strong>{t.whatsapp.unreadMessagesLabel}</strong>
               <p>{t.whatsapp.unreadMessagesHint}</p>
             </div>
-            <span className={`task-pill ${unreadContacts.length > 0 ? 'task-pill-overdue' : ''}`}>{unreadContacts.length}</span>
+            <span className={`task-pill ${unreadContacts.length > 0 ? 'task-pill-overdue' : ''}`}>{totalUnreadMessages}</span>
           </div>
         </div>
       </section>

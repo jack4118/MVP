@@ -1,11 +1,12 @@
 import express, { Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { whatsappConnectionSchema, whatsappSendSchema } from '../utils/validation';
+import { whatsappConnectionSchema, whatsappMarkReadSchema, whatsappSendSchema } from '../utils/validation';
 import {
   getWhatsappConnection,
   getWhatsAppContactSummariesPaged,
   getWhatsAppConversationMessages,
   getWhatsAppMessageLogs,
+  markWhatsAppConversationRead,
   processWhatsAppWebhook,
   sendWhatsAppText,
   upsertWhatsappConnection,
@@ -179,6 +180,20 @@ router.get('/messages', async (req: AuthRequest, res: Response, next: NextFuncti
     const messages = await getWhatsAppConversationMessages(req.userId, phone, limit);
 
     return res.json({ success: true, data: messages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/conversations/read', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const validatedData = whatsappMarkReadSchema.parse(req.body);
+    const result = await markWhatsAppConversationRead(req.userId, validatedData.phone);
+    return res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

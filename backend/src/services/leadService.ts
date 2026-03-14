@@ -19,6 +19,13 @@ export interface UpdateLeadData {
   nextFollowUpAt?: string;
 }
 
+export interface ImportLeadData {
+  name: string;
+  contact?: string;
+  notes?: string;
+  status?: string;
+}
+
 const normalizeLead = <T extends { status: string }>(lead: T): T => ({
   ...lead,
   status: normalizeLeadStatus(lead.status),
@@ -101,4 +108,124 @@ export const updateLeadStatus = async (userId: string, leadId: string, status: s
   });
 
   return normalizeLead(updatedLead);
+};
+
+const sanitizeContact = (value?: string | null) => {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const parseCsvLine = (line: string) => {
+  const values: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      values.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+  return values;
+};
+
+export const parseImportedLeadRows = (csvText?: string, rows?: ImportLeadData[]) => {
+  if (rows?.length) {
+    return rows
+      .map((row) => ({
+        name: row.name.trim(),
+        contact: sanitizeContact(row.contact),
+        notes: row.notes?.trim() || undefined,
+        status: normalizeLeadStatus(row.status),
+      }))
+      .filter((row) => row.name);
+  }
+
+  const text = (csvText || '').trim();
+  if (!text) {
+    return [];
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines
+    .map((line, index) => {
+      const columns = parseCsvLine(line);
+      if (columns.length === 1) {
+        return {
+          name: columns[0],
+          contact: undefined,
+          notes: undefined,
+          status: 'new',
+        };
+      }
+
+      if (index === 0) {
+        const lower = columns.map((col) => col.toLowerCase());
+        const headerLike = lower.includes('name') || lower.includes('contact') || lower.includes('phone');
+        if (headerLike) {
+          return null;
+        }
+      }
+
+      return {
+        name: columns[0] || columns[1] || '',
+        contact: sanitizeContact(columns[1] || columns[0]),
+        notes: columns.slice(2).join(', ') || undefined,
+        status: 'new',
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => !!row && !!row.name.trim())
+    .map((row) => ({
+      ...row,
+      name: row.name.trim(),
+    }));
+};
+
+export const importLeads = async (userId: string, items: ImportLeadData[]) => {
+  const prepared = parseImportedLeadRows(undefined, items);
+  if (!prepared.length) {
+    return { created: [], skipped: 0 };
+  }
+
+  const created = await prisma.$transaction(
+    prepared.map((item) =>
+      prisma.lead.create({
+        data: {
+          userId,
+          name: item.name,
+          contact: item.contact,
+          notes: item.notes,
+          status: normalizeLeadStatus(item.status),
+        },
+      })
+    )
+  );
+
+  return {
+    created: created.map(normalizeLead),
+    skipped: 0,
+  };
 };

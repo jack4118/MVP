@@ -64,6 +64,7 @@ const Dashboard = () => {
   const stats = useMemo(
     () => [
       { label: t.dashboard.todayTasksLabel, value: String(summary?.todayTasks.length || 0) },
+      { label: t.dashboard.unreadMessagesLabel, value: String(summary?.unreadMessages || 0) },
       { label: t.dashboard.overdueFollowUpsLabel, value: String(summary?.overdueFollowUps || 0) },
       { label: t.dashboard.waitingPaymentLabel, value: String(summary?.waitingPayment || 0) },
       { label: t.dashboard.recentlyRepliedLabel, value: String(summary?.recentlyReplied.length || 0) },
@@ -299,6 +300,7 @@ const Dashboard = () => {
       <AuthenticatedHeader
         title={t.dashboard.todayTasksTitle}
         subtitle={translate(t.dashboard.signedInAs, { email: user?.email || 'user' })}
+        whatsappUnreadCount={summary?.unreadConversations || 0}
       />
 
       {error && <div className="alert alert-error">{error}</div>}
@@ -317,6 +319,34 @@ const Dashboard = () => {
         <h2>{t.dashboard.heroFollowUpTitle}</h2>
         <p>{t.dashboard.heroFollowUpBody}</p>
       </section>
+
+      {!!summary?.unreadMessages && (
+        <section className="card dashboard-unread-card">
+          <div className="section-heading">
+            <h3>{t.dashboard.unreadSectionTitle}</h3>
+            <Link to="/whatsapp?view=inbox" className="btn btn-secondary">
+              {t.dashboard.openWhatsappCta}
+            </Link>
+          </div>
+          <p className="page-subtitle">{t.dashboard.unreadSectionSubtitle}</p>
+          <div className="simple-list">
+            {summary.latestUnread.map((item) => (
+              <div key={item.phone} className="simple-list-item">
+                <div>
+                  <strong>{item.lead?.name || item.phone}</strong>
+                  <p>{item.lastMessagePreview || t.dashboard.unreadPreviewFallback}</p>
+                </div>
+                <div className="dashboard-unread-actions">
+                  <span className="task-pill task-pill-overdue">{item.unreadCount}</span>
+                  <Link to={`/whatsapp?view=inbox&phone=${encodeURIComponent(item.phone)}`} className="btn btn-secondary">
+                    {t.dashboard.openUnreadConversation}
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="card">
         <div className="section-heading">
