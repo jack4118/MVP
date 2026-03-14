@@ -13,6 +13,7 @@ import {
   createInitialAiConfig,
   generateAiMessage,
   GenerationStage,
+  getDefaultConfigFromLeadMemory,
   getDefaultQuickConfigForLead,
   getEventPurpose,
   SharedAiConfig,
@@ -60,6 +61,8 @@ const Leads = () => {
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
   const [importSummary, setImportSummary] = useState<null | { importedCount: number; skippedCount: number; totalRows: number }>(null);
+  const [memorySummary, setMemorySummary] = useState('');
+  const [refreshingMemory, setRefreshingMemory] = useState(false);
   const returnTo = searchParams.get('return');
 
   useEffect(() => {
@@ -267,9 +270,47 @@ const Leads = () => {
     setGeneratedVariants([]);
     setSelectedVariantIndex(0);
     setCutoffSummary('');
+    setMemorySummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setAdvancedOpen(false);
+  };
+
+  const shouldRefreshMemory = (lead: Lead) => {
+    if (!lead.memorySummary || !lead.memoryUpdatedAt) {
+      return true;
+    }
+    return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
+  };
+
+  const hydrateLeadMemory = async (lead: Lead) => {
+    setMemorySummary(lead.memorySummary || '');
+
+    if (!shouldRefreshMemory(lead)) {
+      return lead;
+    }
+
+    try {
+      setRefreshingMemory(true);
+      const response = await leadsApi.refreshMemory(lead.id);
+      if (response.success && response.data) {
+        const refreshedLead = response.data.lead;
+        setAllLeads((current) => current.map((item) => (item.id === refreshedLead.id ? refreshedLead : item)));
+        setCurrentLead(refreshedLead);
+        setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
+        setConfig((current) => ({
+          ...current,
+          ...getDefaultConfigFromLeadMemory(refreshedLead, current),
+        }));
+        return refreshedLead;
+      }
+    } catch (_err) {
+      // Non-blocking
+    } finally {
+      setRefreshingMemory(false);
+    }
+
+    return lead;
   };
 
   const openAiModalForLead = (lead: Lead, overrides?: Partial<SharedAiConfig>) => {
@@ -282,11 +323,13 @@ const Leads = () => {
     setGeneratedVariants([]);
     setSelectedVariantIndex(0);
     setCutoffSummary('');
+    setMemorySummary(lead.memorySummary || '');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setShowAiModal(true);
     setError('');
     setAdvancedOpen(false);
+    void hydrateLeadMemory(lead);
   };
 
   const handleGenerate = async () => {
@@ -311,12 +354,17 @@ const Leads = () => {
     try {
       const response = await generateAiMessage({ config, lead: currentLead, language });
       if (response.success && response.data) {
-        const variants = response.data.variants?.length ? response.data.variants : [response.data.text];
+        const data = response.data;
+        const variants = data.variants?.length ? data.variants : [data.text];
         setGeneratedVariants(variants);
         setSelectedVariantIndex(0);
-        setGeneratedText(variants[0] || response.data.text);
-        setCutoffSummary(response.data.cutoffSummary || '');
-        setGenerationDebug(response.data.debug || null);
+        setGeneratedText(variants[0] || data.text);
+        setCutoffSummary(data.cutoffSummary || '');
+        setMemorySummary(data.memorySummary || memorySummary);
+        if (data.memoryGoal) {
+          setConfig((current) => ({ ...current, objective: data.memoryGoal || current.objective }));
+        }
+        setGenerationDebug(data.debug || null);
         setGenerationStage('done');
         trackProductEvent('ai_generate_success', {
           purpose: getEventPurpose(config.purpose),
@@ -790,6 +838,21 @@ const Leads = () => {
               </div>
 
               <div className="quick-ai-result">
+                {(memorySummary || refreshingMemory || config.objective) && (
+                  <div className="ai-cutoff-card ai-cutoff-card-compact">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+                      <strong>{t.ai.memoryPoint}</strong>
+                      {currentLead ? (
+                        <button className="btn btn-secondary" type="button" onClick={() => hydrateLeadMemory(currentLead)} disabled={refreshingMemory}>
+                          {refreshingMemory ? t.ai.refreshingMemory : t.ai.refreshMemory}
+                        </button>
+                      ) : null}
+                    </div>
+                    {memorySummary ? <p>{memorySummary}</p> : null}
+                    {config.objective ? <p><strong>{t.ai.memoryGoal}:</strong> {config.objective}</p> : null}
+                  </div>
+                )}
+
                 {cutoffSummary && (
                   <div className="ai-cutoff-card ai-cutoff-card-compact">
                     <strong>{t.ai.conversationCutoff}</strong>

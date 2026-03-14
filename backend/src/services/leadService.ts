@@ -19,6 +19,15 @@ export interface UpdateLeadData {
   nextFollowUpAt?: string;
 }
 
+export interface LeadMemoryData {
+  memorySummary?: string | null;
+  memoryGoal?: string | null;
+  aiTonePreference?: string | null;
+  aiConversationMode?: string | null;
+  aiEmojiDensity?: string | null;
+  aiOutputFormat?: string | null;
+}
+
 export interface ImportLeadData {
   name: string;
   contact?: string;
@@ -103,6 +112,26 @@ export const updateLeadStatus = async (userId: string, leadId: string, status: s
     data: {
       status: normalizedStatus,
       ...(normalizedStatus === 'won' || normalizedStatus === 'lost' ? { nextFollowUpAt: null } : {}),
+      lastActivityAt: new Date(),
+    },
+  });
+
+  return normalizeLead(updatedLead);
+};
+
+export const updateLeadMemory = async (userId: string, leadId: string, data: LeadMemoryData) => {
+  await getLeadById(userId, leadId);
+
+  const updatedLead = await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      ...(data.memorySummary !== undefined ? { memorySummary: data.memorySummary } : {}),
+      ...(data.memoryGoal !== undefined ? { memoryGoal: data.memoryGoal } : {}),
+      ...(data.aiTonePreference !== undefined ? { aiTonePreference: data.aiTonePreference } : {}),
+      ...(data.aiConversationMode !== undefined ? { aiConversationMode: data.aiConversationMode } : {}),
+      ...(data.aiEmojiDensity !== undefined ? { aiEmojiDensity: data.aiEmojiDensity } : {}),
+      ...(data.aiOutputFormat !== undefined ? { aiOutputFormat: data.aiOutputFormat } : {}),
+      memoryUpdatedAt: new Date(),
       lastActivityAt: new Date(),
     },
   });

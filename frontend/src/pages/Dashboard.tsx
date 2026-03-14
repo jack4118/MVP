@@ -16,6 +16,7 @@ import {
   createInitialAiConfig,
   generateAiMessage,
   GenerationStage,
+  getDefaultConfigFromLeadMemory,
   getDefaultQuickConfigForLead,
   SharedAiConfig,
 } from '../features/ai/shared';
@@ -40,6 +41,8 @@ const Dashboard = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [creatingSampleLead, setCreatingSampleLead] = useState(false);
+  const [memorySummary, setMemorySummary] = useState('');
+  const [refreshingMemory, setRefreshingMemory] = useState(false);
 
   useEffect(() => {
     loadSummary();
@@ -113,7 +116,41 @@ const Dashboard = () => {
     snooze: t.dashboard.actionSnooze,
   };
 
-  const openQuickAction = (task: DashboardSummary['todayTasks'][number], action: string) => {
+  const shouldRefreshMemory = (lead: Lead) => {
+    if (!lead.memorySummary || !lead.memoryUpdatedAt) {
+      return true;
+    }
+    return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
+  };
+
+  const hydrateLeadMemory = async (lead: Lead) => {
+    setMemorySummary(lead.memorySummary || '');
+    if (!shouldRefreshMemory(lead)) {
+      return lead;
+    }
+
+    try {
+      setRefreshingMemory(true);
+      const response = await leadsApi.refreshMemory(lead.id);
+      if (response.success && response.data) {
+        const refreshedLead = response.data.lead;
+        setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
+        setConfig((current) => ({
+          ...current,
+          ...getDefaultConfigFromLeadMemory(refreshedLead, current),
+        }));
+        return refreshedLead;
+      }
+    } catch (_err) {
+      // Non-blocking
+    } finally {
+      setRefreshingMemory(false);
+    }
+
+    return lead;
+  };
+
+  const openQuickAction = async (task: DashboardSummary['todayTasks'][number], action: string) => {
     const lead: Lead = {
       id: task.lead.id,
       userId: user?.id || '',
@@ -121,6 +158,13 @@ const Dashboard = () => {
       contact: task.lead.contact || undefined,
       notes: '',
       status: task.lead.status,
+      memorySummary: null,
+      memoryGoal: null,
+      aiTonePreference: null,
+      aiConversationMode: null,
+      aiEmojiDensity: null,
+      aiOutputFormat: null,
+      memoryUpdatedAt: null,
       lastActivityAt: task.lead.lastOutboundAt || task.lead.lastInboundAt || task.triggerAt,
       lastInboundAt: task.lead.lastInboundAt || undefined,
       lastOutboundAt: task.lead.lastOutboundAt || undefined,
@@ -129,11 +173,12 @@ const Dashboard = () => {
       createdAt: task.triggerAt,
     };
 
-    const baseConfig = getDefaultQuickConfigForLead(lead, 0);
+    const refreshedLead = await hydrateLeadMemory(lead);
+    const baseConfig = getDefaultQuickConfigForLead(refreshedLead, 0);
     const objectiveByAction: Record<string, Partial<SharedAiConfig>> = {
       send_follow_up: {
         purpose: 'follow-up',
-        objective: 'Send a concise follow-up and ask for a clear next step.',
+        objective: refreshedLead.memoryGoal || 'Send a concise follow-up and ask for a clear next step.',
       },
       ask_budget: {
         purpose: 'follow-up',
@@ -155,6 +200,7 @@ const Dashboard = () => {
     setGeneratedVariants([]);
     setSelectedVariantIndex(0);
     setCutoffSummary('');
+    setMemorySummary(refreshedLead.memorySummary || '');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setAdvancedOpen(false);
@@ -172,6 +218,7 @@ const Dashboard = () => {
     setGeneratedVariants([]);
     setSelectedVariantIndex(0);
     setCutoffSummary('');
+    setMemorySummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
     setAdvancedOpen(false);
@@ -209,12 +256,17 @@ const Dashboard = () => {
     try {
       const response = await generateAiMessage({ config, lead, language });
       if (response.success && response.data) {
-        const variants = response.data.variants?.length ? response.data.variants : [response.data.text];
+        const data = response.data;
+        const variants = data.variants?.length ? data.variants : [data.text];
         setGeneratedVariants(variants);
         setSelectedVariantIndex(0);
-        setGeneratedText(variants[0] || response.data.text);
-        setCutoffSummary(response.data.cutoffSummary || '');
-        setGenerationDebug(response.data.debug || null);
+        setGeneratedText(variants[0] || data.text);
+        setCutoffSummary(data.cutoffSummary || '');
+        setMemorySummary(data.memorySummary || memorySummary);
+        if (data.memoryGoal) {
+          setConfig((current) => ({ ...current, objective: data.memoryGoal || current.objective }));
+        }
+        setGenerationDebug(data.debug || null);
         setGenerationStage('done');
         return;
       }
@@ -269,7 +321,7 @@ const Dashboard = () => {
       return;
     }
 
-    openQuickAction(task, action);
+    await openQuickAction(task, action);
   };
 
   const handleCreateSampleLead = async () => {
@@ -517,6 +569,48 @@ const Dashboard = () => {
               </div>
 
               <div className="quick-ai-result">
+                {(memorySummary || refreshingMemory || config.objective) && (
+                  <div className="ai-cutoff-card ai-cutoff-card-compact">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+                      <strong>{t.ai.memoryPoint}</strong>
+                      {activeTask ? (
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          onClick={() =>
+                            hydrateLeadMemory({
+                              id: activeTask.lead.id,
+                              userId: user?.id || '',
+                              name: activeTask.lead.name,
+                              contact: activeTask.lead.contact || undefined,
+                              notes: '',
+                              status: activeTask.lead.status,
+                              memorySummary: null,
+                              memoryGoal: null,
+                              aiTonePreference: null,
+                              aiConversationMode: null,
+                              aiEmojiDensity: null,
+                              aiOutputFormat: null,
+                              memoryUpdatedAt: null,
+                              lastActivityAt: activeTask.lead.lastOutboundAt || activeTask.lead.lastInboundAt || activeTask.triggerAt,
+                              lastInboundAt: activeTask.lead.lastInboundAt || undefined,
+                              lastOutboundAt: activeTask.lead.lastOutboundAt || undefined,
+                              nextFollowUpAt: activeTask.lead.nextFollowUpAt || undefined,
+                              closedReason: null,
+                              createdAt: activeTask.triggerAt,
+                            })
+                          }
+                          disabled={refreshingMemory}
+                        >
+                          {refreshingMemory ? t.ai.refreshingMemory : t.ai.refreshMemory}
+                        </button>
+                      ) : null}
+                    </div>
+                    {memorySummary ? <p>{memorySummary}</p> : null}
+                    {config.objective ? <p><strong>{t.ai.memoryGoal}:</strong> {config.objective}</p> : null}
+                  </div>
+                )}
+
                 {cutoffSummary && (
                   <div className="ai-cutoff-card ai-cutoff-card-compact">
                     <strong>{t.ai.conversationCutoff}</strong>

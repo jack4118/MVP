@@ -20,6 +20,7 @@ import {
   createInitialAiConfig,
   generateAiMessage,
   GenerationStage,
+  getDefaultConfigFromLeadMemory,
   getEventPurpose,
   getHistoryPurposeLabel,
   getHistoryStyleLabel,
@@ -47,6 +48,8 @@ const AI = () => {
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
+  const [memorySummary, setMemorySummary] = useState('');
+  const [refreshingMemory, setRefreshingMemory] = useState(false);
 
   useEffect(() => {
     loadLeads();
@@ -97,6 +100,47 @@ const AI = () => {
     setError('');
   };
 
+  const shouldRefreshMemory = (lead: Lead) => {
+    if (!lead.memorySummary || !lead.memoryUpdatedAt) {
+      return true;
+    }
+    return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
+  };
+
+  const hydrateLeadMemory = async (lead: Lead) => {
+    setMemorySummary(lead.memorySummary || '');
+    setConfig((current) => ({
+      ...current,
+      ...getDefaultConfigFromLeadMemory(lead, current),
+    }));
+
+    if (!shouldRefreshMemory(lead)) {
+      return lead;
+    }
+
+    try {
+      setRefreshingMemory(true);
+      const response = await leadsApi.refreshMemory(lead.id);
+      if (response.success && response.data) {
+        const refreshedLead = response.data.lead;
+        setLeads((current) => current.map((item) => (item.id === refreshedLead.id ? refreshedLead : item)));
+        setSelectedLead(refreshedLead);
+        setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
+        setConfig((current) => ({
+          ...current,
+          ...getDefaultConfigFromLeadMemory(refreshedLead, current),
+        }));
+        return refreshedLead;
+      }
+    } catch (_err) {
+      // Non-blocking
+    } finally {
+      setRefreshingMemory(false);
+    }
+
+    return lead;
+  };
+
   const handleGenerate = async () => {
     if (!selectedLead) {
       setError(t.ai.pleaseSelectLead);
@@ -126,12 +170,17 @@ const AI = () => {
       const response = await generateAiMessage({ config, lead: selectedLead, language });
 
       if (response.success && response.data) {
-        const variants = response.data.variants?.length ? response.data.variants : [response.data.text];
+        const data = response.data;
+        const variants = data.variants?.length ? data.variants : [data.text];
         setGeneratedVariants(variants);
         setSelectedVariantIndex(0);
-        setGeneratedText(variants[0] || response.data.text);
-        setCutoffSummary(response.data.cutoffSummary || '');
-        setGenerationDebug(response.data.debug || null);
+        setGeneratedText(variants[0] || data.text);
+        setCutoffSummary(data.cutoffSummary || '');
+        setMemorySummary(data.memorySummary || memorySummary);
+        if (data.memoryGoal) {
+          setConfig((current) => ({ ...current, objective: data.memoryGoal || current.objective }));
+        }
+        setGenerationDebug(data.debug || null);
         setGenerationStage('done');
 
         if (response.usage) {
@@ -257,6 +306,11 @@ const AI = () => {
                 setSelectedLead(lead);
                 setWhatsAppPhone(lead?.contact || '');
                 setError('');
+                if (lead) {
+                  hydrateLeadMemory(lead);
+                } else {
+                  setMemorySummary('');
+                }
               }}
               className="input"
             >
@@ -270,6 +324,21 @@ const AI = () => {
           </div>
 
           <AiComposerFields config={config} onChange={updateConfig} />
+
+          {selectedLead && (memorySummary || refreshingMemory) && (
+            <div className="ai-cutoff-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+                <strong>{t.ai.memoryPoint}</strong>
+                <button className="btn btn-secondary" type="button" onClick={() => hydrateLeadMemory(selectedLead)} disabled={refreshingMemory}>
+                  {refreshingMemory ? t.ai.refreshingMemory : t.ai.refreshMemory}
+                </button>
+              </div>
+              {memorySummary ? <p>{memorySummary}</p> : null}
+              {config.objective ? (
+                <p><strong>{t.ai.memoryGoal}:</strong> {config.objective}</p>
+              ) : null}
+            </div>
+          )}
 
           <button onClick={handleGenerate} disabled={loading || !selectedLead} className="btn btn-primary" style={{ width: '100%' }}>
             {loading ? (

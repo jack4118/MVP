@@ -61,8 +61,23 @@ export const getDefaultPurposeFromLeadStatus = (status?: LeadStatus): AiPurpose 
 export const getDefaultQuickConfigForLead = (lead: Lead, daysPassed: number): SharedAiConfig =>
   createInitialAiConfig(getDefaultPurposeFromLeadStatus(lead.status), {
     daysPassed,
-    outputFormat: 'whatsapp',
+    objective: lead.memoryGoal || '',
+    outputFormat: lead.aiOutputFormat || 'whatsapp',
+    tone: lead.aiTonePreference || 'polite',
+    conversationMode: lead.aiConversationMode || 'standard',
+    emojiDensity: lead.aiEmojiDensity || 'medium',
   });
+
+export const getDefaultConfigFromLeadMemory = (
+  lead: Lead,
+  current: SharedAiConfig
+): Partial<SharedAiConfig> => ({
+  objective: lead.memoryGoal || current.objective,
+  tone: lead.aiTonePreference || current.tone,
+  conversationMode: lead.aiConversationMode || current.conversationMode,
+  emojiDensity: lead.aiEmojiDensity || current.emojiDensity,
+  outputFormat: lead.aiOutputFormat || current.outputFormat,
+});
 
 export const getPurposeOptions = (t: Translations): AiOption[] => [
   { value: 'follow-up', label: t.ai.followUp },

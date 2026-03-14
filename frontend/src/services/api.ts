@@ -101,6 +101,13 @@ export interface Lead {
   contact?: string;
   notes?: string;
   status: LeadStatus;
+  memorySummary?: string | null;
+  memoryGoal?: string | null;
+  aiTonePreference?: AiTone | null;
+  aiConversationMode?: ConversationMode | null;
+  aiEmojiDensity?: EmojiDensity | null;
+  aiOutputFormat?: OutputFormat | null;
+  memoryUpdatedAt?: string | null;
   lastActivityAt?: string;
   lastInboundAt?: string | null;
   lastOutboundAt?: string | null;
@@ -235,6 +242,8 @@ export interface AiGenerationResult {
   text: string;
   variants: string[];
   cutoffSummary?: string | null;
+  memorySummary?: string | null;
+  memoryGoal?: string | null;
   debug?: AiGenerationDebug;
 }
 
@@ -392,6 +401,35 @@ export const leadsApi = {
       totalRows: number;
       plan: UserPlan;
     }>>('/leads/import', data);
+    return response.data;
+  },
+
+  refreshMemory: async (
+    id: string
+  ): Promise<ApiResponse<{
+    lead: Lead;
+    memory: {
+      summary?: string | null;
+      goal?: string | null;
+      tone?: AiTone | null;
+      conversationMode?: ConversationMode | null;
+      emojiDensity?: EmojiDensity | null;
+      outputFormat?: OutputFormat | null;
+      updatedAt?: string | null;
+    };
+  }>> => {
+    const response = await api.post<ApiResponse<{
+      lead: Lead;
+      memory: {
+        summary?: string | null;
+        goal?: string | null;
+        tone?: AiTone | null;
+        conversationMode?: ConversationMode | null;
+        emojiDensity?: EmojiDensity | null;
+        outputFormat?: OutputFormat | null;
+        updatedAt?: string | null;
+      };
+    }>>(`/leads/${id}/memory/refresh`);
     return response.data;
   },
 };

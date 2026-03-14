@@ -9,6 +9,7 @@ import {
   updateLead,
   updateLeadStatus,
 } from '../services/leadService';
+import { refreshLeadMemory } from '../services/aiService';
 import {
   createLeadSchema,
   importLeadsSchema,
@@ -180,6 +181,36 @@ router.put('/:id/status', async (req: AuthRequest, res: Response, next: NextFunc
     res.json({
       success: true,
       data: lead,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Lead not found') {
+      return res.status(404).json({
+        success: false,
+        error: { message: error.message },
+      });
+    }
+    next(error);
+  }
+});
+
+router.post('/:id/memory/refresh', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Unauthorized' },
+      });
+    }
+
+    const memory = await refreshLeadMemory(req.userId, req.params.id);
+    const lead = await getLeadById(req.userId, req.params.id);
+
+    return res.json({
+      success: true,
+      data: {
+        lead,
+        memory,
+      },
     });
   } catch (error) {
     if (error instanceof Error && error.message === 'Lead not found') {

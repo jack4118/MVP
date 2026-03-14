@@ -78,6 +78,8 @@ export interface AiGenerationBundle {
   text: string;
   variants: string[];
   cutoffSummary: string | null;
+  memorySummary?: string | null;
+  memoryGoal?: string | null;
 }
 
 const presetsEnabled = process.env.FEATURE_AI_PRESETS !== 'false';
@@ -1089,6 +1091,213 @@ const parseTaggedSection = (payload: string, tag: string) => {
   return match?.[1]?.trim() || '';
 };
 
+interface LeadMemorySnapshot {
+  summary: string | null;
+  goal: string | null;
+  tone: FollowUpTone | PaymentTone | null;
+  conversationMode: ConversationMode | null;
+  emojiDensity: EmojiPreference | null;
+  outputFormat: OutputFormat | null;
+  updatedAt: Date | null;
+}
+
+const normalizeTonePreference = (value?: string | null): FollowUpTone | PaymentTone | null => {
+  if (!value) return null;
+  const supported: Array<FollowUpTone | PaymentTone> = ['polite', 'friendly', 'professional', 'casual', 'assertive', 'empathetic', 'urgent'];
+  return supported.includes(value as FollowUpTone) ? (value as FollowUpTone) : null;
+};
+
+const normalizeConversationModePreference = (value?: string | null): ConversationMode | null => {
+  if (!value) return null;
+  const supported: ConversationMode[] = ['standard', 'humor', 'banter', 'direct', 'consultative'];
+  return supported.includes(value as ConversationMode) ? (value as ConversationMode) : null;
+};
+
+const normalizeEmojiPreferenceValue = (value?: string | null): EmojiPreference | null => {
+  if (!value) return null;
+  const supported: EmojiPreference[] = ['low', 'medium', 'high'];
+  return supported.includes(value as EmojiPreference) ? (value as EmojiPreference) : null;
+};
+
+const normalizeOutputFormatValue = (value?: string | null): OutputFormat | null => {
+  if (!value) return null;
+  const supported: OutputFormat[] = ['chat', 'email', 'whatsapp'];
+  return supported.includes(value as OutputFormat) ? (value as OutputFormat) : null;
+};
+
+const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<LeadMemorySnapshot> => {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, userId },
+    select: {
+      memorySummary: true,
+      memoryGoal: true,
+      aiTonePreference: true,
+      aiConversationMode: true,
+      aiEmojiDensity: true,
+      aiOutputFormat: true,
+      memoryUpdatedAt: true,
+    },
+  });
+
+  return {
+    summary: lead?.memorySummary || null,
+    goal: lead?.memoryGoal || null,
+    tone: normalizeTonePreference(lead?.aiTonePreference),
+    conversationMode: normalizeConversationModePreference(lead?.aiConversationMode),
+    emojiDensity: normalizeEmojiPreferenceValue(lead?.aiEmojiDensity),
+    outputFormat: normalizeOutputFormatValue(lead?.aiOutputFormat),
+    updatedAt: lead?.memoryUpdatedAt || null,
+  };
+};
+
+const buildLeadMemoryFallback = (lead: {
+  name: string;
+  notes: string | null;
+  status: string;
+  lastInboundAt: Date | null;
+  lastOutboundAt: Date | null;
+}): LeadMemorySnapshot => {
+  const noteSummary = trimSnippet(lead.notes || '', 220);
+  const summary = [
+    noteSummary ? `Known notes: ${noteSummary}.` : null,
+    `Lead is currently ${lead.status}.`,
+    lead.lastInboundAt ? `Customer last replied on ${lead.lastInboundAt.toISOString()}.` : null,
+    lead.lastOutboundAt ? `You last sent a message on ${lead.lastOutboundAt.toISOString()}.` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return {
+    summary: summary || `Continue the relationship naturally with ${lead.name}.`,
+    goal: noteSummary || `Move ${lead.name} to the next clear step.`,
+    tone: 'polite',
+    conversationMode: 'standard',
+    emojiDensity: 'medium',
+    outputFormat: 'whatsapp',
+    updatedAt: null,
+  };
+};
+
+export const refreshLeadMemory = async (userId: string, leadId: string): Promise<LeadMemorySnapshot> => {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, userId },
+    select: {
+      id: true,
+      name: true,
+      notes: true,
+      status: true,
+      contact: true,
+      lastInboundAt: true,
+      lastOutboundAt: true,
+    },
+  });
+
+  if (!lead) {
+    throw new Error('Lead not found');
+  }
+
+  const normalizedContact = normalizePhoneForAi(lead.contact);
+  const logs = await prisma.whatsAppMessageLog.findMany({
+    where: {
+      userId,
+      OR: [
+        { leadId },
+        ...(normalizedContact ? [{ toPhone: normalizedContact }, { fromPhone: normalizedContact }] : []),
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 16,
+  });
+
+  const transcript = [...logs]
+    .reverse()
+    .map((log) => `${log.direction === 'inbound' ? 'customer' : 'you'}: ${trimSnippet(log.content, 160)}`)
+    .join('\n');
+
+  if (!process.env.OPENAI_API_KEY || logs.length === 0) {
+    const fallback = buildLeadMemoryFallback(lead);
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        memorySummary: fallback.summary,
+        memoryGoal: fallback.goal,
+        aiTonePreference: fallback.tone,
+        aiConversationMode: fallback.conversationMode,
+        aiEmojiDensity: fallback.emojiDensity,
+        aiOutputFormat: fallback.outputFormat,
+        memoryUpdatedAt: new Date(),
+      },
+    });
+    return { ...fallback, updatedAt: new Date() };
+  }
+
+  const systemPrompt = [
+    'You are building a compact CRM memory for a small-business WhatsApp conversation.',
+    'Return only tagged fields, no code fences.',
+    'Infer the most likely next objective, reply style preference, and message habits from the recent conversation.',
+    'Do not invent detailed facts that are not supported by the transcript.',
+  ].join('\n');
+
+  const userPrompt = [
+    `Lead name: ${lead.name}`,
+    `Lead status: ${lead.status}`,
+    lead.notes ? `Internal notes: ${lead.notes}` : 'Internal notes: none',
+    'Recent transcript (latest at bottom):',
+    transcript,
+    '',
+    'Return this exact format:',
+    '<SUMMARY>One compact summary of what this customer cares about and where the conversation stands</SUMMARY>',
+    '<GOAL>The best default follow-up objective for the next message</GOAL>',
+    '<TONE>polite|friendly|professional|casual|assertive|empathetic|urgent</TONE>',
+    '<MODE>standard|humor|banter|direct|consultative</MODE>',
+    '<EMOJI>low|medium|high</EMOJI>',
+    '<FORMAT>chat|email|whatsapp</FORMAT>',
+  ].join('\n');
+
+  try {
+    const completion = await generateCompletion(systemPrompt, userPrompt);
+    const raw = completion.choices[0]?.message?.content || '';
+    const summary = parseTaggedSection(raw, 'SUMMARY') || buildLeadMemoryFallback(lead).summary;
+    const goal = parseTaggedSection(raw, 'GOAL') || buildLeadMemoryFallback(lead).goal;
+    const tone = normalizeTonePreference(parseTaggedSection(raw, 'TONE')) || 'polite';
+    const conversationMode = normalizeConversationModePreference(parseTaggedSection(raw, 'MODE')) || 'standard';
+    const emojiDensity = normalizeEmojiPreferenceValue(parseTaggedSection(raw, 'EMOJI')) || 'medium';
+    const outputFormat = normalizeOutputFormatValue(parseTaggedSection(raw, 'FORMAT')) || 'whatsapp';
+    const updatedAt = new Date();
+
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        memorySummary: summary,
+        memoryGoal: goal,
+        aiTonePreference: tone,
+        aiConversationMode: conversationMode,
+        aiEmojiDensity: emojiDensity,
+        aiOutputFormat: outputFormat,
+        memoryUpdatedAt: updatedAt,
+      },
+    });
+
+    return { summary, goal, tone, conversationMode, emojiDensity, outputFormat, updatedAt };
+  } catch (_error) {
+    const fallback = buildLeadMemoryFallback(lead);
+    const updatedAt = new Date();
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        memorySummary: fallback.summary,
+        memoryGoal: fallback.goal,
+        aiTonePreference: fallback.tone,
+        aiConversationMode: fallback.conversationMode,
+        aiEmojiDensity: fallback.emojiDensity,
+        aiOutputFormat: fallback.outputFormat,
+        memoryUpdatedAt: updatedAt,
+      },
+    });
+    return { ...fallback, updatedAt };
+  }
+};
+
 const getConversationCutoffContext = async (userId: string, leadId: string) => {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
@@ -1096,15 +1305,35 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
       id: true,
       name: true,
       contact: true,
+      notes: true,
       status: true,
+      memorySummary: true,
+      memoryGoal: true,
+      aiTonePreference: true,
+      aiConversationMode: true,
+      aiEmojiDensity: true,
+      aiOutputFormat: true,
+      memoryUpdatedAt: true,
       lastInboundAt: true,
       lastOutboundAt: true,
     },
   });
 
   if (!lead) {
-    return { cutoffSummary: null, transcript: '' };
+    return { cutoffSummary: null, transcript: '', memory: null as LeadMemorySnapshot | null };
   }
+
+  const memoryIsFresh =
+    lead.memoryUpdatedAt && Date.now() - new Date(lead.memoryUpdatedAt).getTime() < 1000 * 60 * 60 * 24 * 3;
+  const storedMemory: LeadMemorySnapshot = {
+    summary: lead.memorySummary || null,
+    goal: lead.memoryGoal || null,
+    tone: normalizeTonePreference(lead.aiTonePreference),
+    conversationMode: normalizeConversationModePreference(lead.aiConversationMode),
+    emojiDensity: normalizeEmojiPreferenceValue(lead.aiEmojiDensity),
+    outputFormat: normalizeOutputFormatValue(lead.aiOutputFormat),
+    updatedAt: lead.memoryUpdatedAt || null,
+  };
 
   const normalizedContact = normalizePhoneForAi(lead.contact);
   const logs = await prisma.whatsAppMessageLog.findMany({
@@ -1125,11 +1354,13 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
   });
 
   if (logs.length === 0) {
+    const memory = storedMemory.summary && memoryIsFresh ? storedMemory : buildLeadMemoryFallback(lead);
     return {
       cutoffSummary: lead.lastOutboundAt || lead.lastInboundAt
         ? `No WhatsApp transcript stored, but lead is ${lead.status}. Last outbound: ${lead.lastOutboundAt || 'n/a'}. Last inbound: ${lead.lastInboundAt || 'n/a'}.`
         : `No prior WhatsApp transcript is stored for ${lead.name}.`,
       transcript: '',
+      memory,
     };
   }
 
@@ -1155,13 +1386,19 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
     .filter(Boolean)
     .join(' ');
 
-  return { cutoffSummary, transcript };
+  const memory =
+    storedMemory.summary && memoryIsFresh
+      ? storedMemory
+      : await refreshLeadMemory(userId, leadId);
+
+  return { cutoffSummary, transcript, memory };
 };
 
 const buildVariantPrompt = (
   basePrompt: string,
   cutoffSummary: string | null,
   transcript: string,
+  memory: LeadMemorySnapshot | null,
   language: Language,
   purpose: 'follow_up' | 'payment',
   variantCount: number
@@ -1180,9 +1417,13 @@ const buildVariantPrompt = (
         ? `Berikan ${variantCount} versi berbeza: versi 1 paling selamat, versi 2 lebih mesra, versi 3 lebih terus. Semua mesti terus boleh dihantar.`
         : `Give ${variantCount} distinct variants: variant 1 safest, variant 2 warmer, variant 3 more direct. All must be sendable as-is.`;
 
-  const contextBlock = cutoffSummary
-    ? `\n\nConversation cutoff memory:\n${cutoffSummary}${transcript ? `\n\nRecent WhatsApp transcript (latest at bottom):\n${transcript}` : ''}`
+  const memoryBlock = memory?.summary
+    ? `\n\nLead memory point:\n- Summary: ${memory.summary}\n- Suggested default objective: ${memory.goal || 'n/a'}\n- Preferred tone: ${memory.tone || 'n/a'}\n- Preferred mode: ${memory.conversationMode || 'n/a'}\n- Preferred emoji density: ${memory.emojiDensity || 'n/a'}\n- Preferred output format: ${memory.outputFormat || 'n/a'}`
     : '';
+
+  const contextBlock = cutoffSummary
+    ? `${memoryBlock}\n\nConversation cutoff memory:\n${cutoffSummary}${transcript ? `\n\nRecent WhatsApp transcript (latest at bottom):\n${transcript}` : ''}`
+    : memoryBlock;
 
   const purposeHint =
     purpose === 'payment'
@@ -1243,7 +1484,7 @@ export const generateFollowUpText = async (
   const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
-  const { cutoffSummary, transcript } = await getConversationCutoffContext(userId, leadId);
+  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId);
 
   const systemPrompt = getAdvisorPersona(language);
 
@@ -1272,7 +1513,7 @@ export const generateFollowUpText = async (
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
   const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
-  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, language, 'follow_up', variantCount);
+  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'follow_up', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -1297,10 +1538,25 @@ export const generateFollowUpText = async (
       },
     });
 
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        memoryGoal: data.objective.trim(),
+        memorySummary: parsed.cutoffSummary || memory?.summary || cutoffSummary,
+        aiTonePreference: tone,
+        aiConversationMode: conversationMode,
+        aiEmojiDensity: emojiPreference,
+        aiOutputFormat: outputFormat,
+        memoryUpdatedAt: new Date(),
+      },
+    });
+
     return {
       text: generatedText,
       variants: parsed.variants.slice(0, variantCount),
       cutoffSummary: parsed.cutoffSummary || cutoffSummary,
+      memorySummary: memory?.summary || parsed.cutoffSummary || cutoffSummary,
+      memoryGoal: data.objective.trim(),
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
@@ -1336,6 +1592,8 @@ export const generateFollowUpText = async (
       text: fallbackText,
       variants: [fallbackText],
       cutoffSummary,
+      memorySummary: memory?.summary || cutoffSummary,
+      memoryGoal: data.objective.trim(),
     };
   }
 };
@@ -1357,7 +1615,7 @@ export const generatePaymentText = async (
   const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
-  const { cutoffSummary, transcript } = await getConversationCutoffContext(userId, leadId);
+  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId);
 
   let daysOverdue = 0;
   if (dueDate) {
@@ -1393,7 +1651,7 @@ export const generatePaymentText = async (
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
   const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
-  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, language, 'payment', variantCount);
+  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'payment', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -1418,10 +1676,25 @@ export const generatePaymentText = async (
       },
     });
 
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        memoryGoal: data.objective.trim(),
+        memorySummary: parsed.cutoffSummary || memory?.summary || cutoffSummary,
+        aiTonePreference: tone,
+        aiConversationMode: conversationMode,
+        aiEmojiDensity: emojiPreference,
+        aiOutputFormat: outputFormat,
+        memoryUpdatedAt: new Date(),
+      },
+    });
+
     return {
       text: generatedText,
       variants: parsed.variants.slice(0, variantCount),
       cutoffSummary: parsed.cutoffSummary || cutoffSummary,
+      memorySummary: memory?.summary || parsed.cutoffSummary || cutoffSummary,
+      memoryGoal: data.objective.trim(),
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
@@ -1457,6 +1730,8 @@ export const generatePaymentText = async (
       text: fallbackText,
       variants: [fallbackText],
       cutoffSummary,
+      memorySummary: memory?.summary || cutoffSummary,
+      memoryGoal: data.objective.trim(),
     };
   }
 };
