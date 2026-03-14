@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { AiTone, AppLanguage, ConversationMode, EmojiDensity, OutputFormat } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
+import { getApiErrorMessage } from '../services/api';
 
 const Profile = () => {
   const { t } = useLanguage();
@@ -19,6 +20,7 @@ const Profile = () => {
   const [form, setForm] = useState({
     displayName: '',
     companyName: '',
+    industry: '',
     defaultLanguage: 'en' as AppLanguage,
     defaultTone: 'polite' as AiTone,
     defaultConversationMode: 'standard' as ConversationMode,
@@ -37,6 +39,7 @@ const Profile = () => {
     setForm({
       displayName: user.displayName || '',
       companyName: user.companyName || '',
+      industry: user.industry || '',
       defaultLanguage: user.defaultLanguage || 'en',
       defaultTone: user.defaultTone || 'polite',
       defaultConversationMode: user.defaultConversationMode || 'standard',
@@ -57,6 +60,7 @@ const Profile = () => {
       const response = await updateProfile({
         displayName: form.displayName.trim() || null,
         companyName: form.companyName.trim() || null,
+        industry: form.industry.trim() || null,
         defaultLanguage: form.defaultLanguage,
         defaultTone: form.defaultTone,
         defaultConversationMode: form.defaultConversationMode,
@@ -74,7 +78,7 @@ const Profile = () => {
 
       setSuccess(t.profile.saveSuccess);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.profile.saveFailed);
+      setError(getApiErrorMessage(err, t.profile.saveFailed));
     } finally {
       setSaving(false);
     }
@@ -113,6 +117,16 @@ const Profile = () => {
               className="input"
               value={form.companyName}
               onChange={(e) => setForm((current) => ({ ...current, companyName: e.target.value }))}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">{t.profile.industry}</label>
+            <input
+              className="input"
+              value={form.industry}
+              onChange={(e) => setForm((current) => ({ ...current, industry: e.target.value }))}
+              placeholder={t.profile.industryPlaceholder}
             />
           </div>
 

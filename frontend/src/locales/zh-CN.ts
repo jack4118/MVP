@@ -437,6 +437,8 @@ export const zhCN = {
     inboxDefaultsTitle: '收件箱默认设置',
     displayName: '显示名称',
     companyName: '公司名称',
+    industry: '行业',
+    industryPlaceholder: '例如：美容院、房产、会计、诊所',
     emailReadOnly: '登录邮箱',
     defaultLanguage: '默认语言',
     defaultTone: '默认语气',

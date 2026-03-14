@@ -117,6 +117,7 @@ export interface User {
   createdAt: string;
   displayName?: string | null;
   companyName?: string | null;
+  industry?: string | null;
   defaultLanguage?: AppLanguage | null;
   defaultTone?: AiTone | null;
   defaultConversationMode?: ConversationMode | null;
@@ -382,6 +383,7 @@ export const authApi = {
   updateCurrentUser: async (data: {
     displayName?: string | null;
     companyName?: string | null;
+    industry?: string | null;
     defaultLanguage?: AppLanguage | null;
     defaultTone?: AiTone | null;
     defaultConversationMode?: ConversationMode | null;

@@ -429,6 +429,8 @@ export const ms = {
     inboxDefaultsTitle: 'Tetapan inbox lalai',
     displayName: 'Nama paparan',
     companyName: 'Nama syarikat',
+    industry: 'Industri',
+    industryPlaceholder: 'Contoh: salon, hartanah, akaun, klinik',
     emailReadOnly: 'Emel log masuk',
     defaultLanguage: 'Bahasa lalai',
     defaultTone: 'Nada lalai',

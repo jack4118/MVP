@@ -20,6 +20,7 @@ interface AuthContextType {
   updateProfile: (data: {
     displayName?: string | null;
     companyName?: string | null;
+    industry?: string | null;
     defaultLanguage?: AppLanguage | null;
     defaultTone?: AiTone | null;
     defaultConversationMode?: ConversationMode | null;
@@ -111,6 +112,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const updateProfile = async (data: {
     displayName?: string | null;
     companyName?: string | null;
+    industry?: string | null;
     defaultLanguage?: AppLanguage | null;
     defaultTone?: AiTone | null;
     defaultConversationMode?: ConversationMode | null;

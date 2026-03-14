@@ -17,6 +17,7 @@ model User {
   plan         String   @default("free") // "free" | "pro"
   displayName  String?  @map("display_name")
   companyName  String?  @map("company_name")
+  industry     String?  @map("industry")
   defaultLanguage String? @map("default_language")
   defaultTone String?   @map("default_tone")
   defaultConversationMode String? @map("default_conversation_mode")

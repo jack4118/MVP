@@ -56,6 +56,7 @@ export const loginSchema = z.object({
 export const updateProfileSchema = z.object({
   displayName: z.string().max(100).optional().nullable(),
   companyName: z.string().max(120).optional().nullable(),
+  industry: z.string().max(120).optional().nullable(),
   defaultLanguage: z.enum(['en', 'zh-CN', 'ms']).optional().nullable(),
   defaultTone: followUpToneSchema.optional().nullable(),
   defaultConversationMode: conversationModeSchema.optional().nullable(),

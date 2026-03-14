@@ -437,6 +437,8 @@ export const en = {
     inboxDefaultsTitle: 'Inbox defaults',
     displayName: 'Display name',
     companyName: 'Company name',
+    industry: 'Industry',
+    industryPlaceholder: 'Example: salon, property, accounting, clinic',
     emailReadOnly: 'Login email',
     defaultLanguage: 'Default language',
     defaultTone: 'Default tone',

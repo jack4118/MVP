@@ -868,6 +868,55 @@ const buildRewritePrompt = (draft: string, config: DraftConfig): string => {
   ].join('\n');
 };
 
+const validateBusinessDraft = async (
+  systemPrompt: string,
+  draft: string,
+  config: DraftConfig,
+  objective: string,
+  currentHour: number
+): Promise<string> => {
+  let current = draft;
+  let attempt = 0;
+
+  while (attempt < 2) {
+    const issues: string[] = [];
+
+    if (containsWrongTimeGreeting(current, config.language, currentHour)) {
+      issues.push(
+        config.language === 'zh-CN'
+          ? '当前本地时间不适合使用“早安/早上好/早”这类早晨问候。'
+          : config.language === 'ms'
+            ? 'Sapaan yang digunakan tidak sesuai dengan waktu tempatan semasa.'
+            : 'The greeting is inappropriate for the current local time.'
+      );
+    }
+
+    if (!hasConcreteReplyAsk(current, config.language)) {
+      issues.push(
+        config.language === 'zh-CN'
+          ? '消息缺少一个具体、容易回复的请求或时间问题。'
+          : config.language === 'ms'
+            ? 'Mesej tiada permintaan yang cukup spesifik dan mudah dibalas.'
+            : 'The message lacks a concrete, easy-to-answer ask.'
+      );
+    }
+
+    if (issues.length === 0) {
+      break;
+    }
+
+    const rewritten = await generateCompletion(systemPrompt, buildBusinessValidationPrompt(current, config.language, issues, objective));
+    const next = cleanGeneratedMessage(rewritten.choices[0]?.message?.content || '');
+    if (!next.trim()) {
+      break;
+    }
+    current = next;
+    attempt += 1;
+  }
+
+  return current;
+};
+
 const rewriteDraftToMatchConfig = async (
   systemPrompt: string,
   draft: string,
@@ -1102,6 +1151,153 @@ interface LeadMemorySnapshot {
   updatedAt: Date | null;
 }
 
+interface UserAiContext {
+  displayName: string | null;
+  companyName: string | null;
+  industry: string | null;
+}
+
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Kuala_Lumpur';
+
+const getUserAiContext = async (userId: string): Promise<UserAiContext> => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      displayName: true,
+      companyName: true,
+      industry: true,
+    },
+  });
+
+  return {
+    displayName: user?.displayName || null,
+    companyName: user?.companyName || null,
+    industry: user?.industry || null,
+  };
+};
+
+const getCurrentLocalContext = (language: Language, timeZone: string = APP_TIMEZONE) => {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    weekday: 'long',
+  });
+
+  const parts = formatter.formatToParts(now);
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  const hour = Number(pick('hour') || '0');
+  const dateText = `${pick('year')}-${pick('month')}-${pick('day')} ${pick('hour')}:${pick('minute')}`;
+  const weekday = pick('weekday');
+
+  const period =
+    hour < 5 ? 'late_night'
+    : hour < 12 ? 'morning'
+    : hour < 18 ? 'afternoon'
+    : hour < 22 ? 'evening'
+    : 'night';
+
+  const guidance =
+    language === 'zh-CN'
+      ? [
+          `当前本地时间（${timeZone}）：${dateText}，${weekday}。当前时段：${period}。`,
+          period === 'morning'
+            ? '如果需要问候，可以用“早 / 早安 / 上午好”一类自然表达。'
+            : period === 'afternoon'
+              ? '不要使用“早安/早”，如需问候请用“下午好”或直接进入正题。'
+              : period === 'evening'
+                ? '不要使用“早安/早”，如需问候请用“晚上好”或直接进入正题。'
+                : '现在已经很晚，禁止使用“早安/早/下午好”。优先直接进入正题，或用“这么晚打扰了”这类更自然的晚间表达。',
+        ].join(' ')
+      : language === 'ms'
+        ? [
+            `Waktu tempatan sekarang (${timeZone}): ${dateText}, ${weekday}. Bahagian hari: ${period}.`,
+            period === 'morning'
+              ? 'Jika mahu beri sapaan, boleh guna sapaan pagi secara natural.'
+              : period === 'afternoon'
+                ? 'Jangan guna sapaan pagi. Jika perlu, guna sapaan petang atau terus masuk isi.'
+                : period === 'evening'
+                  ? 'Jangan guna sapaan pagi. Jika perlu, guna sapaan malam atau terus ke point.'
+                  : 'Sekarang sudah lewat malam. Elakkan sapaan pagi/petang; terus masuk isi atau guna pembuka yang sesuai untuk waktu malam.',
+          ].join(' ')
+        : [
+            `Current local time (${timeZone}): ${dateText}, ${weekday}. Daypart: ${period}.`,
+            period === 'morning'
+              ? 'Morning greetings are acceptable if they feel natural.'
+              : period === 'afternoon'
+                ? 'Do not use morning greetings. If greeting, use an afternoon-appropriate line or skip greeting.'
+                : period === 'evening'
+                  ? 'Do not use morning greetings. If greeting, use an evening-appropriate line or go straight to the point.'
+                  : 'It is late at night. Never use morning/afternoon greetings. Prefer going straight to the point or a light late-night acknowledgment.',
+          ].join(' ');
+
+  return { hour, period, guidance };
+};
+
+const getIndustryInstruction = (industry: string | null | undefined, language: Language) => {
+  if (!industry?.trim()) {
+    return '';
+  }
+
+  if (language === 'zh-CN') {
+    return `行业上下文：当前商家行业是“${industry}”。输出要更贴近这个行业的常见客户沟通方式、常见交易节奏和常见顾虑。不要写成泛用销售话术。`;
+  }
+
+  if (language === 'ms') {
+    return `Konteks industri: bisnes ini dalam industri “${industry}”. Sesuaikan mesej dengan cara pelanggan industri ini biasa berbual, membuat keputusan, dan membeli. Jangan bunyi terlalu generik.`;
+  }
+
+  return `Industry context: this business operates in "${industry}". Make the message feel native to how customers in this industry usually talk, decide, and buy. Avoid generic sales copy.`;
+};
+
+const containsWrongTimeGreeting = (text: string, language: Language, hour: number) => {
+  const lower = text.toLowerCase();
+  if (language === 'zh-CN') {
+    const hasMorning = /早安|早上好|早呀|早！|早,|早，|(^|[\s，,])早($|[\s！!，,])/u.test(text);
+    return hasMorning && hour >= 12;
+  }
+
+  if (language === 'ms') {
+    const hasMorning = /selamat pagi|pagi ya|pagi!/i.test(lower);
+    return hasMorning && hour >= 12;
+  }
+
+  const hasMorning = /\bgood morning\b|\bmorning\b/.test(lower);
+  return hasMorning && hour >= 12;
+};
+
+const hasConcreteReplyAsk = (text: string, language: Language) => {
+  const lower = text.toLowerCase();
+  if (language === 'zh-CN') {
+    return /方便|可以|能否|回我|回复|几点|今天|明天|这周|下周|时间|安排/u.test(text);
+  }
+  if (language === 'ms') {
+    return /boleh|balas|reply|hari ini|esok|minggu ini|minggu depan|jam berapa|tarikh/i.test(lower);
+  }
+  return /\bcan\b|\bcould\b|\blet me know\b|\breply\b|\btoday\b|\btomorrow\b|\bthis week\b|\bnext week\b|\bwhat time\b|\bdate\b/.test(lower);
+};
+
+const buildBusinessValidationPrompt = (
+  draft: string,
+  language: Language,
+  issues: string[],
+  objective: string
+) => {
+  const issueList = issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n');
+  if (language === 'zh-CN') {
+    return `请重写下面消息，修复这些业务问题：\n${issueList}\n\n原始 objective：${objective}\n要求：\n- 保留同一个目标\n- 更像真人商家 WhatsApp\n- 直接输出可发送消息，不要解释\n\n草稿：\n${draft}`;
+  }
+  if (language === 'ms') {
+    return `Tulis semula mesej ini dan betulkan masalah berikut:\n${issueList}\n\nObjektif asal: ${objective}\nSyarat:\n- Kekalkan objektif yang sama\n- Bunyikan seperti mesej WhatsApp bisnes sebenar\n- Output mesej siap hantar sahaja\n\nDraf:\n${draft}`;
+  }
+  return `Rewrite this message and fix these business-quality issues:\n${issueList}\n\nOriginal objective: ${objective}\nRequirements:\n- Keep the same objective\n- Make it sound like a real business WhatsApp message\n- Output only the sendable message\n\nDraft:\n${draft}`;
+};
+
 const normalizeTonePreference = (value?: string | null): FollowUpTone | PaymentTone | null => {
   if (!value) return null;
   const supported: Array<FollowUpTone | PaymentTone> = ['polite', 'friendly', 'professional', 'casual', 'assertive', 'empathetic', 'urgent'];
@@ -1211,6 +1407,7 @@ export const refreshLeadMemory = async (
   leadId: string,
   language: Language = 'en'
 ): Promise<LeadMemorySnapshot> => {
+  const userContext = await getUserAiContext(userId);
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
     select: {
@@ -1292,6 +1489,7 @@ export const refreshLeadMemory = async (
     ? [
         `客户姓名：${lead.name}`,
         `客户状态：${lead.status}`,
+        userContext.industry ? `商家行业：${userContext.industry}` : '商家行业：未提供',
         lead.notes ? `内部备注：${lead.notes}` : '内部备注：无',
         '最近对话记录（最新在底部）：',
         transcript,
@@ -1308,6 +1506,7 @@ export const refreshLeadMemory = async (
       ? [
           `Nama pelanggan: ${lead.name}`,
           `Status lead: ${lead.status}`,
+          userContext.industry ? `Industri bisnes: ${userContext.industry}` : 'Industri bisnes: tiada',
           lead.notes ? `Nota dalaman: ${lead.notes}` : 'Nota dalaman: tiada',
           'Transkrip terkini (mesej terbaru di bawah):',
           transcript,
@@ -1323,6 +1522,7 @@ export const refreshLeadMemory = async (
       : [
           `Lead name: ${lead.name}`,
           `Lead status: ${lead.status}`,
+          userContext.industry ? `Business industry: ${userContext.industry}` : 'Business industry: not provided',
           lead.notes ? `Internal notes: ${lead.notes}` : 'Internal notes: none',
           'Recent transcript (latest at bottom):',
           transcript,
@@ -1563,6 +1763,7 @@ export const generateFollowUpText = async (
   leadId: string,
   data: FollowUpData
 ): Promise<AiGenerationBundle> => {
+  const userContext = await getUserAiContext(userId);
   const tone = data.tone || 'polite';
   const daysPassed = data.daysPassed || 0;
   const language = data.language || 'en';
@@ -1575,6 +1776,7 @@ export const generateFollowUpText = async (
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
+  const localTimeContext = getCurrentLocalContext(language);
 
   const systemPrompt = getAdvisorPersona(language);
 
@@ -1589,6 +1791,7 @@ export const generateFollowUpText = async (
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'follow_up');
   const toneInstruction = getToneInstruction(language, tone, 'follow_up');
   const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
+  const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const humanStyleBlock =
@@ -1602,7 +1805,11 @@ export const generateFollowUpText = async (
     : isMalay
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const sellerContext = [
+    userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
+    userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
+  ].filter(Boolean).join('\n');
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'follow_up', variantCount);
 
   try {
@@ -1612,7 +1819,35 @@ export const generateFollowUpText = async (
 
     const completion = await generateCompletion(systemPrompt, bundlePrompt);
     const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
-    let generatedText = parsed.variants[0] || '';
+    const enforcedVariants = await Promise.all(
+      parsed.variants.slice(0, variantCount).map(async (variant) => {
+        let next = await enforceObjectiveCoverage(systemPrompt, variant, language, 'follow_up', objectiveItems);
+        next = await enforceDraftConfig(systemPrompt, next, {
+          language,
+          outputFormat,
+          purpose: 'follow_up',
+          tone,
+          conversationMode,
+          emojiPreference,
+        });
+        next = await validateBusinessDraft(
+          systemPrompt,
+          next,
+          {
+            language,
+            outputFormat,
+            purpose: 'follow_up',
+            tone,
+            conversationMode,
+            emojiPreference,
+          },
+          data.objective,
+          localTimeContext.hour
+        );
+        return next;
+      })
+    );
+    let generatedText = enforcedVariants[0] || parsed.variants[0] || '';
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -1644,7 +1879,7 @@ export const generateFollowUpText = async (
 
     return {
       text: generatedText,
-      variants: parsed.variants.slice(0, variantCount),
+      variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
       cutoffSummary: parsed.cutoffSummary || cutoffSummary,
       memorySummary: memory?.summary || parsed.cutoffSummary || cutoffSummary,
       memoryGoal: data.objective.trim(),
@@ -1694,6 +1929,7 @@ export const generatePaymentText = async (
   leadId: string,
   data: PaymentData
 ): Promise<AiGenerationBundle> => {
+  const userContext = await getUserAiContext(userId);
   const tone = data.tone || 'polite';
   const amount = data.amount;
   const dueDate = data.dueDate;
@@ -1707,6 +1943,7 @@ export const generatePaymentText = async (
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
+  const localTimeContext = getCurrentLocalContext(language);
 
   let daysOverdue = 0;
   if (dueDate) {
@@ -1728,6 +1965,7 @@ export const generatePaymentText = async (
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'payment');
   const toneInstruction = getToneInstruction(language, tone, 'payment');
   const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
+  const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const humanStyleBlock =
@@ -1741,7 +1979,11 @@ export const generatePaymentText = async (
     : isMalay
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const sellerContext = [
+    userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
+    userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
+  ].filter(Boolean).join('\n');
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'payment', variantCount);
 
   try {
@@ -1751,7 +1993,35 @@ export const generatePaymentText = async (
 
     const completion = await generateCompletion(systemPrompt, bundlePrompt);
     const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
-    let generatedText = parsed.variants[0] || '';
+    const enforcedVariants = await Promise.all(
+      parsed.variants.slice(0, variantCount).map(async (variant) => {
+        let next = await enforceObjectiveCoverage(systemPrompt, variant, language, 'payment', objectiveItems);
+        next = await enforceDraftConfig(systemPrompt, next, {
+          language,
+          outputFormat,
+          purpose: 'payment',
+          tone,
+          conversationMode,
+          emojiPreference,
+        });
+        next = await validateBusinessDraft(
+          systemPrompt,
+          next,
+          {
+            language,
+            outputFormat,
+            purpose: 'payment',
+            tone,
+            conversationMode,
+            emojiPreference,
+          },
+          data.objective,
+          localTimeContext.hour
+        );
+        return next;
+      })
+    );
+    let generatedText = enforcedVariants[0] || parsed.variants[0] || '';
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -1783,7 +2053,7 @@ export const generatePaymentText = async (
 
     return {
       text: generatedText,
-      variants: parsed.variants.slice(0, variantCount),
+      variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
       cutoffSummary: parsed.cutoffSummary || cutoffSummary,
       memorySummary: memory?.summary || parsed.cutoffSummary || cutoffSummary,
       memoryGoal: data.objective.trim(),
