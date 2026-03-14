@@ -18,6 +18,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<ApiResponse<LoginResponse>>;
   register: (email: string, password: string) => Promise<ApiResponse<User> | ApiResponse<LoginResponse>>;
   updateProfile: (data: {
+    hasCompletedOnboarding?: boolean | null;
     displayName?: string | null;
     companyName?: string | null;
     industry?: string | null;
@@ -110,6 +111,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProfile = async (data: {
+    hasCompletedOnboarding?: boolean | null;
     displayName?: string | null;
     companyName?: string | null;
     industry?: string | null;

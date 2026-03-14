@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import {
   getConversationModeOptions,
@@ -14,6 +15,8 @@ import { getApiErrorMessage } from '../services/api';
 const Profile = () => {
   const { t } = useLanguage();
   const { user, updateProfile } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -30,6 +33,8 @@ const Profile = () => {
     defaultCountryCode: '60',
     inboxDefaultView: 'inbox' as 'inbox' | 'contacts' | 'setup',
   });
+  const isSetupFlow = searchParams.get('setup') === '1';
+  const redirectTo = searchParams.get('redirect') || '/dashboard';
 
   useEffect(() => {
     if (!user) {
@@ -58,6 +63,7 @@ const Profile = () => {
       setError('');
       setSuccess('');
       const response = await updateProfile({
+        hasCompletedOnboarding: true,
         displayName: form.displayName.trim() || null,
         companyName: form.companyName.trim() || null,
         industry: form.industry.trim() || null,
@@ -77,6 +83,9 @@ const Profile = () => {
       }
 
       setSuccess(t.profile.saveSuccess);
+      if (isSetupFlow) {
+        navigate(redirectTo, { replace: true });
+      }
     } catch (err) {
       setError(getApiErrorMessage(err, t.profile.saveFailed));
     } finally {
@@ -87,6 +96,12 @@ const Profile = () => {
   return (
     <div className="page-container">
       <AuthenticatedHeader title={t.profile.title} subtitle={t.profile.subtitle} />
+
+      {isSetupFlow ? (
+        <div className="alert alert-success">
+          <span>{t.profile.setupNotice}</span>
+        </div>
+      ) : null}
 
       {error ? <div className="alert alert-error">{error}</div> : null}
       {success ? <div className="alert alert-success">{success}</div> : null}

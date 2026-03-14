@@ -6,6 +6,8 @@ export interface CreateLeadData {
   contact?: string;
   notes?: string;
   status?: string;
+  stage?: string;
+  tags?: string[];
   closedReason?: string;
   nextFollowUpAt?: string;
 }
@@ -15,6 +17,8 @@ export interface UpdateLeadData {
   contact?: string;
   notes?: string;
   status?: string;
+  stage?: string;
+  tags?: string[];
   closedReason?: string;
   nextFollowUpAt?: string;
 }
@@ -48,6 +52,8 @@ export const createLead = async (userId: string, data: CreateLeadData) => {
       contact: data.contact,
       notes: data.notes,
       status: normalizeLeadStatus(data.status),
+      stage: data.stage || 'inquiry',
+      tags: data.tags ?? undefined,
       closedReason: data.closedReason,
       nextFollowUpAt: data.nextFollowUpAt ? new Date(data.nextFollowUpAt) : null,
     },
@@ -93,6 +99,8 @@ export const updateLead = async (userId: string, leadId: string, data: UpdateLea
       ...(data.contact !== undefined ? { contact: data.contact } : {}),
       ...(data.notes !== undefined ? { notes: data.notes } : {}),
       ...(data.status !== undefined ? { status: normalizeLeadStatus(data.status) } : {}),
+      ...(data.stage !== undefined ? { stage: data.stage || 'inquiry' } : {}),
+      ...(data.tags !== undefined ? { tags: data.tags } : {}),
       ...(data.closedReason !== undefined ? { closedReason: data.closedReason } : {}),
       ...(data.nextFollowUpAt !== undefined ? { nextFollowUpAt: data.nextFollowUpAt ? new Date(data.nextFollowUpAt) : null } : {}),
       lastActivityAt: new Date(),
@@ -248,6 +256,7 @@ export const importLeads = async (userId: string, items: ImportLeadData[]) => {
           contact: item.contact,
           notes: item.notes,
           status: normalizeLeadStatus(item.status),
+          stage: 'inquiry',
         },
       })
     )

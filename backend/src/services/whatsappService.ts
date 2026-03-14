@@ -46,6 +46,85 @@ const resolveLeadForPhone = async (userId: string, phone: string) => {
   return leads.find((lead) => phonesLikelyMatch(lead.contact, phone)) || null;
 };
 
+const deriveLeadNameFromPhone = (phone: string) => {
+  const normalized = normalizePhone(phone);
+  const suffix = normalized.slice(-4) || normalized || 'Lead';
+  return `WhatsApp Lead ${suffix}`;
+};
+
+const inferInquirySignals = (content: string, industry?: string | null) => {
+  const text = (content || '').toLowerCase();
+  const normalizedIndustry = (industry || '').toLowerCase();
+  const tags = new Set<string>(['inquiry']);
+  let stage = 'inquiry';
+
+  if (/(price|pricing|quote|package|berapa|harga|价|多少钱|报价)/.test(text)) {
+    tags.add('pricing');
+  }
+
+  if (/(book|booking|reserve|slot|confirm|deposit|订|预定|booking)/.test(text)) {
+    stage = 'booking';
+    tags.add('booking');
+  }
+
+  if (normalizedIndustry.includes('photo') || normalizedIndustry.includes('wedding') || normalizedIndustry.includes('摄影')) {
+    if (/(wedding|婚礼|婚紗)/.test(text)) {
+      tags.add('wedding');
+    }
+    if (/(family|家庭)/.test(text)) {
+      tags.add('family');
+    }
+    if (/(event|corporate|活动|企业)/.test(text)) {
+      tags.add('event');
+    }
+    if (/(studio|portrait|写真|人像)/.test(text)) {
+      tags.add('portrait');
+    }
+  }
+
+  return {
+    stage,
+    tags: Array.from(tags),
+  };
+};
+
+const ensureInboundFollowUpReminder = async (leadId: string, followUpDays: number) => {
+  const existing = await prisma.reminder.findFirst({
+    where: {
+      leadId,
+      type: 'follow_up',
+      isDone: false,
+      triggerAt: { gte: new Date() },
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return;
+  }
+
+  const triggerAt = new Date();
+  triggerAt.setDate(triggerAt.getDate() + Math.max(1, followUpDays || 1));
+
+  await prisma.reminder.create({
+    data: {
+      leadId,
+      type: 'follow_up',
+      triggerAt,
+      isSystemTask: true,
+      stepIndex: 0,
+      nextDispatchAt: triggerAt,
+    },
+  });
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      nextFollowUpAt: triggerAt,
+    },
+  });
+};
+
 const updateConversationState = async (params: {
   userId: string;
   phone: string;
@@ -381,6 +460,12 @@ export const processWhatsAppWebhook = async (body: any) => {
         select: {
           userId: true,
           displayPhone: true,
+          user: {
+            select: {
+              industry: true,
+              defaultFollowUpDays: true,
+            },
+          },
         },
       });
 
@@ -398,8 +483,9 @@ export const processWhatsAppWebhook = async (body: any) => {
           const content =
             message?.text?.body ||
             (typeof message?.type === 'string' ? `[${message.type}]` : '[message]');
-          const resolvedLead = await resolveLeadForPhone(connection.userId, fromPhone);
+          let resolvedLead = await resolveLeadForPhone(connection.userId, fromPhone);
           const messageAt = toDateFromUnix(message?.timestamp) || new Date();
+          const inferredSignals = inferInquirySignals(content, connection.user?.industry);
 
           if (messageId) {
             const existing = await prisma.whatsAppMessageLog.findFirst({
@@ -415,10 +501,30 @@ export const processWhatsAppWebhook = async (body: any) => {
             }
           }
 
+          if (!resolvedLead) {
+            resolvedLead = await prisma.lead.create({
+              data: {
+                userId: connection.userId,
+                name: deriveLeadNameFromPhone(fromPhone),
+                contact: fromPhone,
+                status: 'follow_up_due',
+                stage: inferredSignals.stage,
+                tags: inferredSignals.tags,
+                lastActivityAt: messageAt,
+                lastInboundAt: messageAt,
+              },
+            });
+
+            await ensureInboundFollowUpReminder(
+              resolvedLead.id,
+              connection.user?.defaultFollowUpDays ?? 1
+            );
+          }
+
           await prisma.whatsAppMessageLog.create({
             data: {
               userId: connection.userId,
-              leadId: resolvedLead?.id || null,
+              leadId: resolvedLead.id,
               messageId: messageId || null,
               direction: 'inbound',
               fromPhone,
@@ -434,7 +540,7 @@ export const processWhatsAppWebhook = async (body: any) => {
           await updateConversationState({
             userId: connection.userId,
             phone: fromPhone,
-            leadId: resolvedLead?.id || null,
+            leadId: resolvedLead.id,
             messageId: messageId || null,
             preview: content,
             status: 'received',
@@ -444,19 +550,22 @@ export const processWhatsAppWebhook = async (body: any) => {
             markUnread: true,
           });
 
-          if (resolvedLead) {
-            await prisma.lead.update({
-              where: { id: resolvedLead.id },
-              data: {
-                status: 'follow_up_due',
-                lastActivityAt: messageAt,
-                lastInboundAt: messageAt,
-                nextFollowUpAt: null,
-              },
-            });
+          await prisma.lead.update({
+            where: { id: resolvedLead.id },
+            data: {
+              status: 'follow_up_due',
+              stage: inferredSignals.stage,
+              tags: inferredSignals.tags,
+              lastActivityAt: messageAt,
+              lastInboundAt: messageAt,
+            },
+          });
 
-            await cancelPendingSystemTasks(resolvedLead.id);
-          }
+          await cancelPendingSystemTasks(resolvedLead.id);
+          await ensureInboundFollowUpReminder(
+            resolvedLead.id,
+            connection.user?.defaultFollowUpDays ?? 1
+          );
           processed += 1;
         }
 

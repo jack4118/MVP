@@ -19,6 +19,7 @@ import {
   getDefaultQuickConfigForLead,
   getEventPurpose,
   SharedAiConfig,
+  shouldRefreshLeadMemory,
 } from '../features/ai/shared';
 
 const Leads = () => {
@@ -279,20 +280,10 @@ const Leads = () => {
     setAdvancedOpen(false);
   };
 
-  const shouldRefreshMemory = (lead: Lead) => {
-    if (!lead.memorySummary || !lead.memoryUpdatedAt) {
-      return true;
-    }
-    if (lead.memoryLanguage !== language) {
-      return true;
-    }
-    return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
-  };
-
   const hydrateLeadMemory = async (lead: Lead) => {
     setMemorySummary(lead.memorySummary || '');
 
-    if (!shouldRefreshMemory(lead)) {
+    if (!shouldRefreshLeadMemory(lead, language)) {
       return lead;
     }
 
@@ -481,6 +472,13 @@ const Leads = () => {
   ];
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all';
+  const stageLabelMap: Record<string, string> = {
+    inquiry: 'Inquiry',
+    booking: 'Booking',
+    quoted: 'Quoted',
+    payment: 'Payment',
+    closed: 'Closed',
+  };
 
   if (loading) {
     return (
@@ -733,6 +731,20 @@ const Leads = () => {
                 <tr key={lead.id}>
                   <td>
                     <strong>{lead.name}</strong>
+                    {(lead.stage || (lead.tags && lead.tags.length > 0)) && (
+                      <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {lead.stage ? (
+                          <span className="badge badge-info">
+                            {t.leads.stageLabel}: {stageLabelMap[lead.stage] || lead.stage}
+                          </span>
+                        ) : null}
+                        {lead.tags?.map((tag) => (
+                          <span key={`${lead.id}-tag-${tag}`} className="badge badge-secondary">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td>{lead.contact || '-'}</td>
                   <td>
@@ -757,11 +769,18 @@ const Leads = () => {
                     </select>
                   </td>
                   <td>
-                    {lead.nextFollowUpAt
-                      ? `Next: ${new Date(lead.nextFollowUpAt).toLocaleDateString()}`
-                      : lead.lastActivityAt
-                        ? new Date(lead.lastActivityAt).toLocaleDateString()
-                        : new Date(lead.createdAt).toLocaleDateString()}
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <span>
+                        {lead.nextFollowUpAt
+                          ? `${t.leads.nextFollowUp}: ${new Date(lead.nextFollowUpAt).toLocaleDateString()}`
+                          : lead.lastActivityAt
+                            ? new Date(lead.lastActivityAt).toLocaleDateString()
+                            : new Date(lead.createdAt).toLocaleDateString()}
+                      </span>
+                      {lead.nextFollowUpAt ? (
+                        <span className="badge badge-primary">{t.leads.workflowActive}</span>
+                      ) : null}
+                    </div>
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

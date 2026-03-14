@@ -115,6 +115,7 @@ export interface User {
   id: string;
   email: string;
   createdAt: string;
+  hasCompletedOnboarding?: boolean | null;
   displayName?: string | null;
   companyName?: string | null;
   industry?: string | null;
@@ -140,6 +141,8 @@ export interface Lead {
   contact?: string;
   notes?: string;
   status: LeadStatus;
+  stage?: string;
+  tags?: string[] | null;
   memorySummary?: string | null;
   memoryGoal?: string | null;
   memoryLanguage?: AppLanguage | null;
@@ -381,6 +384,7 @@ export const authApi = {
   },
 
   updateCurrentUser: async (data: {
+    hasCompletedOnboarding?: boolean | null;
     displayName?: string | null;
     companyName?: string | null;
     industry?: string | null;
@@ -416,6 +420,8 @@ export const leadsApi = {
     contact?: string;
     notes?: string;
     status?: LeadStatus;
+    stage?: string;
+    tags?: string[];
     closedReason?: string;
     nextFollowUpAt?: string;
   }): Promise<ApiResponse<Lead>> => {
@@ -430,6 +436,8 @@ export const leadsApi = {
       contact?: string;
       notes?: string;
       status?: LeadStatus;
+      stage?: string;
+      tags?: string[];
       closedReason?: string;
       nextFollowUpAt?: string | null;
     }

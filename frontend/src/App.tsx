@@ -14,7 +14,7 @@ import Landing from './pages/Landing';
 import Profile from './pages/Profile';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
 
@@ -28,6 +28,15 @@ const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   const redirect = `${location.pathname}${location.search}`;
+
+  if (
+    isAuthenticated &&
+    user &&
+    !user.hasCompletedOnboarding &&
+    location.pathname !== '/profile'
+  ) {
+    return <Navigate to={`/profile?setup=1&redirect=${encodeURIComponent(redirect)}`} replace />;
+  }
 
   return isAuthenticated ? <>{children}</> : <Navigate to={`/login?redirect=${encodeURIComponent(redirect)}`} replace />;
 };

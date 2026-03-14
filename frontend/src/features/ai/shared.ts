@@ -59,10 +59,63 @@ export const createInitialAiConfig = (
 export const getDefaultPurposeFromLeadStatus = (status?: LeadStatus): AiPurpose =>
   status === 'won' ? 'payment' : 'follow-up';
 
+const PLACEHOLDER_MEMORY_SIGNALS = [
+  'replace this with a real customer',
+  'replace this with a real customer, whatsapp number, and notes before sending a follow-up.',
+  '请先替换成真实客户',
+  '请先替换为真实客户',
+  'ganti dengan pelanggan sebenar',
+];
+
+const normalizeMemoryText = (value?: string | null) => (value || '').trim().toLowerCase();
+
+export const hasPlaceholderLeadMemory = (
+  lead: Pick<Lead, 'memorySummary' | 'memoryGoal'>
+) => {
+  const summary = normalizeMemoryText(lead.memorySummary);
+  const goal = normalizeMemoryText(lead.memoryGoal);
+  return PLACEHOLDER_MEMORY_SIGNALS.some(
+    (signal) => summary.includes(signal) || goal.includes(signal)
+  );
+};
+
+export const getSanitizedLeadMemoryGoal = (lead: Pick<Lead, 'memorySummary' | 'memoryGoal'>) =>
+  hasPlaceholderLeadMemory(lead) ? '' : lead.memoryGoal || '';
+
+export const shouldRefreshLeadMemory = (
+  lead: Pick<
+    Lead,
+    'memorySummary' | 'memoryGoal' | 'memoryUpdatedAt' | 'memoryLanguage' | 'lastInboundAt'
+  >,
+  language: AppLanguage
+) => {
+  if (!lead.memorySummary || !lead.memoryUpdatedAt) {
+    return true;
+  }
+
+  if (lead.memoryLanguage !== language) {
+    return true;
+  }
+
+  if (hasPlaceholderLeadMemory(lead)) {
+    return true;
+  }
+
+  const memoryUpdatedAt = new Date(lead.memoryUpdatedAt).getTime();
+  if (lead.lastInboundAt) {
+    const lastInboundAt = new Date(lead.lastInboundAt).getTime();
+    if (Number.isFinite(lastInboundAt) && lastInboundAt > memoryUpdatedAt) {
+      return true;
+    }
+  }
+
+  return Date.now() - memoryUpdatedAt > 1000 * 60 * 60 * 24 * 3;
+};
+
 export const getDefaultQuickConfigForLead = (lead: Lead, daysPassed: number): SharedAiConfig =>
   createInitialAiConfig(getDefaultPurposeFromLeadStatus(lead.status), {
     daysPassed,
-    objective: lead.memoryGoal || '',
+    objective: getSanitizedLeadMemoryGoal(lead),
     outputFormat: lead.aiOutputFormat || 'whatsapp',
     tone: lead.aiTonePreference || 'polite',
     conversationMode: lead.aiConversationMode || 'standard',
@@ -73,7 +126,7 @@ export const getDefaultConfigFromLeadMemory = (
   lead: Lead,
   current: SharedAiConfig
 ): Partial<SharedAiConfig> => ({
-  objective: lead.memoryGoal || current.objective,
+  objective: getSanitizedLeadMemoryGoal(lead) || current.objective,
   tone: lead.aiTonePreference || current.tone,
   conversationMode: lead.aiConversationMode || current.conversationMode,
   emojiDensity: lead.aiEmojiDensity || current.emojiDensity,

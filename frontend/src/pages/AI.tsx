@@ -28,6 +28,7 @@ import {
   getHistoryPurposeLabel,
   getHistoryStyleLabel,
   SharedAiConfig,
+  shouldRefreshLeadMemory,
 } from '../features/ai/shared';
 
 const AI = () => {
@@ -111,16 +112,6 @@ const AI = () => {
     setError('');
   };
 
-  const shouldRefreshMemory = (lead: Lead) => {
-    if (!lead.memorySummary || !lead.memoryUpdatedAt) {
-      return true;
-    }
-    if (lead.memoryLanguage !== language) {
-      return true;
-    }
-    return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
-  };
-
   const hydrateLeadMemory = async (lead: Lead) => {
     setMemorySummary(lead.memorySummary || '');
     setConfig((current) => ({
@@ -129,7 +120,7 @@ const AI = () => {
       ...getDefaultConfigFromLeadMemory(lead, current),
     }));
 
-    if (!shouldRefreshMemory(lead)) {
+    if (!shouldRefreshLeadMemory(lead, language)) {
       return lead;
     }
 

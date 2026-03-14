@@ -57,6 +57,7 @@ export const updateProfileSchema = z.object({
   displayName: z.string().max(100).optional().nullable(),
   companyName: z.string().max(120).optional().nullable(),
   industry: z.string().max(120).optional().nullable(),
+  hasCompletedOnboarding: z.boolean().optional().nullable(),
   defaultLanguage: z.enum(['en', 'zh-CN', 'ms']).optional().nullable(),
   defaultTone: followUpToneSchema.optional().nullable(),
   defaultConversationMode: conversationModeSchema.optional().nullable(),
@@ -72,6 +73,8 @@ export const createLeadSchema = z.object({
   contact: z.string().optional(),
   notes: z.string().optional(),
   status: leadStatusSchema.optional(),
+  stage: z.string().max(80).optional(),
+  tags: z.array(z.string().max(80)).max(10).optional(),
   closedReason: z.string().max(200, 'closedReason is too long').optional(),
   nextFollowUpAt: z.string().datetime('nextFollowUpAt must be a valid ISO datetime').optional(),
 });
@@ -81,6 +84,8 @@ export const updateLeadSchema = z.object({
   contact: z.string().optional(),
   notes: z.string().optional(),
   status: leadStatusSchema.optional(),
+  stage: z.string().max(80).optional(),
+  tags: z.array(z.string().max(80)).max(10).optional(),
   closedReason: z.string().max(200, 'closedReason is too long').optional(),
   nextFollowUpAt: z.string().datetime('nextFollowUpAt must be a valid ISO datetime').optional(),
 });

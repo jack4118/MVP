@@ -21,6 +21,7 @@ import {
   getDefaultConfigFromUserPreferences,
   getDefaultQuickConfigForLead,
   SharedAiConfig,
+  shouldRefreshLeadMemory,
 } from '../features/ai/shared';
 import { translate, useLanguage } from '../contexts/LanguageContext';
 
@@ -118,19 +119,9 @@ const Dashboard = () => {
     snooze: t.dashboard.actionSnooze,
   };
 
-  const shouldRefreshMemory = (lead: Lead) => {
-    if (!lead.memorySummary || !lead.memoryUpdatedAt) {
-      return true;
-    }
-    if (lead.memoryLanguage !== language) {
-      return true;
-    }
-    return Date.now() - new Date(lead.memoryUpdatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
-  };
-
   const hydrateLeadMemory = async (lead: Lead) => {
     setMemorySummary(lead.memorySummary || '');
-    if (!shouldRefreshMemory(lead)) {
+    if (!shouldRefreshLeadMemory(lead, language)) {
       return lead;
     }
 
@@ -164,6 +155,8 @@ const Dashboard = () => {
       contact: task.lead.contact || undefined,
       notes: '',
       status: task.lead.status,
+      stage: 'inquiry',
+      tags: ['inquiry'],
       memorySummary: null,
       memoryGoal: null,
       aiTonePreference: null,

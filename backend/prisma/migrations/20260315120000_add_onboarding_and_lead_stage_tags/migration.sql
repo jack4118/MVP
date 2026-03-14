@@ -1,0 +1,6 @@
+ALTER TABLE "users"
+  ADD COLUMN IF NOT EXISTS "has_completed_onboarding" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "leads"
+  ADD COLUMN IF NOT EXISTS "stage" TEXT NOT NULL DEFAULT 'inquiry',
+  ADD COLUMN IF NOT EXISTS "tags" JSONB;

@@ -1127,6 +1127,21 @@ const formatFallbackMessage = (
 
 const normalizePhoneForAi = (value?: string | null): string => (value || '').replace(/[^\d]/g, '');
 
+const phonesLikelyMatchForAi = (left?: string | null, right?: string | null): boolean => {
+  const normalizedLeft = normalizePhoneForAi(left);
+  const normalizedRight = normalizePhoneForAi(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.endsWith(normalizedRight) ||
+    normalizedRight.endsWith(normalizedLeft)
+  );
+};
+
 const trimSnippet = (value: string, max: number = 120) => {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (normalized.length <= max) {
@@ -1353,14 +1368,22 @@ const buildLeadMemoryFallback = (lead: {
   name: string;
   notes: string | null;
   status: string;
+  stage?: string | null;
+  tags?: unknown;
   lastInboundAt: Date | null;
   lastOutboundAt: Date | null;
+  latestInboundMessage?: string | null;
 }, language: Language = 'en'): LeadMemorySnapshot => {
+  const tags = Array.isArray(lead.tags) ? lead.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0) : [];
   const noteSummary = trimSnippet(lead.notes || '', 220);
+  const inboundSnippet = trimSnippet(lead.latestInboundMessage || '', 220);
   const summary = language === 'zh-CN'
     ? [
         noteSummary ? `已知备注：${noteSummary}。` : null,
         `客户当前状态为 ${lead.status}。`,
+        lead.stage ? `当前阶段：${lead.stage}。` : null,
+        tags.length ? `自动标签：${tags.join('、')}。` : null,
+        inboundSnippet ? `客户最新一句：${inboundSnippet}。` : null,
         lead.lastInboundAt ? `客户最近一次回复时间：${lead.lastInboundAt.toISOString()}。` : null,
         lead.lastOutboundAt ? `你最近一次发送时间：${lead.lastOutboundAt.toISOString()}。` : null,
       ].filter(Boolean).join(' ')
@@ -1368,21 +1391,56 @@ const buildLeadMemoryFallback = (lead: {
       ? [
           noteSummary ? `Nota sedia ada: ${noteSummary}.` : null,
           `Status lead sekarang ialah ${lead.status}.`,
+          lead.stage ? `Tahap semasa: ${lead.stage}.` : null,
+          tags.length ? `Tag automatik: ${tags.join(', ')}.` : null,
+          inboundSnippet ? `Mesej pelanggan terkini: ${inboundSnippet}.` : null,
           lead.lastInboundAt ? `Balasan terakhir pelanggan pada ${lead.lastInboundAt.toISOString()}.` : null,
           lead.lastOutboundAt ? `Mesej terakhir anda dihantar pada ${lead.lastOutboundAt.toISOString()}.` : null,
         ].filter(Boolean).join(' ')
       : [
           noteSummary ? `Known notes: ${noteSummary}.` : null,
           `Lead is currently ${lead.status}.`,
+          lead.stage ? `Current stage: ${lead.stage}.` : null,
+          tags.length ? `Auto tags: ${tags.join(', ')}.` : null,
+          inboundSnippet ? `Latest customer message: ${inboundSnippet}.` : null,
           lead.lastInboundAt ? `Customer last replied on ${lead.lastInboundAt.toISOString()}.` : null,
           lead.lastOutboundAt ? `You last sent a message on ${lead.lastOutboundAt.toISOString()}.` : null,
         ].filter(Boolean).join(' ');
 
-  const goal = language === 'zh-CN'
-    ? noteSummary || `推动 ${lead.name} 进入明确的下一步。`
-    : language === 'ms'
-      ? noteSummary || `Gerakkan ${lead.name} ke langkah seterusnya yang jelas.`
-      : noteSummary || `Move ${lead.name} to the next clear step.`;
+  const inferredGoal =
+    inboundSnippet
+      ? language === 'zh-CN'
+        ? /婚礼|婚紗|wedding/i.test(inboundSnippet)
+          ? '确认婚礼摄影需求、日期和预算。'
+          : /价格|多少钱|quote|price|harga/i.test(inboundSnippet)
+            ? '确认客户想了解的价格、配套和下一步沟通时间。'
+            : /booking|book|预定|订/i.test(inboundSnippet)
+              ? '确认客户准备 booking 的时间、日期和所需资料。'
+              : `根据客户最新消息确认需求并推进下一步。`
+        : language === 'ms'
+          ? /wedding|kahwin/i.test(inboundSnippet)
+            ? 'Sahkan keperluan, tarikh, dan bajet untuk wedding shoot.'
+            : /price|harga|quote/i.test(inboundSnippet)
+              ? 'Sahkan pakej atau harga yang pelanggan mahu tahu serta masa untuk langkah seterusnya.'
+              : /booking|book|reserve/i.test(inboundSnippet)
+                ? 'Sahkan butiran booking, tarikh, dan maklumat yang diperlukan.'
+                : 'Gunakan mesej terbaru pelanggan untuk sahkan keperluan dan langkah seterusnya.'
+          : /wedding/i.test(inboundSnippet)
+            ? 'Confirm wedding shoot requirements, date, and budget.'
+            : /price|quote|how much|berapa/i.test(inboundSnippet)
+              ? 'Confirm the pricing/package question and move toward a next-step reply.'
+              : /booking|book|reserve/i.test(inboundSnippet)
+                ? 'Confirm booking timing, date, and required details.'
+                : 'Use the customer’s latest message to confirm their need and move to the next step.'
+      : null;
+
+  const goal = inferredGoal || (
+    language === 'zh-CN'
+      ? noteSummary || `推动 ${lead.name} 进入明确的下一步。`
+      : language === 'ms'
+        ? noteSummary || `Gerakkan ${lead.name} ke langkah seterusnya yang jelas.`
+        : noteSummary || `Move ${lead.name} to the next clear step.`
+  );
 
   return {
     summary: summary || (
@@ -1415,6 +1473,8 @@ export const refreshLeadMemory = async (
       name: true,
       notes: true,
       status: true,
+      stage: true,
+      tags: true,
       contact: true,
       lastInboundAt: true,
       lastOutboundAt: true,
@@ -1426,25 +1486,42 @@ export const refreshLeadMemory = async (
   }
 
   const normalizedContact = normalizePhoneForAi(lead.contact);
-  const logs = await prisma.whatsAppMessageLog.findMany({
+  const candidateLogs = await prisma.whatsAppMessageLog.findMany({
     where: {
       userId,
-      OR: [
-        { leadId },
-        ...(normalizedContact ? [{ toPhone: normalizedContact }, { fromPhone: normalizedContact }] : []),
-      ],
     },
     orderBy: { createdAt: 'desc' },
-    take: 16,
+    take: 120,
   });
+
+  const logs = candidateLogs
+    .filter((log) => {
+      if (log.leadId === leadId) {
+        return true;
+      }
+
+      if (!normalizedContact) {
+        return false;
+      }
+
+      return (
+        phonesLikelyMatchForAi(log.toPhone, normalizedContact) ||
+        phonesLikelyMatchForAi(log.fromPhone, normalizedContact)
+      );
+    })
+    .slice(0, 16);
 
   const transcript = [...logs]
     .reverse()
     .map((log) => `${log.direction === 'inbound' ? 'customer' : 'you'}: ${trimSnippet(log.content, 160)}`)
     .join('\n');
+  const latestInboundLog = logs.find((log) => log.direction === 'inbound');
 
   if (!process.env.OPENAI_API_KEY || logs.length === 0) {
-    const fallback = buildLeadMemoryFallback(lead, language);
+    const fallback = buildLeadMemoryFallback({
+      ...lead,
+      latestInboundMessage: latestInboundLog?.content || null,
+    }, language);
     await prisma.lead.update({
       where: { id: leadId },
       data: {
@@ -1489,6 +1566,8 @@ export const refreshLeadMemory = async (
     ? [
         `客户姓名：${lead.name}`,
         `客户状态：${lead.status}`,
+        lead.stage ? `客户阶段：${lead.stage}` : '客户阶段：未设置',
+        Array.isArray(lead.tags) && lead.tags.length ? `自动标签：${lead.tags.join('、')}` : '自动标签：无',
         userContext.industry ? `商家行业：${userContext.industry}` : '商家行业：未提供',
         lead.notes ? `内部备注：${lead.notes}` : '内部备注：无',
         '最近对话记录（最新在底部）：',
@@ -1506,6 +1585,8 @@ export const refreshLeadMemory = async (
       ? [
           `Nama pelanggan: ${lead.name}`,
           `Status lead: ${lead.status}`,
+          lead.stage ? `Tahap lead: ${lead.stage}` : 'Tahap lead: belum ditetapkan',
+          Array.isArray(lead.tags) && lead.tags.length ? `Tag automatik: ${lead.tags.join(', ')}` : 'Tag automatik: tiada',
           userContext.industry ? `Industri bisnes: ${userContext.industry}` : 'Industri bisnes: tiada',
           lead.notes ? `Nota dalaman: ${lead.notes}` : 'Nota dalaman: tiada',
           'Transkrip terkini (mesej terbaru di bawah):',
@@ -1522,6 +1603,8 @@ export const refreshLeadMemory = async (
       : [
           `Lead name: ${lead.name}`,
           `Lead status: ${lead.status}`,
+          lead.stage ? `Lead stage: ${lead.stage}` : 'Lead stage: not set',
+          Array.isArray(lead.tags) && lead.tags.length ? `Auto tags: ${lead.tags.join(', ')}` : 'Auto tags: none',
           userContext.industry ? `Business industry: ${userContext.industry}` : 'Business industry: not provided',
           lead.notes ? `Internal notes: ${lead.notes}` : 'Internal notes: none',
           'Recent transcript (latest at bottom):',
@@ -1539,7 +1622,10 @@ export const refreshLeadMemory = async (
   try {
     const completion = await generateCompletion(systemPrompt, userPrompt);
     const raw = completion.choices[0]?.message?.content || '';
-    const fallback = buildLeadMemoryFallback(lead, language);
+    const fallback = buildLeadMemoryFallback({
+      ...lead,
+      latestInboundMessage: latestInboundLog?.content || null,
+    }, language);
     const summary = parseTaggedSection(raw, 'SUMMARY') || fallback.summary;
     const goal = parseTaggedSection(raw, 'GOAL') || fallback.goal;
     const tone = normalizeTonePreference(parseTaggedSection(raw, 'TONE')) || 'polite';
@@ -1564,7 +1650,10 @@ export const refreshLeadMemory = async (
 
     return { summary, goal, tone, conversationMode, emojiDensity, outputFormat, language, updatedAt };
   } catch (_error) {
-    const fallback = buildLeadMemoryFallback(lead, language);
+    const fallback = buildLeadMemoryFallback({
+      ...lead,
+      latestInboundMessage: latestInboundLog?.content || null,
+    }, language);
     const updatedAt = new Date();
     await prisma.lead.update({
       where: { id: leadId },
@@ -1623,22 +1712,30 @@ const getConversationCutoffContext = async (userId: string, leadId: string, lang
   };
 
   const normalizedContact = normalizePhoneForAi(lead.contact);
-  const logs = await prisma.whatsAppMessageLog.findMany({
+  const candidateLogs = await prisma.whatsAppMessageLog.findMany({
     where: {
       userId,
-      OR: [
-        { leadId },
-        ...(normalizedContact
-          ? [
-              { toPhone: normalizedContact },
-              { fromPhone: normalizedContact },
-            ]
-          : []),
-      ],
     },
     orderBy: { createdAt: 'desc' },
-    take: 8,
+    take: 120,
   });
+
+  const logs = candidateLogs
+    .filter((log) => {
+      if (log.leadId === leadId) {
+        return true;
+      }
+
+      if (!normalizedContact) {
+        return false;
+      }
+
+      return (
+        phonesLikelyMatchForAi(log.toPhone, normalizedContact) ||
+        phonesLikelyMatchForAi(log.fromPhone, normalizedContact)
+      );
+    })
+    .slice(0, 8);
 
   if (logs.length === 0) {
     const memory =

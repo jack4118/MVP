@@ -255,6 +255,9 @@ export const ms = {
     importSubmit: 'Import Leads',
     importFailed: 'Gagal import kontak',
     importSummary: 'Berjaya import {importedCount} daripada {totalRows}. Langkau {skippedCount}.',
+    stageLabel: 'Stage',
+    nextFollowUp: 'Follow-up seterusnya',
+    workflowActive: 'Workflow aktif',
   },
 
   reminders: {
@@ -480,6 +483,7 @@ export const ms = {
     inboxViewInbox: 'Inbox',
     inboxViewContacts: 'Kontak',
     inboxViewSetup: 'Setup',
+    setupNotice: 'Lengkapkan tetapan asas dahulu supaya EzReply boleh jana follow-up yang lebih tepat dan buka workspace yang betul secara lalai.',
     saveSuccess: 'Profil berjaya disimpan.',
     saveFailed: 'Gagal menyimpan profil.',
   },

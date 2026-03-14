@@ -11,61 +11,64 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  plan         String   @default("free") // "free" | "pro"
-  displayName  String?  @map("display_name")
-  companyName  String?  @map("company_name")
-  industry     String?  @map("industry")
-  defaultLanguage String? @map("default_language")
-  defaultTone String?   @map("default_tone")
-  defaultConversationMode String? @map("default_conversation_mode")
-  defaultEmojiDensity String? @map("default_emoji_density")
-  defaultOutputFormat String? @map("default_output_format")
-  defaultFollowUpDays Int? @map("default_follow_up_days")
-  defaultCountryCode String? @map("default_country_code")
-  inboxDefaultView String? @map("inbox_default_view")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                      String   @id @default(uuid())
+  email                   String   @unique
+  passwordHash            String   @map("password_hash")
+  plan                    String   @default("free") // "free" | "pro"
+  displayName             String?  @map("display_name")
+  companyName             String?  @map("company_name")
+  industry                String?  @map("industry")
+  hasCompletedOnboarding  Boolean  @default(false) @map("has_completed_onboarding")
+  defaultLanguage         String?  @map("default_language")
+  defaultTone             String?  @map("default_tone")
+  defaultConversationMode String?  @map("default_conversation_mode")
+  defaultEmojiDensity     String?  @map("default_emoji_density")
+  defaultOutputFormat     String?  @map("default_output_format")
+  defaultFollowUpDays     Int?     @map("default_follow_up_days")
+  defaultCountryCode      String?  @map("default_country_code")
+  inboxDefaultView        String?  @map("inbox_default_view")
+  createdAt               DateTime @default(now()) @map("created_at")
 
-  leads       Lead[]
-  aiLogs      AiLog[]
-  eventLogs   EventLog[]
-  followUpRules FollowUpRule[]
-  whatsAppConnection WhatsAppConnection?
-  whatsAppMessageLogs WhatsAppMessageLog[]
+  leads                      Lead[]
+  aiLogs                     AiLog[]
+  eventLogs                  EventLog[]
+  followUpRules              FollowUpRule[]
+  whatsAppConnection         WhatsAppConnection?
+  whatsAppMessageLogs        WhatsAppMessageLog[]
   whatsAppConversationStates WhatsAppConversationState[]
-  reminderDispatchLogs ReminderDispatchLog[]
+  reminderDispatchLogs       ReminderDispatchLog[]
 
   @@map("users")
 }
 
 model Lead {
-  id             String    @id @default(uuid())
-  userId         String    @map("user_id")
-  name           String
-  contact        String?
-  notes          String?
-  status         String    @default("new")
-  memorySummary  String?   @map("memory_summary")
-  memoryGoal     String?   @map("memory_goal")
-  memoryLanguage String?   @map("memory_language")
-  aiTonePreference String? @map("ai_tone_preference")
-  aiConversationMode String? @map("ai_conversation_mode")
-  aiEmojiDensity String?   @map("ai_emoji_density")
-  aiOutputFormat String?   @map("ai_output_format")
-  memoryUpdatedAt DateTime? @map("memory_updated_at")
-  lastActivityAt DateTime? @map("last_activity_at")
-  lastInboundAt  DateTime? @map("last_inbound_at")
-  lastOutboundAt DateTime? @map("last_outbound_at")
-  nextFollowUpAt DateTime? @map("next_follow_up_at")
-  closedReason   String?   @map("closed_reason")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
+  name               String
+  contact            String?
+  notes              String?
+  status             String    @default("new")
+  stage              String    @default("inquiry")
+  tags               Json?
+  memorySummary      String?   @map("memory_summary")
+  memoryGoal         String?   @map("memory_goal")
+  memoryLanguage     String?   @map("memory_language")
+  aiTonePreference   String?   @map("ai_tone_preference")
+  aiConversationMode String?   @map("ai_conversation_mode")
+  aiEmojiDensity     String?   @map("ai_emoji_density")
+  aiOutputFormat     String?   @map("ai_output_format")
+  memoryUpdatedAt    DateTime? @map("memory_updated_at")
+  lastActivityAt     DateTime? @map("last_activity_at")
+  lastInboundAt      DateTime? @map("last_inbound_at")
+  lastOutboundAt     DateTime? @map("last_outbound_at")
+  nextFollowUpAt     DateTime? @map("next_follow_up_at")
+  closedReason       String?   @map("closed_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reminders  Reminder[]
-  aiLogs     AiLog[]
-  whatsAppMessageLogs WhatsAppMessageLog[]
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminders                  Reminder[]
+  aiLogs                     AiLog[]
+  whatsAppMessageLogs        WhatsAppMessageLog[]
   whatsAppConversationStates WhatsAppConversationState[]
 
   @@index([userId])
@@ -75,17 +78,17 @@ model Lead {
 }
 
 model Reminder {
-  id        String   @id @default(uuid())
-  leadId    String   @map("lead_id")
-  type      String   // follow_up / payment
-  triggerAt DateTime @map("trigger_at")
-  isDone    Boolean  @default(false) @map("is_done")
-  isSystemTask Boolean @default(false) @map("is_system_task")
-  stepIndex Int @default(0) @map("step_index")
+  id               String    @id @default(uuid())
+  leadId           String    @map("lead_id")
+  type             String // follow_up / payment
+  triggerAt        DateTime  @map("trigger_at")
+  isDone           Boolean   @default(false) @map("is_done")
+  isSystemTask     Boolean   @default(false) @map("is_system_task")
+  stepIndex        Int       @default(0) @map("step_index")
   lastDispatchedAt DateTime? @map("last_dispatched_at")
-  nextDispatchAt DateTime? @map("next_dispatch_at")
+  nextDispatchAt   DateTime? @map("next_dispatch_at")
 
-  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead         Lead                  @relation(fields: [leadId], references: [id], onDelete: Cascade)
   dispatchLogs ReminderDispatchLog[]
 
   @@index([leadId])
@@ -95,14 +98,14 @@ model Reminder {
 }
 
 model FollowUpRule {
-  id         String   @id @default(uuid())
-  userId     String   @map("user_id")
-  name       String
-  triggerDays Int     @map("trigger_days")
-  actionType String   @default("follow_up") @map("action_type")
-  isActive   Boolean  @default(true) @map("is_active")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  triggerDays Int      @map("trigger_days")
+  actionType  String   @default("follow_up") @map("action_type")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -111,19 +114,19 @@ model FollowUpRule {
 }
 
 model ReminderDispatchLog {
-  id         String   @id @default(uuid())
-  reminderId String   @map("reminder_id")
-  userId     String   @map("user_id")
-  dispatchKey String  @unique @map("dispatch_key")
-  channel    String   // in_app | whatsapp
-  status     String   // sent | failed | requires_template | skipped
-  error      String?
-  payload    Json?
-  sentAt     DateTime @default(now()) @map("sent_at")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  reminderId  String   @map("reminder_id")
+  userId      String   @map("user_id")
+  dispatchKey String   @unique @map("dispatch_key")
+  channel     String // in_app | whatsapp
+  status      String // sent | failed | requires_template | skipped
+  error       String?
+  payload     Json?
+  sentAt      DateTime @default(now()) @map("sent_at")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   reminder Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([reminderId])
@@ -133,13 +136,13 @@ model ReminderDispatchLog {
 }
 
 model AiLog {
-  id        String   @id @default(uuid())
-  leadId    String   @map("lead_id")
-  userId    String   @map("user_id")
-  purpose   String   // follow_up / payment
-  stylePreset String? @map("style_preset")
-  content   String
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  leadId      String   @map("lead_id")
+  userId      String   @map("user_id")
+  purpose     String // follow_up / payment
+  stylePreset String?  @map("style_preset")
+  content     String
+  createdAt   DateTime @default(now()) @map("created_at")
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -166,16 +169,16 @@ model EventLog {
 }
 
 model WhatsAppConnection {
-  id                String   @id @default(uuid())
-  userId            String   @unique @map("user_id")
-  businessAccountId String   @map("business_account_id")
-  phoneNumberId     String   @map("phone_number_id")
-  accessToken       String   @map("access_token")
-  displayPhone      String?  @map("display_phone")
-  isActive          Boolean  @default(true) @map("is_active")
+  id                String    @id @default(uuid())
+  userId            String    @unique @map("user_id")
+  businessAccountId String    @map("business_account_id")
+  phoneNumberId     String    @map("phone_number_id")
+  accessToken       String    @map("access_token")
+  displayPhone      String?   @map("display_phone")
+  isActive          Boolean   @default(true) @map("is_active")
   lastVerifiedAt    DateTime? @map("last_verified_at")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -185,21 +188,21 @@ model WhatsAppConnection {
 }
 
 model WhatsAppMessageLog {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  leadId    String?  @map("lead_id")
-  messageId String?  @map("message_id")
-  direction String   @default("outbound") // outbound | inbound
-  fromPhone String?  @map("from_phone")
-  toPhone   String   @map("to_phone")
-  content   String
-  status    String   // queued | sent | delivered | read | failed | received
-  error     String?
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  leadId            String?   @map("lead_id")
+  messageId         String?   @map("message_id")
+  direction         String    @default("outbound") // outbound | inbound
+  fromPhone         String?   @map("from_phone")
+  toPhone           String    @map("to_phone")
+  content           String
+  status            String // queued | sent | delivered | read | failed | received
+  error             String?
   externalTimestamp DateTime? @map("external_timestamp")
-  rawPayload Json?   @map("raw_payload")
-  createdAt DateTime @default(now()) @map("created_at")
+  rawPayload        Json?     @map("raw_payload")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([userId])
@@ -212,24 +215,24 @@ model WhatsAppMessageLog {
 }
 
 model WhatsAppConversationState {
-  id                 String   @id @default(uuid())
-  userId             String   @map("user_id")
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
   phone              String
-  leadId             String?  @map("lead_id")
-  lastMessageId      String?  @map("last_message_id")
-  lastMessagePreview String?  @map("last_message_preview")
-  lastDirection      String?  @map("last_direction")
-  lastStatus         String?  @map("last_status")
-  lastError          String?  @map("last_error")
+  leadId             String?   @map("lead_id")
+  lastMessageId      String?   @map("last_message_id")
+  lastMessagePreview String?   @map("last_message_preview")
+  lastDirection      String?   @map("last_direction")
+  lastStatus         String?   @map("last_status")
+  lastError          String?   @map("last_error")
   lastMessageAt      DateTime? @map("last_message_at")
   lastInboundAt      DateTime? @map("last_inbound_at")
   lastOutboundAt     DateTime? @map("last_outbound_at")
   lastReadAt         DateTime? @map("last_read_at")
-  unreadCount        Int      @default(0) @map("unread_count")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  unreadCount        Int       @default(0) @map("unread_count")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@unique([userId, phone])

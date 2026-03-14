@@ -16,6 +16,7 @@ export interface UpdateProfileData {
   displayName?: string | null;
   companyName?: string | null;
   industry?: string | null;
+  hasCompletedOnboarding?: boolean | null;
   defaultLanguage?: 'en' | 'zh-CN' | 'ms' | null;
   defaultTone?: string | null;
   defaultConversationMode?: string | null;
@@ -33,6 +34,7 @@ const userSelect = {
   displayName: true,
   companyName: true,
   industry: true,
+  hasCompletedOnboarding: true,
   defaultLanguage: true,
   defaultTone: true,
   defaultConversationMode: true,
@@ -58,6 +60,7 @@ export const register = async (data: RegisterData) => {
     data: {
       email: data.email,
       passwordHash,
+      hasCompletedOnboarding: false,
     },
     select: userSelect,
   });
@@ -99,6 +102,7 @@ export const login = async (data: LoginData) => {
       displayName: user.displayName,
       companyName: user.companyName,
       industry: user.industry,
+      hasCompletedOnboarding: user.hasCompletedOnboarding,
       defaultLanguage: user.defaultLanguage,
       defaultTone: user.defaultTone,
       defaultConversationMode: user.defaultConversationMode,
@@ -131,6 +135,7 @@ export const updateCurrentUser = async (userId: string, data: UpdateProfileData)
       ...(data.displayName !== undefined ? { displayName: data.displayName || null } : {}),
       ...(data.companyName !== undefined ? { companyName: data.companyName || null } : {}),
       ...(data.industry !== undefined ? { industry: data.industry || null } : {}),
+      ...(data.hasCompletedOnboarding !== undefined ? { hasCompletedOnboarding: Boolean(data.hasCompletedOnboarding) } : {}),
       ...(data.defaultLanguage !== undefined ? { defaultLanguage: data.defaultLanguage || null } : {}),
       ...(data.defaultTone !== undefined ? { defaultTone: data.defaultTone || null } : {}),
       ...(data.defaultConversationMode !== undefined ? { defaultConversationMode: data.defaultConversationMode || null } : {}),

@@ -259,6 +259,9 @@ export const en = {
     importSubmit: 'Import Leads',
     importFailed: 'Failed to import contacts',
     importSummary: 'Imported {importedCount} of {totalRows}. Skipped {skippedCount}.',
+    stageLabel: 'Stage',
+    nextFollowUp: 'Next follow-up',
+    workflowActive: 'Workflow active',
   },
 
   // Reminders
@@ -488,6 +491,7 @@ export const en = {
     inboxViewInbox: 'Inbox',
     inboxViewContacts: 'Contacts',
     inboxViewSetup: 'Setup',
+    setupNotice: 'Finish your basic setup first so EzReply can draft better follow-ups and open the right workspace by default.',
     saveSuccess: 'Profile saved.',
     saveFailed: 'Failed to save profile.',
   },

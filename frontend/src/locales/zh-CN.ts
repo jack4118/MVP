@@ -259,6 +259,9 @@ export const zhCN = {
     importSubmit: '导入线索',
     importFailed: '导入联系人失败',
     importSummary: '共导入 {importedCount}/{totalRows} 条，跳过 {skippedCount} 条。',
+    stageLabel: '阶段',
+    nextFollowUp: '下次跟进',
+    workflowActive: '自动跟进已开启',
   },
 
   // Reminders
@@ -488,6 +491,7 @@ export const zhCN = {
     inboxViewInbox: '对话',
     inboxViewContacts: '联系人',
     inboxViewSetup: '设置',
+    setupNotice: '先完成基本设置，EzReply 才能按你的行业和习惯生成更好的跟进内容，并默认打开正确工作区。',
     saveSuccess: '资料已保存。',
     saveFailed: '保存资料失败。',
   },
