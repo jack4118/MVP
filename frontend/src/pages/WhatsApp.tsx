@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
+import { useAuth } from '../hooks/useAuth';
 import { storage } from '../utils/storage';
 
 type WhatsAppView = 'setup' | 'inbox' | 'contacts';
@@ -10,6 +11,7 @@ const WHATSAPP_VIEW_KEY = 'whatsapp_active_view';
 
 const WhatsApp = () => {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [activeView, setActiveView] = useState<WhatsAppView>(() => {
     const saved = storage.getItem(WHATSAPP_VIEW_KEY) as WhatsAppView | null;
@@ -51,6 +53,16 @@ const WhatsApp = () => {
   useEffect(() => {
     loadAll();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('view')) {
+      return;
+    }
+
+    if (connection?.isActive && activeView === 'setup' && user?.inboxDefaultView) {
+      setActiveView(user.inboxDefaultView);
+    }
+  }, [user?.inboxDefaultView, connection?.isActive, activeView, searchParams]);
 
   useEffect(() => {
     const nextView = searchParams.get('view');
@@ -244,7 +256,7 @@ const WhatsApp = () => {
             return 'setup';
           }
 
-          return current === 'setup' ? 'inbox' : current;
+          return current === 'setup' ? (user?.inboxDefaultView || 'inbox') : current;
         });
         if (existingConnection) {
           setFormData((prev) => ({

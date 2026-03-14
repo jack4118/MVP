@@ -202,7 +202,14 @@ router.post('/:id/memory/refresh', async (req: AuthRequest, res: Response, next:
       });
     }
 
-    const memory = await refreshLeadMemory(req.userId, req.params.id);
+    const requestedLanguage = req.body?.language;
+    const memory = await refreshLeadMemory(
+      req.userId,
+      req.params.id,
+      requestedLanguage === 'zh-CN' || requestedLanguage === 'ms' || requestedLanguage === 'en'
+        ? requestedLanguage
+        : 'en'
+    );
     const lead = await getLeadById(req.userId, req.params.id);
 
     return res.json({

@@ -10,6 +10,7 @@ import {
   LeadStatus,
   OutputFormat,
   PaymentStylePreset,
+  User,
 } from '../../services/api';
 import { Translations } from '../../contexts/LanguageContext';
 
@@ -77,6 +78,17 @@ export const getDefaultConfigFromLeadMemory = (
   conversationMode: lead.aiConversationMode || current.conversationMode,
   emojiDensity: lead.aiEmojiDensity || current.emojiDensity,
   outputFormat: lead.aiOutputFormat || current.outputFormat,
+});
+
+export const getDefaultConfigFromUserPreferences = (
+  user: User | null | undefined,
+  current: SharedAiConfig
+): Partial<SharedAiConfig> => ({
+  tone: user?.defaultTone || current.tone,
+  conversationMode: user?.defaultConversationMode || current.conversationMode,
+  emojiDensity: user?.defaultEmojiDensity || current.emojiDensity,
+  outputFormat: user?.defaultOutputFormat || current.outputFormat,
+  daysPassed: user?.defaultFollowUpDays ?? current.daysPassed,
 });
 
 export const getPurposeOptions = (t: Translations): AiOption[] => [

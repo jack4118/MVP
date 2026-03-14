@@ -11,6 +11,7 @@ import WhatsApp from './pages/WhatsApp';
 import Pricing from './pages/Pricing';
 import AgentProgram from './pages/AgentProgram';
 import Landing from './pages/Landing';
+import Profile from './pages/Profile';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, loading } = useAuth();
@@ -73,6 +74,14 @@ const AppRoutes = () => {
         element={
           <PrivateRoute>
             <WhatsApp />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <PrivateRoute>
+            <Profile />
           </PrivateRoute>
         }
       />

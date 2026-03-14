@@ -53,6 +53,19 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const updateProfileSchema = z.object({
+  displayName: z.string().max(100).optional().nullable(),
+  companyName: z.string().max(120).optional().nullable(),
+  defaultLanguage: z.enum(['en', 'zh-CN', 'ms']).optional().nullable(),
+  defaultTone: followUpToneSchema.optional().nullable(),
+  defaultConversationMode: conversationModeSchema.optional().nullable(),
+  defaultEmojiDensity: emojiDensitySchema.optional().nullable(),
+  defaultOutputFormat: outputFormatSchema.optional().nullable(),
+  defaultFollowUpDays: z.number().int().min(0).max(30).optional().nullable(),
+  defaultCountryCode: z.string().max(10).optional().nullable(),
+  inboxDefaultView: z.enum(['inbox', 'contacts', 'setup']).optional().nullable(),
+});
+
 export const createLeadSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   contact: z.string().optional(),

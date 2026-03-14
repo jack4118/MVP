@@ -29,6 +29,19 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     localStorage.setItem('language', language);
+    window.dispatchEvent(new CustomEvent('ezreply-language-changed', { detail: language }));
+  }, [language]);
+
+  useEffect(() => {
+    const handleExternalLanguageChange = (event: Event) => {
+      const nextLanguage = (event as CustomEvent<Language>).detail;
+      if (nextLanguage && nextLanguage !== language) {
+        setLanguageState(nextLanguage);
+      }
+    };
+
+    window.addEventListener('ezreply-language-changed', handleExternalLanguageChange);
+    return () => window.removeEventListener('ezreply-language-changed', handleExternalLanguageChange);
   }, [language]);
 
   const setLanguage = (lang: Language) => {

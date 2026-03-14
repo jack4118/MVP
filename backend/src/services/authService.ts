@@ -12,6 +12,35 @@ export interface LoginData {
   password: string;
 }
 
+export interface UpdateProfileData {
+  displayName?: string | null;
+  companyName?: string | null;
+  defaultLanguage?: 'en' | 'zh-CN' | 'ms' | null;
+  defaultTone?: string | null;
+  defaultConversationMode?: string | null;
+  defaultEmojiDensity?: string | null;
+  defaultOutputFormat?: string | null;
+  defaultFollowUpDays?: number | null;
+  defaultCountryCode?: string | null;
+  inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+}
+
+const userSelect = {
+  id: true,
+  email: true,
+  createdAt: true,
+  displayName: true,
+  companyName: true,
+  defaultLanguage: true,
+  defaultTone: true,
+  defaultConversationMode: true,
+  defaultEmojiDensity: true,
+  defaultOutputFormat: true,
+  defaultFollowUpDays: true,
+  defaultCountryCode: true,
+  inboxDefaultView: true,
+} as const;
+
 export const register = async (data: RegisterData) => {
   const existingUser = await prisma.user.findUnique({
     where: { email: data.email },
@@ -28,11 +57,7 @@ export const register = async (data: RegisterData) => {
       email: data.email,
       passwordHash,
     },
-    select: {
-      id: true,
-      email: true,
-      createdAt: true,
-    },
+    select: userSelect,
   });
 
   return user;
@@ -69,6 +94,16 @@ export const login = async (data: LoginData) => {
       id: user.id,
       email: user.email,
       createdAt: user.createdAt,
+      displayName: user.displayName,
+      companyName: user.companyName,
+      defaultLanguage: user.defaultLanguage,
+      defaultTone: user.defaultTone,
+      defaultConversationMode: user.defaultConversationMode,
+      defaultEmojiDensity: user.defaultEmojiDensity,
+      defaultOutputFormat: user.defaultOutputFormat,
+      defaultFollowUpDays: user.defaultFollowUpDays,
+      defaultCountryCode: user.defaultCountryCode,
+      inboxDefaultView: user.inboxDefaultView,
     },
   };
 };
@@ -76,16 +111,33 @@ export const login = async (data: LoginData) => {
 export const getCurrentUser = async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: {
-      id: true,
-      email: true,
-      createdAt: true,
-    },
+    select: userSelect,
   });
 
   if (!user) {
     throw new Error('User not found');
   }
+
+  return user;
+};
+
+export const updateCurrentUser = async (userId: string, data: UpdateProfileData) => {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(data.displayName !== undefined ? { displayName: data.displayName || null } : {}),
+      ...(data.companyName !== undefined ? { companyName: data.companyName || null } : {}),
+      ...(data.defaultLanguage !== undefined ? { defaultLanguage: data.defaultLanguage || null } : {}),
+      ...(data.defaultTone !== undefined ? { defaultTone: data.defaultTone || null } : {}),
+      ...(data.defaultConversationMode !== undefined ? { defaultConversationMode: data.defaultConversationMode || null } : {}),
+      ...(data.defaultEmojiDensity !== undefined ? { defaultEmojiDensity: data.defaultEmojiDensity || null } : {}),
+      ...(data.defaultOutputFormat !== undefined ? { defaultOutputFormat: data.defaultOutputFormat || null } : {}),
+      ...(data.defaultFollowUpDays !== undefined ? { defaultFollowUpDays: data.defaultFollowUpDays ?? null } : {}),
+      ...(data.defaultCountryCode !== undefined ? { defaultCountryCode: data.defaultCountryCode || null } : {}),
+      ...(data.inboxDefaultView !== undefined ? { inboxDefaultView: data.inboxDefaultView || null } : {}),
+    },
+    select: userSelect,
+  });
 
   return user;
 };

@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { register, login, getCurrentUser } from '../services/authService';
-import { registerSchema, loginSchema } from '../utils/validation';
+import { register, login, getCurrentUser, updateCurrentUser } from '../services/authService';
+import { registerSchema, loginSchema, updateProfileSchema } from '../utils/validation';
 import { errorHandler } from '../middleware/error';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
@@ -69,5 +69,24 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response, next: Ne
   }
 });
 
-export default router;
+router.put('/me', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Unauthorized' },
+      });
+    }
 
+    const validatedData = updateProfileSchema.parse(req.body);
+    const user = await updateCurrentUser(req.userId, validatedData);
+    return res.json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default router;

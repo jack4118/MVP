@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../hooks/useAuth';
 import UpgradeModal from '../components/UpgradeModal';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import AiComposerFields from '../components/AiComposerFields';
@@ -14,6 +15,7 @@ import {
   generateAiMessage,
   GenerationStage,
   getDefaultConfigFromLeadMemory,
+  getDefaultConfigFromUserPreferences,
   getDefaultQuickConfigForLead,
   getEventPurpose,
   SharedAiConfig,
@@ -21,6 +23,7 @@ import {
 
 const Leads = () => {
   const { t, language } = useLanguage();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -292,7 +295,7 @@ const Leads = () => {
 
     try {
       setRefreshingMemory(true);
-      const response = await leadsApi.refreshMemory(lead.id);
+      const response = await leadsApi.refreshMemory(lead.id, language);
       if (response.success && response.data) {
         const refreshedLead = response.data.lead;
         setAllLeads((current) => current.map((item) => (item.id === refreshedLead.id ? refreshedLead : item)));
@@ -300,6 +303,7 @@ const Leads = () => {
         setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
         setConfig((current) => ({
           ...current,
+          ...getDefaultConfigFromUserPreferences(user, current),
           ...getDefaultConfigFromLeadMemory(refreshedLead, current),
         }));
         return refreshedLead;
@@ -316,6 +320,7 @@ const Leads = () => {
   const openAiModalForLead = (lead: Lead, overrides?: Partial<SharedAiConfig>) => {
     setCurrentLead(lead);
     setConfig({
+      ...getDefaultConfigFromUserPreferences(user, createInitialAiConfig(getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)).purpose)),
       ...getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)),
       ...overrides,
     });

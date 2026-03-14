@@ -1,5 +1,15 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
-import { authApi, User, LoginResponse, ApiResponse } from '../services/api';
+import {
+  authApi,
+  User,
+  LoginResponse,
+  ApiResponse,
+  AppLanguage,
+  AiTone,
+  ConversationMode,
+  EmojiDensity,
+  OutputFormat,
+} from '../services/api';
 import { storage } from '../utils/storage';
 
 interface AuthContextType {
@@ -7,6 +17,19 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<ApiResponse<LoginResponse>>;
   register: (email: string, password: string) => Promise<ApiResponse<User> | ApiResponse<LoginResponse>>;
+  updateProfile: (data: {
+    displayName?: string | null;
+    companyName?: string | null;
+    defaultLanguage?: AppLanguage | null;
+    defaultTone?: AiTone | null;
+    defaultConversationMode?: ConversationMode | null;
+    defaultEmojiDensity?: EmojiDensity | null;
+    defaultOutputFormat?: OutputFormat | null;
+    defaultFollowUpDays?: number | null;
+    defaultCountryCode?: string | null;
+    inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+  }) => Promise<ApiResponse<User>>;
+  refreshUser: () => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -17,21 +40,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const syncPreferredLanguage = (nextUser: User | null) => {
+    const preferredLanguage = nextUser?.defaultLanguage;
+    if (preferredLanguage) {
+      localStorage.setItem('language', preferredLanguage);
+      window.dispatchEvent(new CustomEvent('ezreply-language-changed', { detail: preferredLanguage }));
+    }
+  };
+
+  const refreshUser = async () => {
+    const response = await authApi.getCurrentUser();
+    if (response.success && response.data) {
+      setUser(response.data);
+      syncPreferredLanguage(response.data);
+    } else {
+      storage.removeToken();
+      setUser(null);
+    }
+  };
+
   useEffect(() => {
     const loadUser = async () => {
       const token = storage.getToken();
       if (token) {
         try {
-          const response = await authApi.getCurrentUser();
-          if (response.success && response.data) {
-            setUser(response.data);
-          } else {
-            // Token is invalid, remove it
-            storage.removeToken();
-          }
+          await refreshUser();
         } catch (error) {
           // Token is invalid or expired, remove it
           storage.removeToken();
+          setUser(null);
         }
       }
       setLoading(false);
@@ -45,6 +82,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (response.success && response.data) {
       storage.setToken(response.data.token);
       setUser(response.data.user);
+      syncPreferredLanguage(response.data.user);
     } else {
       // Return the response so the caller can handle the error
       return response;
@@ -59,6 +97,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (loginResponse.success && loginResponse.data) {
         storage.setToken(loginResponse.data.token);
         setUser(loginResponse.data.user);
+        syncPreferredLanguage(loginResponse.data.user);
         return loginResponse;
       } else {
         return loginResponse;
@@ -67,6 +106,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Return the response so the caller can handle the error
       return response;
     }
+  };
+
+  const updateProfile = async (data: {
+    displayName?: string | null;
+    companyName?: string | null;
+    defaultLanguage?: AppLanguage | null;
+    defaultTone?: AiTone | null;
+    defaultConversationMode?: ConversationMode | null;
+    defaultEmojiDensity?: EmojiDensity | null;
+    defaultOutputFormat?: OutputFormat | null;
+    defaultFollowUpDays?: number | null;
+    defaultCountryCode?: string | null;
+    inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+  }) => {
+    const response = await authApi.updateCurrentUser(data);
+    if (response.success && response.data) {
+      setUser(response.data);
+      syncPreferredLanguage(response.data);
+    }
+    return response;
   };
 
   const logout = () => {
@@ -81,6 +140,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         loading,
         login,
         register,
+        updateProfile,
+        refreshUser,
         logout,
         isAuthenticated: !!user,
       }}
@@ -97,4 +158,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

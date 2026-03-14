@@ -9,6 +9,7 @@ import {
   aiApi,
 } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../hooks/useAuth';
 import UpgradeModal from '../components/UpgradeModal';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import AiUsageCard from '../components/AiUsageCard';
@@ -21,6 +22,7 @@ import {
   generateAiMessage,
   GenerationStage,
   getDefaultConfigFromLeadMemory,
+  getDefaultConfigFromUserPreferences,
   getEventPurpose,
   getHistoryPurposeLabel,
   getHistoryStyleLabel,
@@ -29,6 +31,7 @@ import {
 
 const AI = () => {
   const { t, language } = useLanguage();
+  const { user } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
@@ -50,6 +53,13 @@ const AI = () => {
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
   const [memorySummary, setMemorySummary] = useState('');
   const [refreshingMemory, setRefreshingMemory] = useState(false);
+
+  useEffect(() => {
+    setConfig((current) => ({
+      ...current,
+      ...getDefaultConfigFromUserPreferences(user, current),
+    }));
+  }, [user]);
 
   useEffect(() => {
     loadLeads();
@@ -111,6 +121,7 @@ const AI = () => {
     setMemorySummary(lead.memorySummary || '');
     setConfig((current) => ({
       ...current,
+      ...getDefaultConfigFromUserPreferences(user, current),
       ...getDefaultConfigFromLeadMemory(lead, current),
     }));
 
@@ -120,7 +131,7 @@ const AI = () => {
 
     try {
       setRefreshingMemory(true);
-      const response = await leadsApi.refreshMemory(lead.id);
+      const response = await leadsApi.refreshMemory(lead.id, language);
       if (response.success && response.data) {
         const refreshedLead = response.data.lead;
         setLeads((current) => current.map((item) => (item.id === refreshedLead.id ? refreshedLead : item)));
@@ -128,6 +139,7 @@ const AI = () => {
         setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
         setConfig((current) => ({
           ...current,
+          ...getDefaultConfigFromUserPreferences(user, current),
           ...getDefaultConfigFromLeadMemory(refreshedLead, current),
         }));
         return refreshedLead;

@@ -15,6 +15,16 @@ model User {
   email        String   @unique
   passwordHash String   @map("password_hash")
   plan         String   @default("free") // "free" | "pro"
+  displayName  String?  @map("display_name")
+  companyName  String?  @map("company_name")
+  defaultLanguage String? @map("default_language")
+  defaultTone String?   @map("default_tone")
+  defaultConversationMode String? @map("default_conversation_mode")
+  defaultEmojiDensity String? @map("default_emoji_density")
+  defaultOutputFormat String? @map("default_output_format")
+  defaultFollowUpDays Int? @map("default_follow_up_days")
+  defaultCountryCode String? @map("default_country_code")
+  inboxDefaultView String? @map("inbox_default_view")
   createdAt    DateTime @default(now()) @map("created_at")
 
   leads       Lead[]
@@ -38,6 +48,7 @@ model Lead {
   status         String    @default("new")
   memorySummary  String?   @map("memory_summary")
   memoryGoal     String?   @map("memory_goal")
+  memoryLanguage String?   @map("memory_language")
   aiTonePreference String? @map("ai_tone_preference")
   aiConversationMode String? @map("ai_conversation_mode")
   aiEmojiDensity String?   @map("ai_emoji_density")

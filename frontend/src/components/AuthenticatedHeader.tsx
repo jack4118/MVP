@@ -22,6 +22,7 @@ const AuthenticatedHeader = ({ title, subtitle, whatsappUnreadCount = 0 }: Authe
     { to: '/whatsapp', label: t.privateHeader.whatsapp, count: whatsappUnreadCount },
     { to: '/ai', label: t.privateHeader.ai },
     { to: '/reminders', label: t.privateHeader.reminders },
+    { to: '/profile', label: t.privateHeader.profile },
   ];
 
   return (
@@ -62,7 +63,7 @@ const AuthenticatedHeader = ({ title, subtitle, whatsappUnreadCount = 0 }: Authe
           {user ? (
             <div className="auth-chip" title={user.email}>
               <span>{t.privateHeader.signedInLabel}</span>
-              <strong>{user.email}</strong>
+              <strong>{user.displayName || user.companyName || user.email}</strong>
             </div>
           ) : null}
           <button type="button" className="btn btn-secondary" onClick={logout}>

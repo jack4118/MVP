@@ -17,6 +17,7 @@ import {
   generateAiMessage,
   GenerationStage,
   getDefaultConfigFromLeadMemory,
+  getDefaultConfigFromUserPreferences,
   getDefaultQuickConfigForLead,
   SharedAiConfig,
 } from '../features/ai/shared';
@@ -131,12 +132,13 @@ const Dashboard = () => {
 
     try {
       setRefreshingMemory(true);
-      const response = await leadsApi.refreshMemory(lead.id);
+      const response = await leadsApi.refreshMemory(lead.id, language);
       if (response.success && response.data) {
         const refreshedLead = response.data.lead;
         setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
         setConfig((current) => ({
           ...current,
+          ...getDefaultConfigFromUserPreferences(user, current),
           ...getDefaultConfigFromLeadMemory(refreshedLead, current),
         }));
         return refreshedLead;
@@ -192,6 +194,7 @@ const Dashboard = () => {
 
     setActiveTask(task);
     setConfig({
+      ...getDefaultConfigFromUserPreferences(user, baseConfig),
       ...baseConfig,
       outputFormat: 'whatsapp',
       ...(objectiveByAction[action] || objectiveByAction.send_follow_up),
@@ -356,6 +359,26 @@ const Dashboard = () => {
       />
 
       {error && <div className="alert alert-error">{error}</div>}
+
+      {!!summary?.unreadMessages && summary.latestUnread.length > 0 && (
+        <section className="dashboard-unread-banner">
+          <div>
+            <p className="eyebrow">{t.privateHeader.unreadLabel}</p>
+            <h2>{translate(t.dashboard.unreadBannerTitle, { count: summary.unreadMessages })}</h2>
+            <p>{t.dashboard.unreadBannerBody}</p>
+            <div className="dashboard-unread-banner-preview">
+              {summary.latestUnread.slice(0, 3).map((item) => (
+                <span key={item.phone} className="task-pill task-pill-overdue">
+                  {(item.lead?.name || item.phone)} · {item.unreadCount}
+                </span>
+              ))}
+            </div>
+          </div>
+          <Link to="/whatsapp?view=inbox" className="btn btn-primary">
+            {t.dashboard.unreadBannerAction}
+          </Link>
+        </section>
+      )}
 
       <section className="today-stats-grid">
         {stats.map((card) => (

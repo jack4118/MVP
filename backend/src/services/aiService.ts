@@ -1098,6 +1098,7 @@ interface LeadMemorySnapshot {
   conversationMode: ConversationMode | null;
   emojiDensity: EmojiPreference | null;
   outputFormat: OutputFormat | null;
+  language: Language | null;
   updatedAt: Date | null;
 }
 
@@ -1135,6 +1136,7 @@ const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<Le
       aiConversationMode: true,
       aiEmojiDensity: true,
       aiOutputFormat: true,
+      memoryLanguage: true,
       memoryUpdatedAt: true,
     },
   });
@@ -1146,6 +1148,7 @@ const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<Le
     conversationMode: normalizeConversationModePreference(lead?.aiConversationMode),
     emojiDensity: normalizeEmojiPreferenceValue(lead?.aiEmojiDensity),
     outputFormat: normalizeOutputFormatValue(lead?.aiOutputFormat),
+    language: (lead?.memoryLanguage as Language | null) || null,
     updatedAt: lead?.memoryUpdatedAt || null,
   };
 };
@@ -1156,29 +1159,58 @@ const buildLeadMemoryFallback = (lead: {
   status: string;
   lastInboundAt: Date | null;
   lastOutboundAt: Date | null;
-}): LeadMemorySnapshot => {
+}, language: Language = 'en'): LeadMemorySnapshot => {
   const noteSummary = trimSnippet(lead.notes || '', 220);
-  const summary = [
-    noteSummary ? `Known notes: ${noteSummary}.` : null,
-    `Lead is currently ${lead.status}.`,
-    lead.lastInboundAt ? `Customer last replied on ${lead.lastInboundAt.toISOString()}.` : null,
-    lead.lastOutboundAt ? `You last sent a message on ${lead.lastOutboundAt.toISOString()}.` : null,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const summary = language === 'zh-CN'
+    ? [
+        noteSummary ? `已知备注：${noteSummary}。` : null,
+        `客户当前状态为 ${lead.status}。`,
+        lead.lastInboundAt ? `客户最近一次回复时间：${lead.lastInboundAt.toISOString()}。` : null,
+        lead.lastOutboundAt ? `你最近一次发送时间：${lead.lastOutboundAt.toISOString()}。` : null,
+      ].filter(Boolean).join(' ')
+    : language === 'ms'
+      ? [
+          noteSummary ? `Nota sedia ada: ${noteSummary}.` : null,
+          `Status lead sekarang ialah ${lead.status}.`,
+          lead.lastInboundAt ? `Balasan terakhir pelanggan pada ${lead.lastInboundAt.toISOString()}.` : null,
+          lead.lastOutboundAt ? `Mesej terakhir anda dihantar pada ${lead.lastOutboundAt.toISOString()}.` : null,
+        ].filter(Boolean).join(' ')
+      : [
+          noteSummary ? `Known notes: ${noteSummary}.` : null,
+          `Lead is currently ${lead.status}.`,
+          lead.lastInboundAt ? `Customer last replied on ${lead.lastInboundAt.toISOString()}.` : null,
+          lead.lastOutboundAt ? `You last sent a message on ${lead.lastOutboundAt.toISOString()}.` : null,
+        ].filter(Boolean).join(' ');
+
+  const goal = language === 'zh-CN'
+    ? noteSummary || `推动 ${lead.name} 进入明确的下一步。`
+    : language === 'ms'
+      ? noteSummary || `Gerakkan ${lead.name} ke langkah seterusnya yang jelas.`
+      : noteSummary || `Move ${lead.name} to the next clear step.`;
 
   return {
-    summary: summary || `Continue the relationship naturally with ${lead.name}.`,
-    goal: noteSummary || `Move ${lead.name} to the next clear step.`,
+    summary: summary || (
+      language === 'zh-CN'
+        ? `自然延续与 ${lead.name} 的关系。`
+        : language === 'ms'
+          ? `Teruskan hubungan dengan ${lead.name} secara natural.`
+          : `Continue the relationship naturally with ${lead.name}.`
+    ),
+    goal,
     tone: 'polite',
     conversationMode: 'standard',
     emojiDensity: 'medium',
     outputFormat: 'whatsapp',
+    language,
     updatedAt: null,
   };
 };
 
-export const refreshLeadMemory = async (userId: string, leadId: string): Promise<LeadMemorySnapshot> => {
+export const refreshLeadMemory = async (
+  userId: string,
+  leadId: string,
+  language: Language = 'en'
+): Promise<LeadMemorySnapshot> => {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
     select: {
@@ -1215,7 +1247,7 @@ export const refreshLeadMemory = async (userId: string, leadId: string): Promise
     .join('\n');
 
   if (!process.env.OPENAI_API_KEY || logs.length === 0) {
-    const fallback = buildLeadMemoryFallback(lead);
+    const fallback = buildLeadMemoryFallback(lead, language);
     await prisma.lead.update({
       where: { id: leadId },
       data: {
@@ -1225,40 +1257,91 @@ export const refreshLeadMemory = async (userId: string, leadId: string): Promise
         aiConversationMode: fallback.conversationMode,
         aiEmojiDensity: fallback.emojiDensity,
         aiOutputFormat: fallback.outputFormat,
+        memoryLanguage: language,
         memoryUpdatedAt: new Date(),
       },
     });
     return { ...fallback, updatedAt: new Date() };
   }
 
-  const systemPrompt = [
-    'You are building a compact CRM memory for a small-business WhatsApp conversation.',
-    'Return only tagged fields, no code fences.',
-    'Infer the most likely next objective, reply style preference, and message habits from the recent conversation.',
-    'Do not invent detailed facts that are not supported by the transcript.',
-  ].join('\n');
+  const systemPrompt = language === 'zh-CN'
+    ? [
+        '你在为小商家 WhatsApp 对话构建精简 CRM 记忆点。',
+        '只返回标签内容，不要代码块。',
+        '根据最近对话推断最可能的下一步目标、语气偏好和聊天习惯。',
+        '不要编造对话里没有明确支持的细节。',
+        'SUMMARY 和 GOAL 必须使用简体中文。',
+      ].join('\n')
+    : language === 'ms'
+      ? [
+          'Anda sedang membina memori CRM ringkas untuk perbualan WhatsApp bisnes kecil.',
+          'Pulangkan kandungan bertag sahaja, tanpa code block.',
+          'Berdasarkan perbualan terkini, infer objektif seterusnya, gaya nada, dan tabiat membalas.',
+          'Jangan reka fakta yang tidak disokong oleh transkrip.',
+          'SUMMARY dan GOAL mesti ditulis dalam Bahasa Melayu.',
+        ].join('\n')
+      : [
+          'You are building a compact CRM memory for a small-business WhatsApp conversation.',
+          'Return only tagged fields, no code fences.',
+          'Infer the most likely next objective, reply style preference, and message habits from the recent conversation.',
+          'Do not invent detailed facts that are not supported by the transcript.',
+          'SUMMARY and GOAL must be written in English.',
+        ].join('\n');
 
-  const userPrompt = [
-    `Lead name: ${lead.name}`,
-    `Lead status: ${lead.status}`,
-    lead.notes ? `Internal notes: ${lead.notes}` : 'Internal notes: none',
-    'Recent transcript (latest at bottom):',
-    transcript,
-    '',
-    'Return this exact format:',
-    '<SUMMARY>One compact summary of what this customer cares about and where the conversation stands</SUMMARY>',
-    '<GOAL>The best default follow-up objective for the next message</GOAL>',
-    '<TONE>polite|friendly|professional|casual|assertive|empathetic|urgent</TONE>',
-    '<MODE>standard|humor|banter|direct|consultative</MODE>',
-    '<EMOJI>low|medium|high</EMOJI>',
-    '<FORMAT>chat|email|whatsapp</FORMAT>',
-  ].join('\n');
+  const userPrompt = language === 'zh-CN'
+    ? [
+        `客户姓名：${lead.name}`,
+        `客户状态：${lead.status}`,
+        lead.notes ? `内部备注：${lead.notes}` : '内部备注：无',
+        '最近对话记录（最新在底部）：',
+        transcript,
+        '',
+        '请严格按以下格式返回：',
+        '<SUMMARY>用简体中文总结客户目前关注什么、对话进行到哪一步</SUMMARY>',
+        '<GOAL>用简体中文写出下一条消息最适合的默认目标</GOAL>',
+        '<TONE>polite|friendly|professional|casual|assertive|empathetic|urgent</TONE>',
+        '<MODE>standard|humor|banter|direct|consultative</MODE>',
+        '<EMOJI>low|medium|high</EMOJI>',
+        '<FORMAT>chat|email|whatsapp</FORMAT>',
+      ].join('\n')
+    : language === 'ms'
+      ? [
+          `Nama pelanggan: ${lead.name}`,
+          `Status lead: ${lead.status}`,
+          lead.notes ? `Nota dalaman: ${lead.notes}` : 'Nota dalaman: tiada',
+          'Transkrip terkini (mesej terbaru di bawah):',
+          transcript,
+          '',
+          'Pulangkan tepat dalam format ini:',
+          '<SUMMARY>Ringkasan padat dalam Bahasa Melayu tentang apa yang pelanggan pedulikan dan tahap perbualan sekarang</SUMMARY>',
+          '<GOAL>Objektif follow-up lalai terbaik dalam Bahasa Melayu untuk mesej seterusnya</GOAL>',
+          '<TONE>polite|friendly|professional|casual|assertive|empathetic|urgent</TONE>',
+          '<MODE>standard|humor|banter|direct|consultative</MODE>',
+          '<EMOJI>low|medium|high</EMOJI>',
+          '<FORMAT>chat|email|whatsapp</FORMAT>',
+        ].join('\n')
+      : [
+          `Lead name: ${lead.name}`,
+          `Lead status: ${lead.status}`,
+          lead.notes ? `Internal notes: ${lead.notes}` : 'Internal notes: none',
+          'Recent transcript (latest at bottom):',
+          transcript,
+          '',
+          'Return this exact format:',
+          '<SUMMARY>One compact summary of what this customer cares about and where the conversation stands</SUMMARY>',
+          '<GOAL>The best default follow-up objective for the next message</GOAL>',
+          '<TONE>polite|friendly|professional|casual|assertive|empathetic|urgent</TONE>',
+          '<MODE>standard|humor|banter|direct|consultative</MODE>',
+          '<EMOJI>low|medium|high</EMOJI>',
+          '<FORMAT>chat|email|whatsapp</FORMAT>',
+        ].join('\n');
 
   try {
     const completion = await generateCompletion(systemPrompt, userPrompt);
     const raw = completion.choices[0]?.message?.content || '';
-    const summary = parseTaggedSection(raw, 'SUMMARY') || buildLeadMemoryFallback(lead).summary;
-    const goal = parseTaggedSection(raw, 'GOAL') || buildLeadMemoryFallback(lead).goal;
+    const fallback = buildLeadMemoryFallback(lead, language);
+    const summary = parseTaggedSection(raw, 'SUMMARY') || fallback.summary;
+    const goal = parseTaggedSection(raw, 'GOAL') || fallback.goal;
     const tone = normalizeTonePreference(parseTaggedSection(raw, 'TONE')) || 'polite';
     const conversationMode = normalizeConversationModePreference(parseTaggedSection(raw, 'MODE')) || 'standard';
     const emojiDensity = normalizeEmojiPreferenceValue(parseTaggedSection(raw, 'EMOJI')) || 'medium';
@@ -1274,13 +1357,14 @@ export const refreshLeadMemory = async (userId: string, leadId: string): Promise
         aiConversationMode: conversationMode,
         aiEmojiDensity: emojiDensity,
         aiOutputFormat: outputFormat,
+        memoryLanguage: language,
         memoryUpdatedAt: updatedAt,
       },
     });
 
-    return { summary, goal, tone, conversationMode, emojiDensity, outputFormat, updatedAt };
+    return { summary, goal, tone, conversationMode, emojiDensity, outputFormat, language, updatedAt };
   } catch (_error) {
-    const fallback = buildLeadMemoryFallback(lead);
+    const fallback = buildLeadMemoryFallback(lead, language);
     const updatedAt = new Date();
     await prisma.lead.update({
       where: { id: leadId },
@@ -1291,6 +1375,7 @@ export const refreshLeadMemory = async (userId: string, leadId: string): Promise
         aiConversationMode: fallback.conversationMode,
         aiEmojiDensity: fallback.emojiDensity,
         aiOutputFormat: fallback.outputFormat,
+        memoryLanguage: language,
         memoryUpdatedAt: updatedAt,
       },
     });
@@ -1298,7 +1383,7 @@ export const refreshLeadMemory = async (userId: string, leadId: string): Promise
   }
 };
 
-const getConversationCutoffContext = async (userId: string, leadId: string) => {
+const getConversationCutoffContext = async (userId: string, leadId: string, language: Language) => {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
     select: {
@@ -1313,6 +1398,7 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
       aiConversationMode: true,
       aiEmojiDensity: true,
       aiOutputFormat: true,
+      memoryLanguage: true,
       memoryUpdatedAt: true,
       lastInboundAt: true,
       lastOutboundAt: true,
@@ -1332,6 +1418,7 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
     conversationMode: normalizeConversationModePreference(lead.aiConversationMode),
     emojiDensity: normalizeEmojiPreferenceValue(lead.aiEmojiDensity),
     outputFormat: normalizeOutputFormatValue(lead.aiOutputFormat),
+    language: (lead.memoryLanguage as Language | null) || null,
     updatedAt: lead.memoryUpdatedAt || null,
   };
 
@@ -1354,7 +1441,10 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
   });
 
   if (logs.length === 0) {
-    const memory = storedMemory.summary && memoryIsFresh ? storedMemory : buildLeadMemoryFallback(lead);
+    const memory =
+      storedMemory.summary && memoryIsFresh && storedMemory.language === language
+        ? storedMemory
+        : buildLeadMemoryFallback(lead, language);
     return {
       cutoffSummary: lead.lastOutboundAt || lead.lastInboundAt
         ? `No WhatsApp transcript stored, but lead is ${lead.status}. Last outbound: ${lead.lastOutboundAt || 'n/a'}. Last inbound: ${lead.lastInboundAt || 'n/a'}.`
@@ -1387,9 +1477,9 @@ const getConversationCutoffContext = async (userId: string, leadId: string) => {
     .join(' ');
 
   const memory =
-    storedMemory.summary && memoryIsFresh
+    storedMemory.summary && memoryIsFresh && storedMemory.language === language
       ? storedMemory
-      : await refreshLeadMemory(userId, leadId);
+      : await refreshLeadMemory(userId, leadId, language);
 
   return { cutoffSummary, transcript, memory };
 };
@@ -1484,7 +1574,7 @@ export const generateFollowUpText = async (
   const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
-  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId);
+  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
 
   const systemPrompt = getAdvisorPersona(language);
 
@@ -1547,6 +1637,7 @@ export const generateFollowUpText = async (
         aiConversationMode: conversationMode,
         aiEmojiDensity: emojiPreference,
         aiOutputFormat: outputFormat,
+        memoryLanguage: language,
         memoryUpdatedAt: new Date(),
       },
     });
@@ -1615,7 +1706,7 @@ export const generatePaymentText = async (
   const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
-  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId);
+  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
 
   let daysOverdue = 0;
   if (dueDate) {
@@ -1685,6 +1776,7 @@ export const generatePaymentText = async (
         aiConversationMode: conversationMode,
         aiEmojiDensity: emojiPreference,
         aiOutputFormat: outputFormat,
+        memoryLanguage: language,
         memoryUpdatedAt: new Date(),
       },
     });

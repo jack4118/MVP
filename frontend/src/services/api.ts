@@ -87,6 +87,16 @@ export interface User {
   id: string;
   email: string;
   createdAt: string;
+  displayName?: string | null;
+  companyName?: string | null;
+  defaultLanguage?: AppLanguage | null;
+  defaultTone?: AiTone | null;
+  defaultConversationMode?: ConversationMode | null;
+  defaultEmojiDensity?: EmojiDensity | null;
+  defaultOutputFormat?: OutputFormat | null;
+  defaultFollowUpDays?: number | null;
+  defaultCountryCode?: string | null;
+  inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
 }
 
 export interface LoginResponse {
@@ -339,6 +349,29 @@ export const authApi = {
       throw error;
     }
   },
+
+  updateCurrentUser: async (data: {
+    displayName?: string | null;
+    companyName?: string | null;
+    defaultLanguage?: AppLanguage | null;
+    defaultTone?: AiTone | null;
+    defaultConversationMode?: ConversationMode | null;
+    defaultEmojiDensity?: EmojiDensity | null;
+    defaultOutputFormat?: OutputFormat | null;
+    defaultFollowUpDays?: number | null;
+    defaultCountryCode?: string | null;
+    inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+  }): Promise<ApiResponse<User>> => {
+    try {
+      const response = await api.put<ApiResponse<User>>('/auth/me', data);
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.data) {
+        return error.response.data;
+      }
+      throw error;
+    }
+  },
 };
 
 export const leadsApi = {
@@ -405,7 +438,8 @@ export const leadsApi = {
   },
 
   refreshMemory: async (
-    id: string
+    id: string,
+    language?: AppLanguage
   ): Promise<ApiResponse<{
     lead: Lead;
     memory: {
@@ -415,6 +449,7 @@ export const leadsApi = {
       conversationMode?: ConversationMode | null;
       emojiDensity?: EmojiDensity | null;
       outputFormat?: OutputFormat | null;
+      language?: AppLanguage | null;
       updatedAt?: string | null;
     };
   }>> => {
@@ -427,9 +462,10 @@ export const leadsApi = {
         conversationMode?: ConversationMode | null;
         emojiDensity?: EmojiDensity | null;
         outputFormat?: OutputFormat | null;
+        language?: AppLanguage | null;
         updatedAt?: string | null;
       };
-    }>>(`/leads/${id}/memory/refresh`);
+    }>>(`/leads/${id}/memory/refresh`, { language });
     return response.data;
   },
 };
