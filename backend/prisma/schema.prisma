@@ -193,6 +193,9 @@ model WhatsAppMessageLog {
   leadId            String?   @map("lead_id")
   messageId         String?   @map("message_id")
   direction         String    @default("outbound") // outbound | inbound
+  messageType       String    @default("text") @map("message_type")
+  transcriptionStatus String  @default("not_applicable") @map("transcription_status")
+  transcriptionError String?  @map("transcription_error")
   fromPhone         String?   @map("from_phone")
   toPhone           String    @map("to_phone")
   content           String

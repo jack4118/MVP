@@ -55,6 +55,11 @@ interface DraftConfig {
   emojiPreference: EmojiPreference;
 }
 
+interface GreetingPolicyContext {
+  hasOutboundGreetingInLast24h: boolean;
+  hasInboundReplyInLast24h: boolean;
+}
+
 export interface GenerationDebugInfo {
   requested: {
     language: Language;
@@ -633,7 +638,8 @@ const getHardConstraints = (language: Language, outputFormat: OutputFormat): str
       '3) 优先使用贴近日常沟通的自然表达',
     ];
     if (outputFormat === 'whatsapp') {
-      common.push('4) 第一行建议简短称呼，第二行直接说明请求，末尾给出易回复问题');
+      common.push('4) 开头问候可选，不要在短时间内重复问候；优先自然续接上一轮对话');
+      common.push('5) 必须给出清晰请求，并以易回复问题结尾');
     }
     return common.join('\n');
   }
@@ -646,7 +652,8 @@ const getHardConstraints = (language: Language, outputFormat: OutputFormat): str
       '3) Gunakan frasa percakapan sebenar, bukan skrip kaku',
     ];
     if (outputFormat === 'whatsapp') {
-      common.push('4) Baris pertama sapaan ringkas, baris kedua permintaan jelas, akhir dengan soalan mudah jawab');
+      common.push('4) Sapaan di awal adalah pilihan; jangan ulang sapaan dalam tempoh singkat');
+      common.push('5) Mesti ada permintaan jelas dan ditutup dengan soalan mudah dibalas');
     }
     return common.join('\\n');
   }
@@ -658,7 +665,8 @@ const getHardConstraints = (language: Language, outputFormat: OutputFormat): str
     '3) Prefer natural spoken phrasing over formal script-like wording',
   ];
   if (outputFormat === 'whatsapp') {
-    common.push('4) Line 1 short greeting, line 2 concrete ask, end with an easy reply question');
+    common.push('4) Greeting is optional; do not repeat greeting in short intervals');
+    common.push('5) Keep a concrete ask and end with an easy reply question');
   }
   return common.join('\n');
 };
@@ -873,7 +881,8 @@ const validateBusinessDraft = async (
   draft: string,
   config: DraftConfig,
   objective: string,
-  currentHour: number
+  currentHour: number,
+  greetingPolicy: GreetingPolicyContext
 ): Promise<string> => {
   let current = draft;
   let attempt = 0;
@@ -901,6 +910,20 @@ const validateBusinessDraft = async (
       );
     }
 
+    if (
+      config.outputFormat === 'whatsapp' &&
+      (greetingPolicy.hasOutboundGreetingInLast24h || greetingPolicy.hasInboundReplyInLast24h) &&
+      startsWithGreeting(current)
+    ) {
+      issues.push(
+        config.language === 'zh-CN'
+          ? '过去 24 小时已问候过或客户刚回复，本条不应再次以问候开头。请直接承接正文。'
+          : config.language === 'ms'
+            ? 'Dalam 24 jam ini sudah ada sapaan atau pelanggan baru balas. Jangan mula semula dengan sapaan.'
+            : 'A greeting was already used recently or the customer just replied. Do not start this message with another greeting.'
+      );
+    }
+
     if (issues.length === 0) {
       break;
     }
@@ -914,7 +937,7 @@ const validateBusinessDraft = async (
     attempt += 1;
   }
 
-  return current;
+  return enforceGreetingPolicy(current, greetingPolicy);
 };
 
 const rewriteDraftToMatchConfig = async (
@@ -1297,6 +1320,58 @@ const hasConcreteReplyAsk = (text: string, language: Language) => {
   return /\bcan\b|\bcould\b|\blet me know\b|\breply\b|\btoday\b|\btomorrow\b|\bthis week\b|\bnext week\b|\bwhat time\b|\bdate\b/.test(lower);
 };
 
+const greetingLineRegex = /^(?:\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|selamat (?:pagi|petang|malam)|你好|您好|嗨|哈喽|早上好|早安|午安|晚上好)[^,\n，。!?！？]*[,\n，。!?！？]?)+\s*/i;
+
+const startsWithGreeting = (text: string) => {
+  if (!text) {
+    return false;
+  }
+  const firstLine = text.trim().split('\n')[0] || '';
+  return greetingLineRegex.test(firstLine);
+};
+
+const stripLeadingGreeting = (text: string) => {
+  if (!text) {
+    return text;
+  }
+
+  const trimmed = text.trimStart();
+  const stripped = trimmed.replace(greetingLineRegex, '').trimStart();
+  return stripped || trimmed;
+};
+
+const enforceGreetingPolicy = (draft: string, context: GreetingPolicyContext): string => {
+  if (!startsWithGreeting(draft)) {
+    return draft;
+  }
+
+  if (context.hasOutboundGreetingInLast24h || context.hasInboundReplyInLast24h) {
+    return stripLeadingGreeting(draft);
+  }
+
+  return draft;
+};
+
+const getGreetingPolicyInstruction = (language: Language, context: GreetingPolicyContext): string => {
+  const noNewGreeting = context.hasOutboundGreetingInLast24h || context.hasInboundReplyInLast24h;
+
+  if (language === 'zh-CN') {
+    return noNewGreeting
+      ? '问候规则：过去 24 小时此客户已问候过或刚回复，本条不要再用“你好/早上好”等开场，直接延续正文。'
+      : '问候规则：问候可选，不是必填；如不用问候，直接进入核心请求。';
+  }
+
+  if (language === 'ms') {
+    return noNewGreeting
+      ? 'Peraturan sapaan: dalam 24 jam terakhir sudah ada sapaan atau pelanggan baru balas, jadi jangan mulakan dengan sapaan lagi; teruskan isi mesej.'
+      : 'Peraturan sapaan: sapaan adalah pilihan, bukan wajib; boleh terus kepada mesej utama.';
+  }
+
+  return noNewGreeting
+    ? 'Greeting policy: this lead already had a greeting within 24h or just replied, so do not prepend another greeting; continue directly with the message body.'
+    : 'Greeting policy: greeting is optional, not mandatory. You may start directly with the core ask.';
+};
+
 const buildBusinessValidationPrompt = (
   draft: string,
   language: Language,
@@ -1458,6 +1533,25 @@ const buildLeadMemoryFallback = (lead: {
     language,
     updatedAt: null,
   };
+};
+
+const memoryLooksPlaceholder = (summary?: string | null, goal?: string | null) => {
+  const joined = `${summary || ''} ${goal || ''}`.toLowerCase();
+  if (!joined.trim()) {
+    return true;
+  }
+
+  const placeholderSignals = [
+    'replace this with a real customer',
+    'replace this',
+    'generated text will appear here',
+    'known notes:',
+    'no whatsapp transcript stored',
+    '请替换',
+    '占位',
+  ];
+
+  return placeholderSignals.some((signal) => joined.includes(signal));
 };
 
 export const refreshLeadMemory = async (
@@ -1773,12 +1867,51 @@ const getConversationCutoffContext = async (userId: string, leadId: string, lang
     .filter(Boolean)
     .join(' ');
 
+  const hasPlaceholderMemory = memoryLooksPlaceholder(storedMemory.summary, storedMemory.goal);
+  const latestInboundIsNewerThanMemory =
+    !!lastInbound &&
+    (!storedMemory.updatedAt || new Date(lastInbound.createdAt).getTime() > new Date(storedMemory.updatedAt).getTime());
+
   const memory =
-    storedMemory.summary && memoryIsFresh && storedMemory.language === language
+    storedMemory.summary &&
+    memoryIsFresh &&
+    storedMemory.language === language &&
+    !hasPlaceholderMemory &&
+    !latestInboundIsNewerThanMemory
       ? storedMemory
       : await refreshLeadMemory(userId, leadId, language);
 
   return { cutoffSummary, transcript, memory };
+};
+
+const getGreetingPolicyContext = async (userId: string, leadId: string): Promise<GreetingPolicyContext> => {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const logs = await prisma.whatsAppMessageLog.findMany({
+    where: {
+      userId,
+      leadId,
+      createdAt: { gte: since },
+      direction: { in: ['inbound', 'outbound'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      direction: true,
+      content: true,
+      createdAt: true,
+    },
+    take: 40,
+  });
+
+  const hasOutboundGreetingInLast24h = logs.some(
+    (log) => log.direction === 'outbound' && startsWithGreeting(log.content || '')
+  );
+
+  const hasInboundReplyInLast24h = logs.some((log) => log.direction === 'inbound');
+
+  return {
+    hasOutboundGreetingInLast24h,
+    hasInboundReplyInLast24h,
+  };
 };
 
 const buildVariantPrompt = (
@@ -1873,6 +2006,7 @@ export const generateFollowUpText = async (
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
+  const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
   const systemPrompt = getAdvisorPersona(language);
@@ -1888,6 +2022,7 @@ export const generateFollowUpText = async (
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'follow_up');
   const toneInstruction = getToneInstruction(language, tone, 'follow_up');
   const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
+  const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
@@ -1906,7 +2041,7 @@ export const generateFollowUpText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'follow_up', variantCount);
 
   try {
@@ -1939,12 +2074,13 @@ export const generateFollowUpText = async (
             emojiPreference,
           },
           data.objective,
-          localTimeContext.hour
+          localTimeContext.hour,
+          greetingPolicy
         );
-        return next;
+        return enforceGreetingPolicy(next, greetingPolicy);
       })
     );
-    let generatedText = enforcedVariants[0] || parsed.variants[0] || '';
+    let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -1993,13 +2129,13 @@ export const generateFollowUpText = async (
       : isChinese
         ? `你好 ${data.leadName}，\n\n我这边简短跟进以下事项：\n${objectiveSummary}\n${daysPassed > 0 ? `\n距离上次沟通已 ${daysPassed} 天。` : ''}\n\n方便的话，请按以上事项回复大概时间。`
         : createFollowUpFallback(data, daysPassed, isChinese, selectedPreset).replace(data.objective, objectiveSummary);
-    const fallbackText = formatFallbackMessage(
+    const fallbackText = enforceGreetingPolicy(formatFallbackMessage(
       baseFallbackText,
       outputFormat,
       language,
       data.leadName,
       isChinese ? '跟进确认' : isMalay ? 'Susulan Ringkas' : 'Quick Follow-up'
-    );
+    ), greetingPolicy);
 
     await prisma.aiLog.create({
       data: {
@@ -2040,6 +2176,7 @@ export const generatePaymentText = async (
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
+  const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
   let daysOverdue = 0;
@@ -2062,6 +2199,7 @@ export const generatePaymentText = async (
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'payment');
   const toneInstruction = getToneInstruction(language, tone, 'payment');
   const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
+  const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
@@ -2080,7 +2218,7 @@ export const generatePaymentText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'payment', variantCount);
 
   try {
@@ -2113,12 +2251,13 @@ export const generatePaymentText = async (
             emojiPreference,
           },
           data.objective,
-          localTimeContext.hour
+          localTimeContext.hour,
+          greetingPolicy
         );
-        return next;
+        return enforceGreetingPolicy(next, greetingPolicy);
       })
     );
-    let generatedText = enforcedVariants[0] || parsed.variants[0] || '';
+    let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2167,13 +2306,13 @@ export const generatePaymentText = async (
       : isChinese
         ? `你好 ${data.leadName}，\n\n这边提醒以下事项：\n${objectiveSummary}${amount ? `\n当前金额：${amount.toFixed(2)}。` : ''}\n\n方便的话，请优先确认付款时间，并告知其余事项安排。`
         : createPaymentFallback(data, isChinese, selectedPreset, daysOverdue).replace(data.objective, objectiveSummary);
-    const fallbackText = formatFallbackMessage(
+    const fallbackText = enforceGreetingPolicy(formatFallbackMessage(
       baseFallbackText,
       outputFormat,
       language,
       data.leadName,
       isChinese ? '付款提醒' : isMalay ? 'Peringatan Bayaran' : 'Payment Reminder'
-    );
+    ), greetingPolicy);
 
     await prisma.aiLog.create({
       data: {

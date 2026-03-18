@@ -1,12 +1,128 @@
 import prisma from '../config/database';
 import { cancelPendingSystemTasks, normalizeLeadStatus, scheduleNextSystemFollowUp } from './followUpService';
+import OpenAI from 'openai';
+import { toFile } from 'openai/uploads';
 
 const META_GRAPH_BASE = process.env.META_GRAPH_BASE || 'https://graph.facebook.com';
 const META_GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v22.0';
+const WHATSAPP_TRANSCRIPTION_MODEL = process.env.WHATSAPP_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe';
+const WHATSAPP_TRANSCRIPTION_TIMEOUT_MS = Number(process.env.WHATSAPP_TRANSCRIPTION_TIMEOUT_MS || 12000);
+const openaiClient = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 const sanitizePhone = (phone: string): string => phone.replace(/[^\d]/g, '');
 
 const getGraphUrl = (path: string) => `${META_GRAPH_BASE}/${META_GRAPH_VERSION}/${path}`;
+
+const fetchWithTimeout = async (url: string, init: RequestInit = {}, timeoutMs: number = WHATSAPP_TRANSCRIPTION_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const normalizeTranscriptionError = (error: unknown): string => {
+  if (error instanceof Error && error.name === 'AbortError') {
+    return 'AUDIO_TRANSCRIPTION_TIMEOUT';
+  }
+  if (error instanceof Error && error.message) {
+    return `AUDIO_TRANSCRIPTION_FAILED: ${error.message}`;
+  }
+  return 'AUDIO_TRANSCRIPTION_FAILED';
+};
+
+const resolveInboundAudioContent = async (
+  accessToken: string,
+  message: any
+): Promise<{ content: string; transcriptionStatus: 'success' | 'failed'; transcriptionError: string | null }> => {
+  const mediaId = message?.audio?.id;
+  if (!mediaId) {
+    return {
+      content: '[audio]',
+      transcriptionStatus: 'failed',
+      transcriptionError: 'AUDIO_MEDIA_ID_MISSING',
+    };
+  }
+
+  if (!openaiClient) {
+    return {
+      content: '[audio]',
+      transcriptionStatus: 'failed',
+      transcriptionError: 'OPENAI_API_KEY_MISSING',
+    };
+  }
+
+  try {
+    const metaResponse = await fetchWithTimeout(
+      getGraphUrl(String(mediaId)),
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    const metaPayload: any = await metaResponse.json();
+
+    if (!metaResponse.ok || !metaPayload?.url) {
+      return {
+        content: '[audio]',
+        transcriptionStatus: 'failed',
+        transcriptionError: metaPayload?.error?.message || 'AUDIO_MEDIA_META_FETCH_FAILED',
+      };
+    }
+
+    const mediaResponse = await fetchWithTimeout(metaPayload.url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!mediaResponse.ok) {
+      return {
+        content: '[audio]',
+        transcriptionStatus: 'failed',
+        transcriptionError: `AUDIO_MEDIA_DOWNLOAD_FAILED_${mediaResponse.status}`,
+      };
+    }
+
+    const buffer = Buffer.from(await mediaResponse.arrayBuffer());
+    const file = await toFile(buffer, `whatsapp-audio-${mediaId}`, {
+      type: metaPayload?.mime_type || 'audio/ogg',
+    });
+
+    const transcription = await openaiClient.audio.transcriptions.create({
+      model: WHATSAPP_TRANSCRIPTION_MODEL,
+      file,
+    });
+
+    const transcriptText = (transcription.text || '').trim();
+    if (!transcriptText) {
+      return {
+        content: '[audio]',
+        transcriptionStatus: 'failed',
+        transcriptionError: 'AUDIO_TRANSCRIPTION_EMPTY',
+      };
+    }
+
+    return {
+      content: transcriptText,
+      transcriptionStatus: 'success',
+      transcriptionError: null,
+    };
+  } catch (error) {
+    return {
+      content: '[audio]',
+      transcriptionStatus: 'failed',
+      transcriptionError: normalizeTranscriptionError(error),
+    };
+  }
+};
 const toDateFromUnix = (value?: string | number): Date | null => {
   if (value === undefined || value === null) {
     return null;
@@ -318,6 +434,8 @@ export const sendWhatsAppText = async (
           userId,
           leadId: data.leadId,
           direction: 'outbound',
+          messageType: 'text',
+          transcriptionStatus: 'not_applicable',
           fromPhone: connection.displayPhone ? sanitizePhone(connection.displayPhone) : null,
           toPhone,
           content: data.content,
@@ -340,6 +458,8 @@ export const sendWhatsAppText = async (
         leadId: data.leadId,
         messageId,
         direction: 'outbound',
+        messageType: 'text',
+        transcriptionStatus: 'not_applicable',
         fromPhone: connection.displayPhone ? sanitizePhone(connection.displayPhone) : null,
         toPhone,
         content: data.content,
@@ -459,6 +579,7 @@ export const processWhatsAppWebhook = async (body: any) => {
         where: { phoneNumberId, isActive: true },
         select: {
           userId: true,
+          accessToken: true,
           displayPhone: true,
           user: {
             select: {
@@ -480,9 +601,21 @@ export const processWhatsAppWebhook = async (body: any) => {
         for (const message of inboundMessages) {
           const messageId = message?.id as string | undefined;
           const fromPhone = sanitizePhone(message?.from || '');
-          const content =
+          const messageType = typeof message?.type === 'string' ? String(message.type) : 'text';
+          let content =
             message?.text?.body ||
-            (typeof message?.type === 'string' ? `[${message.type}]` : '[message]');
+            (messageType ? `[${messageType}]` : '[message]');
+          let transcriptionStatus: 'pending' | 'success' | 'failed' | 'not_applicable' =
+            messageType === 'audio' ? 'pending' : 'not_applicable';
+          let transcriptionError: string | null = null;
+
+          if (messageType === 'audio') {
+            const audioResult = await resolveInboundAudioContent(connection.accessToken, message);
+            content = audioResult.content;
+            transcriptionStatus = audioResult.transcriptionStatus;
+            transcriptionError = audioResult.transcriptionError;
+          }
+
           let resolvedLead = await resolveLeadForPhone(connection.userId, fromPhone);
           const messageAt = toDateFromUnix(message?.timestamp) || new Date();
           const inferredSignals = inferInquirySignals(content, connection.user?.industry);
@@ -527,6 +660,9 @@ export const processWhatsAppWebhook = async (body: any) => {
               leadId: resolvedLead.id,
               messageId: messageId || null,
               direction: 'inbound',
+              messageType,
+              transcriptionStatus,
+              transcriptionError,
               fromPhone,
               toPhone: businessPhone || phoneNumberId,
               content,
@@ -602,6 +738,8 @@ export const processWhatsAppWebhook = async (body: any) => {
                 userId: connection.userId,
                 messageId,
                 direction: 'outbound',
+                messageType: 'status',
+                transcriptionStatus: 'not_applicable',
                 fromPhone: businessPhone || null,
                 toPhone: recipient || 'unknown',
                 content: '[status webhook]',

@@ -653,16 +653,27 @@ const WhatsApp = () => {
             ) : (
               conversation.map((msg) => {
                 const outbound = msg.direction !== 'inbound';
+                const voiceTranscribed = msg.messageType === 'audio' && msg.transcriptionStatus === 'success';
+                const voiceUnavailable = msg.messageType === 'audio' && msg.transcriptionStatus === 'failed';
                 return (
                   <div
                     key={msg.id}
                     className={`whatsapp-message-bubble ${outbound ? 'whatsapp-message-outbound' : 'whatsapp-message-inbound'}`}
                   >
+                    {(voiceTranscribed || voiceUnavailable) && (
+                      <div
+                        className={`whatsapp-message-badge ${voiceTranscribed ? 'whatsapp-message-badge-success' : 'whatsapp-message-badge-failed'}`}
+                      >
+                        {voiceTranscribed ? t.whatsapp.voiceTranscribed : t.whatsapp.voiceUnavailable}
+                      </div>
+                    )}
                     <div className="whatsapp-message-content">{msg.content}</div>
                     <div className="whatsapp-message-meta">
                       {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
                     </div>
-                    {msg.error && <div className="whatsapp-message-error">{msg.error}</div>}
+                    {(msg.error || msg.transcriptionError) && (
+                      <div className="whatsapp-message-error">{msg.error || msg.transcriptionError}</div>
+                    )}
                   </div>
                 );
               })

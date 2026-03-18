@@ -492,6 +492,9 @@ export const zhCN = {
     inboxViewContacts: '联系人',
     inboxViewSetup: '设置',
     setupNotice: '先完成基本设置，EzReply 才能按你的行业和习惯生成更好的跟进内容，并默认打开正确工作区。',
+    onboardingTitle: '开始前先做快速设置',
+    onboardingSubtitle: '先设置行业、默认语言和语气，AI 会从第一天就按你的业务语境生成。',
+    onboardingSubmit: '保存并继续',
     saveSuccess: '资料已保存。',
     saveFailed: '保存资料失败。',
   },
@@ -596,5 +599,7 @@ export const zhCN = {
     jumpToLatest: '跳到最新消息',
     unreadMessagesLabel: '未读消息',
     unreadMessagesHint: '等待查看的客户新消息',
+    voiceTranscribed: '语音 -> 已转写',
+    voiceUnavailable: '语音（暂不可用）',
   },
 };

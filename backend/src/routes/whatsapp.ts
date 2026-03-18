@@ -115,6 +115,23 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
     if (
       error instanceof Error &&
       (
+        error.message.toLowerCase().includes('validating access token') ||
+        error.message.toLowerCase().includes('session has expired') ||
+        error.message.toLowerCase().includes('invalid oauth access token') ||
+        error.message.toLowerCase().includes('access token has expired')
+      )
+    ) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'WhatsApp access token expired. Please reconnect in Setup and verify again.',
+          code: 'WHATSAPP_TOKEN_EXPIRED',
+        },
+      });
+    }
+    if (
+      error instanceof Error &&
+      (
         error.message.toLowerCase().includes('re-engagement message') ||
         error.message.toLowerCase().includes('outside the allowed window') ||
         error.message.toLowerCase().includes('24 hours') ||

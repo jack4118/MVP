@@ -492,6 +492,9 @@ export const en = {
     inboxViewContacts: 'Contacts',
     inboxViewSetup: 'Setup',
     setupNotice: 'Finish your basic setup first so EzReply can draft better follow-ups and open the right workspace by default.',
+    onboardingTitle: 'Quick setup before you start',
+    onboardingSubtitle: 'Set your industry, language, and tone once. We will use this as AI default context.',
+    onboardingSubmit: 'Save and continue',
     saveSuccess: 'Profile saved.',
     saveFailed: 'Failed to save profile.',
   },
@@ -596,5 +599,7 @@ export const en = {
     jumpToLatest: 'Jump to latest',
     unreadMessagesLabel: 'Unread messages',
     unreadMessagesHint: 'Inbound messages waiting for review',
+    voiceTranscribed: 'Voice -> Transcribed',
+    voiceUnavailable: 'Voice (unavailable)',
   },
 };

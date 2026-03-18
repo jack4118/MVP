@@ -484,6 +484,9 @@ export const ms = {
     inboxViewContacts: 'Kontak',
     inboxViewSetup: 'Setup',
     setupNotice: 'Lengkapkan tetapan asas dahulu supaya EzReply boleh jana follow-up yang lebih tepat dan buka workspace yang betul secara lalai.',
+    onboardingTitle: 'Setup ringkas sebelum mula',
+    onboardingSubtitle: 'Tetapkan industri, bahasa, dan nada sekali sahaja. AI akan guna ini sebagai konteks default.',
+    onboardingSubmit: 'Simpan dan teruskan',
     saveSuccess: 'Profil berjaya disimpan.',
     saveFailed: 'Gagal menyimpan profil.',
   },
@@ -588,5 +591,7 @@ export const ms = {
     jumpToLatest: 'Pergi ke mesej terbaru',
     unreadMessagesLabel: 'Mesej belum dibaca',
     unreadMessagesHint: 'Mesej masuk yang masih belum disemak',
+    voiceTranscribed: 'Suara -> Ditranskrip',
+    voiceUnavailable: 'Suara (tidak tersedia)',
   },
 };

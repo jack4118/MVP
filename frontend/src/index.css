@@ -1300,6 +1300,27 @@ code {
   border: 1px solid var(--border-color);
 }
 
+.whatsapp-message-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.whatsapp-message-badge-success {
+  background: rgba(30, 169, 113, 0.15);
+  color: var(--success);
+}
+
+.whatsapp-message-badge-failed {
+  background: rgba(217, 83, 95, 0.12);
+  color: var(--danger);
+}
+
 .whatsapp-message-outbound {
   justify-self: end;
   background: rgba(80, 180, 255, 0.18);

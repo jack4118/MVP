@@ -308,6 +308,9 @@ export interface WhatsAppLogItem {
   leadId?: string | null;
   messageId?: string | null;
   direction?: 'inbound' | 'outbound';
+  messageType?: string;
+  transcriptionStatus?: 'pending' | 'success' | 'failed' | 'not_applicable';
+  transcriptionError?: string | null;
   fromPhone?: string | null;
   toPhone: string;
   content: string;
