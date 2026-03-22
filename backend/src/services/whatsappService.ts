@@ -897,7 +897,7 @@ export const getWhatsAppConversationMessages = async (userId: string, phone: str
   const safeLimit = Math.min(Math.max(limit, 1), 300);
   const normalized = sanitizePhone(phone);
 
-  return prisma.whatsAppMessageLog.findMany({
+  const latestBatch = await prisma.whatsAppMessageLog.findMany({
     where: {
       userId,
       OR: [{ toPhone: normalized }, { fromPhone: normalized }],
@@ -910,9 +910,12 @@ export const getWhatsAppConversationMessages = async (userId: string, phone: str
         },
       },
     },
-    orderBy: [{ createdAt: 'asc' }],
+    orderBy: [{ createdAt: 'desc' }],
     take: safeLimit,
   });
+
+  // Keep UI rendering chronological order while ensuring we fetch the newest slice.
+  return latestBatch.reverse();
 };
 
 export const processWhatsAppWebhook = async (body: any) => {

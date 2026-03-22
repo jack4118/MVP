@@ -1472,7 +1472,7 @@ code {
 .whatsapp-scroll-latest {
   position: absolute;
   right: 18px;
-  bottom: 18px;
+  bottom: 92px;
   border: 1px solid rgba(15, 157, 116, 0.34);
   background: rgba(24, 34, 53, 0.92);
   color: #fff;
@@ -1483,6 +1483,7 @@ code {
   cursor: pointer;
   box-shadow: var(--shadow);
   transition: var(--transition);
+  z-index: 6;
 }
 
 .whatsapp-scroll-latest:hover {
@@ -2784,7 +2785,7 @@ code {
   .whatsapp-scroll-latest {
     left: 16px;
     right: 16px;
-    bottom: 84px;
+    bottom: 132px;
   }
 
   .whatsapp-unread-banner {
