@@ -188,6 +188,16 @@ export const whatsappSendMediaSchema = z.object({
   filename: z.string().max(255).optional(),
 });
 
+export const whatsappSendMediaUploadSchema = z.object({
+  leadId: z.string().optional(),
+  toPhone: z.string().min(6, 'toPhone is required'),
+  conversationPhone: z.string().min(6).optional(),
+  clientMessageId: z.string().max(128).optional(),
+  mediaType: z.enum(['image', 'document']).optional(),
+  caption: z.string().max(1024).optional(),
+  filename: z.string().max(255).optional(),
+});
+
 export const whatsappMarkReadSchema = z.object({
   phone: z.string().min(6, 'phone is required'),
 });

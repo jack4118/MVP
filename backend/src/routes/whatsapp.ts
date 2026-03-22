@@ -1,6 +1,7 @@
 import express, { Response, NextFunction } from 'express';
+import multer from 'multer';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { whatsappConnectionSchema, whatsappMarkReadSchema, whatsappSendMediaSchema, whatsappSendSchema } from '../utils/validation';
+import { whatsappConnectionSchema, whatsappMarkReadSchema, whatsappSendMediaSchema, whatsappSendMediaUploadSchema, whatsappSendSchema } from '../utils/validation';
 import {
   getWhatsappConnection,
   getWhatsAppContactSummariesPaged,
@@ -9,12 +10,19 @@ import {
   markWhatsAppConversationRead,
   processWhatsAppWebhook,
   sendWhatsAppMedia,
+  sendWhatsAppUploadedMedia,
   sendWhatsAppText,
   upsertWhatsappConnection,
   verifyWhatsappConnection,
 } from '../services/whatsappService';
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 15 * 1024 * 1024,
+  },
+});
 
 router.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -159,6 +167,33 @@ router.post('/send-media', async (req: AuthRequest, res: Response, next: NextFun
 
     const validatedData = whatsappSendMediaSchema.parse(req.body);
     const result = await sendWhatsAppMedia(req.userId, validatedData);
+
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'WhatsApp connection not found') {
+      return res.status(404).json({ success: false, error: { message: 'Please connect WhatsApp first', code: 'WHATSAPP_NOT_CONNECTED' } });
+    }
+    next(error);
+  }
+});
+
+router.post('/send-media-upload', upload.single('file'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: { message: 'file is required', code: 'WHATSAPP_MEDIA_FILE_REQUIRED' } });
+    }
+
+    const validatedData = whatsappSendMediaUploadSchema.parse(req.body);
+    const result = await sendWhatsAppUploadedMedia(req.userId, {
+      ...validatedData,
+      filename: validatedData.filename || req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileBuffer: req.file.buffer,
+    });
 
     return res.json({ success: true, data: result });
   } catch (error) {

@@ -655,6 +655,8 @@ export const ms = {
     mediaTypeImage: 'Imej',
     mediaTypeDocument: 'Dokumen',
     mediaUrlPlaceholder: 'https://... (URL media)',
+    dropOrUpload: 'Seret fail ke sini atau klik untuk muat naik',
+    fileSelected: 'Dipilih',
     sendMedia: 'Hantar media',
     perPage: '{count} / halaman',
     voiceTranscribed: 'Suara -> Ditranskrip',

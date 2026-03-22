@@ -723,6 +723,38 @@ export const whatsappApi = {
     return response.data;
   },
 
+  sendMediaUpload: async (data: {
+    toPhone: string;
+    leadId?: string;
+    conversationPhone?: string;
+    clientMessageId?: string;
+    mediaType?: 'image' | 'document';
+    caption?: string;
+    filename?: string;
+    file: File;
+  }): Promise<ApiResponse<{ sent: boolean; messageId?: string; serverMessageId?: string; clientMessageId?: string | null; toPhone: string; deduped?: boolean }>> => {
+    const formData = new FormData();
+    formData.append('toPhone', data.toPhone);
+    if (data.leadId) formData.append('leadId', data.leadId);
+    if (data.conversationPhone) formData.append('conversationPhone', data.conversationPhone);
+    if (data.clientMessageId) formData.append('clientMessageId', data.clientMessageId);
+    if (data.mediaType) formData.append('mediaType', data.mediaType);
+    if (data.caption) formData.append('caption', data.caption);
+    if (data.filename) formData.append('filename', data.filename);
+    formData.append('file', data.file);
+
+    const response = await api.post<ApiResponse<{ sent: boolean; messageId?: string; serverMessageId?: string; clientMessageId?: string | null; toPhone: string; deduped?: boolean }>>(
+      '/whatsapp/send-media-upload',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  },
+
   getLogs: async (limit: number = 30): Promise<ApiResponse<WhatsAppLogItem[]>> => {
     const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/logs', { params: { limit } });
     return response.data;

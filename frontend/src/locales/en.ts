@@ -663,6 +663,8 @@ export const en = {
     mediaTypeImage: 'Image',
     mediaTypeDocument: 'Document',
     mediaUrlPlaceholder: 'https://... (media URL)',
+    dropOrUpload: 'Drop file here or click to upload',
+    fileSelected: 'Selected',
     sendMedia: 'Send media',
     perPage: '{count} / page',
     voiceTranscribed: 'Voice -> Transcribed',

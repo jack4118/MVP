@@ -698,6 +698,183 @@ export const sendWhatsAppMedia = async (
   };
 };
 
+const inferMediaTypeFromMime = (mimeType: string | null | undefined): 'image' | 'document' => {
+  if (!mimeType) {
+    return 'document';
+  }
+  return mimeType.toLowerCase().startsWith('image/') ? 'image' : 'document';
+};
+
+export const sendWhatsAppUploadedMedia = async (
+  userId: string,
+  data: {
+    toPhone: string;
+    mediaType?: 'image' | 'document';
+    fileBuffer: Buffer;
+    mimeType?: string;
+    caption?: string;
+    filename?: string;
+    leadId?: string;
+    conversationPhone?: string;
+    clientMessageId?: string;
+  }
+) => {
+  const connection = await prisma.whatsAppConnection.findUnique({ where: { userId } });
+  if (!connection) {
+    throw new Error('WhatsApp connection not found');
+  }
+
+  const toPhone = sanitizePhone(data.conversationPhone || data.toPhone);
+  if (!toPhone) {
+    throw new Error('Invalid phone number');
+  }
+
+  if (data.clientMessageId) {
+    const existing = await prisma.whatsAppMessageLog.findFirst({
+      where: {
+        userId,
+        toPhone,
+        direction: 'outbound',
+        messageId: data.clientMessageId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing && existing.status !== 'failed') {
+      return {
+        sent: true,
+        messageId: existing.messageId,
+        toPhone,
+        deduped: true,
+      };
+    }
+  }
+
+  const normalizedMediaType = data.mediaType || inferMediaTypeFromMime(data.mimeType);
+  const normalizedFilename = data.filename || `upload-${Date.now()}`;
+  const normalizedMimeType = data.mimeType || (normalizedMediaType === 'image' ? 'image/jpeg' : 'application/octet-stream');
+
+  const uploadForm = new FormData();
+  uploadForm.append('messaging_product', 'whatsapp');
+  uploadForm.append('type', normalizedMimeType);
+  uploadForm.append('file', new Blob([data.fileBuffer], { type: normalizedMimeType }), normalizedFilename);
+
+  const uploadResponse = await fetch(getGraphUrl(`${connection.phoneNumberId}/media`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${connection.accessToken}`,
+    },
+    body: uploadForm,
+  });
+  const uploadPayload: any = await uploadResponse.json();
+  if (!uploadResponse.ok || !uploadPayload?.id) {
+    const message = uploadPayload?.error?.message || 'Failed to upload WhatsApp media';
+    throw new Error(message);
+  }
+
+  const messageBody: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: toPhone,
+    type: normalizedMediaType,
+  };
+
+  if (normalizedMediaType === 'image') {
+    messageBody.image = {
+      id: uploadPayload.id,
+      caption: data.caption || undefined,
+    };
+  } else {
+    messageBody.document = {
+      id: uploadPayload.id,
+      caption: data.caption || undefined,
+      filename: normalizedFilename,
+    };
+  }
+
+  const sendResponse = await fetch(getGraphUrl(`${connection.phoneNumberId}/messages`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${connection.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(messageBody),
+  });
+  const sendPayload: any = await sendResponse.json();
+  const content = data.caption || `[${normalizedMediaType}] ${normalizedFilename}`;
+
+  if (!sendResponse.ok) {
+    const message = sendPayload?.error?.message || `Failed to send WhatsApp ${normalizedMediaType}`;
+    await prisma.whatsAppMessageLog.create({
+      data: {
+        userId,
+        leadId: data.leadId,
+        messageId: data.clientMessageId || null,
+        direction: 'outbound',
+        messageType: normalizedMediaType,
+        transcriptionStatus: 'not_applicable',
+        fromPhone: connection.displayPhone ? sanitizePhone(connection.displayPhone) : null,
+        toPhone,
+        content,
+        status: 'failed',
+        error: message,
+        rawPayload: { sendPayload, uploadPayload },
+      },
+    });
+    throw new Error(message);
+  }
+
+  const serverMessageId = sendPayload?.messages?.[0]?.id || null;
+  const messageId = data.clientMessageId || serverMessageId;
+  const messageAt = new Date();
+
+  await prisma.whatsAppMessageLog.create({
+    data: {
+      userId,
+      leadId: data.leadId,
+      messageId,
+      direction: 'outbound',
+      messageType: normalizedMediaType,
+      transcriptionStatus: 'not_applicable',
+      fromPhone: connection.displayPhone ? sanitizePhone(connection.displayPhone) : null,
+      toPhone,
+      content,
+      status: 'sent',
+      error: null,
+      externalTimestamp: messageAt,
+      rawPayload: {
+        sendPayload,
+        mediaType: normalizedMediaType,
+        mediaId: uploadPayload.id,
+        filename: normalizedFilename,
+        mimeType: normalizedMimeType,
+        clientMessageId: data.clientMessageId || null,
+        serverMessageId,
+      },
+    },
+  });
+
+  const resolvedLeadId = data.leadId || (await resolveLeadForPhone(userId, toPhone))?.id || null;
+  await updateConversationState({
+    userId,
+    phone: toPhone,
+    leadId: resolvedLeadId,
+    messageId,
+    preview: content,
+    status: 'sent',
+    error: null,
+    direction: 'outbound',
+    messageAt,
+  });
+
+  return {
+    sent: true,
+    messageId,
+    serverMessageId,
+    clientMessageId: data.clientMessageId || null,
+    toPhone,
+  };
+};
+
 export const getWhatsAppMessageLogs = async (userId: string, limit: number = 30) => {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
 

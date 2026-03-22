@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getApiErrorMessage, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -44,7 +44,10 @@ const WhatsApp = () => {
   const [composerText, setComposerText] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'document'>('image');
   const [mediaUrl, setMediaUrl] = useState('');
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [isMediaDragActive, setIsMediaDragActive] = useState(false);
   const [sendingMedia, setSendingMedia] = useState(false);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const [formData, setFormData] = useState({
     businessAccountId: '',
     phoneNumberId: '',
@@ -235,9 +238,35 @@ const WhatsApp = () => {
         top: conversationBodyRef.current.scrollHeight,
         behavior: 'smooth',
       });
+      const rect = conversationBodyRef.current.getBoundingClientRect();
+      const targetTop = window.scrollY + rect.top + conversationBodyRef.current.scrollHeight - window.innerHeight + 56;
+      window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
       setIsConversationAtBottom(true);
       void markConversationRead(selectedPhone);
     }
+  };
+
+  const inferMediaTypeForFile = (file: File): 'image' | 'document' => {
+    return file.type.toLowerCase().startsWith('image/') ? 'image' : 'document';
+  };
+
+  const handleMediaFile = (file: File | null) => {
+    if (!file) {
+      return;
+    }
+    setMediaFile(file);
+    setMediaType(inferMediaTypeForFile(file));
+    setMediaUrl('');
+  };
+
+  const handleMediaFileInput = (event: ChangeEvent<HTMLInputElement>) => {
+    handleMediaFile(event.target.files?.[0] || null);
+  };
+
+  const handleMediaDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsMediaDragActive(false);
+    handleMediaFile(event.dataTransfer.files?.[0] || null);
   };
 
   const openUnreadConversation = () => {
@@ -492,7 +521,7 @@ const WhatsApp = () => {
   };
 
   const handleSendMediaFromInbox = async () => {
-    if (!selectedPhone || !mediaUrl.trim()) {
+    if (!selectedPhone || (!mediaFile && !mediaUrl.trim())) {
       setError(t.whatsapp.selectContact);
       return;
     }
@@ -501,20 +530,31 @@ const WhatsApp = () => {
       setSendingMedia(true);
       setError('');
       const clientMessageId = `media-${Date.now()}`;
-      const response = await whatsappApi.sendMedia({
-        toPhone: selectedPhone,
-        conversationPhone: selectedPhone,
-        mediaType,
-        mediaUrl: mediaUrl.trim(),
-        clientMessageId,
-      });
+      const response = mediaFile
+        ? await whatsappApi.sendMediaUpload({
+            toPhone: selectedPhone,
+            conversationPhone: selectedPhone,
+            mediaType,
+            file: mediaFile,
+            filename: mediaFile.name,
+            clientMessageId,
+          })
+        : await whatsappApi.sendMedia({
+            toPhone: selectedPhone,
+            conversationPhone: selectedPhone,
+            mediaType,
+            mediaUrl: mediaUrl.trim(),
+            clientMessageId,
+          });
       if (!response.success) {
         setError(response.error?.message || t.common.error);
         return;
       }
+      setMediaFile(null);
       setMediaUrl('');
       await loadConversation(selectedPhone);
       await loadContacts(contactQuery, contactsPage);
+      scrollConversationToLatest();
     } catch (err) {
       setError(getApiErrorMessage(err, t.common.error));
     } finally {
@@ -667,6 +707,7 @@ const WhatsApp = () => {
                     setSelectedPhone(contact.phone);
                     setSelectedByUser(true);
                     setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                   }}
                   className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
                 >
@@ -772,13 +813,38 @@ const WhatsApp = () => {
                 <option value="document">{t.whatsapp.mediaTypeDocument}</option>
               </select>
               <input
+                ref={mediaInputRef}
+                type="file"
+                className="hidden-file-input"
+                accept={mediaType === 'image' ? 'image/*' : '.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.ppt,.pptx,application/*'}
+                onChange={handleMediaFileInput}
+              />
+              <div
+                className={`whatsapp-upload-dropzone ${isMediaDragActive ? 'whatsapp-upload-dropzone-active' : ''}`}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setIsMediaDragActive(true);
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  setIsMediaDragActive(false);
+                }}
+                onDrop={handleMediaDrop}
+                onClick={() => mediaInputRef.current?.click()}
+              >
+                {mediaFile
+                  ? `${t.whatsapp.fileSelected}: ${mediaFile.name}`
+                  : t.whatsapp.dropOrUpload}
+              </div>
+              <input
                 className="input"
                 value={mediaUrl}
                 onChange={(e) => setMediaUrl(e.target.value)}
                 placeholder={t.whatsapp.mediaUrlPlaceholder}
                 disabled={!selectedPhone || sendingMedia}
               />
-              <button className="btn btn-secondary" onClick={handleSendMediaFromInbox} disabled={!selectedPhone || sendingMedia || !mediaUrl.trim()}>
+              <button className="btn btn-secondary" onClick={handleSendMediaFromInbox} disabled={!selectedPhone || sendingMedia || (!mediaFile && !mediaUrl.trim())}>
                 {sendingMedia ? t.common.loading : t.whatsapp.sendMedia}
               </button>
             </div>
@@ -860,6 +926,7 @@ const WhatsApp = () => {
                       setSelectedPhone(contact.phone);
                       setSelectedByUser(true);
                       setActiveView('inbox');
+                      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                     }}
                   >
                     {t.whatsapp.openConversation}

@@ -663,6 +663,8 @@ export const zhCN = {
     mediaTypeImage: '图片',
     mediaTypeDocument: '文档',
     mediaUrlPlaceholder: 'https://...（媒体 URL）',
+    dropOrUpload: '拖拽文件到这里，或点击上传',
+    fileSelected: '已选择',
     sendMedia: '发送媒体',
     perPage: '{count} / 页',
     voiceTranscribed: '语音 -> 已转写',

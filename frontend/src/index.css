@@ -1291,6 +1291,10 @@ code {
   gap: 8px;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
 .whatsapp-overview {
   margin-bottom: 20px;
 }
@@ -1641,6 +1645,31 @@ code {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.whatsapp-upload-dropzone {
+  min-height: 44px;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  background: var(--bg-secondary);
+}
+
+.whatsapp-upload-dropzone:hover {
+  border-color: rgba(15, 157, 116, 0.38);
+  color: var(--text-primary);
+}
+
+.whatsapp-upload-dropzone-active {
+  border-color: var(--primary);
+  background: rgba(15, 157, 116, 0.12);
+  color: var(--primary);
 }
 
 .modal-shell {
