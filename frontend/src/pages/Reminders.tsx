@@ -8,6 +8,8 @@ const Reminders = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
   const [dispatchLogs, setDispatchLogs] = useState<ReminderDispatchLog[]>([]);
   const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'all' | 'sent' | 'failed' | 'requires_template' | 'skipped'>('all');
   const [view, setView] = useState<'today' | 'upcoming' | 'all'>('today');
@@ -129,6 +131,11 @@ const Reminders = () => {
           <span>{error}</span>
         </div>
       )}
+      {success && (
+        <div className="alert alert-success">
+          <span>{success}</span>
+        </div>
+      )}
 
       <div className="card reminders-create-card">
         <h2 className="reminders-card-title">{t.reminders.createReminder}</h2>
@@ -158,8 +165,8 @@ const Reminders = () => {
             >
               <option value="follow_up">{t.ai.followUp}</option>
               <option value="payment">{t.ai.payment}</option>
-              <option value="meeting">Meeting</option>
-              <option value="custom">Custom</option>
+              <option value="meeting">{t.reminders.meetingType}</option>
+              <option value="custom">{t.reminders.customType}</option>
             </select>
           </div>
 
@@ -274,7 +281,7 @@ const Reminders = () => {
               <div className="reminder-details">
                 <div className="detail-item">
                   <span className="detail-label">{t.reminders.contact}:</span>
-                  <span>{reminder.lead.contact || 'N/A'}</span>
+                  <span>{reminder.lead.contact || t.reminders.notAvailable}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">{t.reminders.triggerTime}:</span>
@@ -308,11 +315,11 @@ const Reminders = () => {
               void loadDispatchLogs(next);
             }}
           >
-            <option value="all">all</option>
-            <option value="sent">sent</option>
-            <option value="failed">failed</option>
-            <option value="requires_template">requires_template</option>
-            <option value="skipped">skipped</option>
+            <option value="all">{t.reminders.all}</option>
+            <option value="sent">{t.reminders.dispatchStatusSent}</option>
+            <option value="failed">{t.reminders.dispatchStatusFailed}</option>
+            <option value="requires_template">{t.reminders.dispatchStatusRequiresTemplate}</option>
+            <option value="skipped">{t.reminders.dispatchStatusSkipped}</option>
           </select>
         </div>
         {dispatchLogs.length === 0 ? (
@@ -333,12 +340,27 @@ const Reminders = () => {
                   <div className="reminders-log-item-actions">
                     <button
                       className="btn btn-secondary"
+                      disabled={retryingLogId === log.id}
                       onClick={async () => {
-                        await remindersApi.retryDispatchLog(log.id);
-                        await loadDispatchLogs();
+                        try {
+                          setRetryingLogId(log.id);
+                          setError('');
+                          setSuccess('');
+                          const resp = await remindersApi.retryDispatchLog(log.id);
+                          if (!resp.success) {
+                            setError(resp.error?.message || t.common.error);
+                          } else if (resp.data?.retried) {
+                            setSuccess(t.reminders.retrySuccess);
+                          } else {
+                            setError(resp.data?.reason || t.common.error);
+                          }
+                          await loadDispatchLogs();
+                        } finally {
+                          setRetryingLogId(null);
+                        }
                       }}
                     >
-                      Retry
+                      {retryingLogId === log.id ? t.common.loading : t.reminders.retry}
                     </button>
                   </div>
                 )}

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 import PublicHeader from '../components/PublicHeader';
-import PublicFooter from '../components/PublicFooter';
+import AppLogo from '../components/AppLogo';
 
 const Landing = () => {
   const { t } = useLanguage();
@@ -28,54 +28,103 @@ const Landing = () => {
     { question: t.landing.faqAutoQuestion, answer: t.landing.faqAutoAnswer },
   ];
 
+  const painPoints = [
+    t.landing.problemPoint1,
+    t.landing.problemPoint2,
+    t.landing.problemPoint3,
+    t.landing.problemPoint4,
+  ];
+
   return (
     <div className="landing-shell">
       <PublicHeader />
 
       <main className="landing-main">
-        <section className="landing-hero card">
-          <p className="eyebrow">{t.landing.eyebrow}</p>
-          <h1>{t.landing.heroTitle}</h1>
-          <p className="landing-subtitle">{t.landing.heroSubtitle}</p>
-          <div className="landing-cta-row">
-            <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn btn-primary">
-              {t.common.startFreeTrial}
-            </Link>
-            <Link to="/pricing" className="btn btn-secondary">
-              {t.landing.seePricing}
-            </Link>
+        <section className="landing-hero card landing-hero-surface">
+          <div className="landing-hero-grid">
+            <div>
+              <p className="eyebrow">{t.landing.heroBadge}</p>
+              <h1>{t.landing.heroTitle}</h1>
+              <p className="landing-subtitle">{t.landing.heroSubtitle}</p>
+              <div className="landing-cta-row">
+                <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn btn-primary">
+                  {t.landing.heroPrimaryCta}
+                </Link>
+                <Link to="/pricing" className="btn btn-secondary">
+                  {t.landing.heroSecondaryCta}
+                </Link>
+              </div>
+              <p className="landing-outcome">{t.landing.outcomeStatement}</p>
+            </div>
+            <div className="landing-stat-grid">
+              <article className="landing-stat-card">
+                <strong>{t.landing.statResponseValue}</strong>
+                <span>{t.landing.statResponseLabel}</span>
+              </article>
+              <article className="landing-stat-card">
+                <strong>{t.landing.statCloseRateValue}</strong>
+                <span>{t.landing.statCloseRateLabel}</span>
+              </article>
+              <article className="landing-stat-card">
+                <strong>{t.landing.statTimeSavedValue}</strong>
+                <span>{t.landing.statTimeSavedLabel}</span>
+              </article>
+              <article className="landing-stat-card">
+                <strong>{t.landing.statRoiValue}</strong>
+                <span>{t.landing.statRoiLabel}</span>
+              </article>
+            </div>
           </div>
-          <p className="landing-outcome">{t.landing.outcomeStatement}</p>
+          <p className="landing-social-line">{t.landing.socialProofLine}</p>
         </section>
 
-        <section className="card landing-problem">
-          <p className="eyebrow">{t.landing.problemEyebrow}</p>
-          <h2>{t.landing.problemTitle}</h2>
-          <div className="landing-problem-quotes">
-            <blockquote>{t.landing.problemQuote1}</blockquote>
-            <blockquote>{t.landing.problemQuote2}</blockquote>
-            <blockquote>{t.landing.problemQuote3}</blockquote>
+        <section className="card landing-problem landing-problem-panel">
+          <div>
+            <p className="eyebrow">{t.landing.problemEyebrow}</p>
+            <h2>{t.landing.problemTitle}</h2>
+            <p className="landing-problem-body">{t.landing.problemBody}</p>
           </div>
-          <p className="landing-problem-punch">{t.landing.problemPunchline}</p>
-          <p className="landing-problem-body">{t.landing.problemBody}</p>
+          <div className="landing-problem-list">
+            {painPoints.map((item) => (
+              <div key={item} className="landing-problem-item">
+                <span>•</span>
+                <p>{item}</p>
+              </div>
+            ))}
+          </div>
+          <div className="landing-problem-image-wrap">
+            <div className="landing-problem-visual" aria-label={t.landing.problemImageAlt}>
+              <div className="landing-problem-chat-bubble">{t.landing.problemQuote1}</div>
+              <div className="landing-problem-chat-bubble">{t.landing.problemQuote2}</div>
+              <div className="landing-problem-chat-bubble">{t.landing.problemQuote3}</div>
+              <strong>{t.landing.problemPunchline}</strong>
+            </div>
+          </div>
         </section>
 
-        <section className="card landing-solution">
-          <p className="eyebrow">{t.landing.solutionEyebrow}</p>
-          <h2>{t.landing.solutionTitle}</h2>
-          <div className="landing-solution-flow" aria-label={t.landing.solutionTitle}>
-            <span>{t.landing.solutionStep1}</span>
-            <span>{t.landing.solutionStep2}</span>
-            <span>{t.landing.solutionStep3}</span>
-            <span>{t.landing.solutionStep4}</span>
-          </div>
-        </section>
-
-        <section className="card landing-workflow">
+        <section className="card landing-workflow landing-workflow-panel">
           <p className="eyebrow">{t.landing.workflowEyebrow}</p>
           <h2>{t.landing.workflowTitle}</h2>
           <div className="landing-workflow-line">{t.landing.workflowLine}</div>
           <p className="landing-workflow-body">{t.landing.workflowBody}</p>
+          <div className="landing-step-grid">
+            <article className="landing-step-card">
+              <strong>01</strong>
+              <h3>{t.landing.solutionStep1}</h3>
+            </article>
+            <article className="landing-step-card">
+              <strong>02</strong>
+              <h3>{t.landing.solutionStep2}</h3>
+            </article>
+            <article className="landing-step-card">
+              <strong>03</strong>
+              <h3>{t.landing.solutionStep3}</h3>
+            </article>
+            <article className="landing-step-card">
+              <strong>04</strong>
+              <h3>{t.landing.solutionStep4}</h3>
+            </article>
+          </div>
         </section>
 
         <section className="landing-feature-grid">
@@ -97,6 +146,53 @@ const Landing = () => {
                 {label}
               </span>
             ))}
+          </div>
+        </section>
+
+        <section className="card landing-testimonial-panel">
+          <div className="landing-testimonial-quote">
+            <p className="eyebrow">{t.landing.testimonialEyebrow}</p>
+            <h2>{t.landing.testimonialQuote}</h2>
+            <div className="landing-testimonial-person">
+              <strong>{t.landing.testimonialName}</strong>
+              <span>{t.landing.testimonialRole}</span>
+            </div>
+          </div>
+          <div className="landing-testimonial-stats">
+            <article className="landing-testimonial-stat-card">
+              <strong>{t.landing.statTimeSavedValue}</strong>
+              <span>{t.landing.statTimeSavedLabel}</span>
+            </article>
+            <article className="landing-testimonial-stat-card">
+              <strong>{t.landing.statResponseValue}</strong>
+              <span>{t.landing.statResponseLabel}</span>
+            </article>
+            <article className="landing-testimonial-stat-card">
+              <strong>{t.landing.statCloseRateValue}</strong>
+              <span>{t.landing.statCloseRateLabel}</span>
+            </article>
+            <article className="landing-testimonial-stat-card">
+              <strong>{t.landing.statRoiValue}</strong>
+              <span>{t.landing.statRoiLabel}</span>
+            </article>
+          </div>
+        </section>
+
+        <section className="card landing-brand-panel">
+          <p className="eyebrow">{t.landing.brandEyebrow}</p>
+          <h2>{t.landing.brandTitle}</h2>
+          <p className="landing-workflow-body">{t.landing.brandBody}</p>
+          <div className="landing-brand-grid">
+            <article className="landing-brand-card">
+              <div className="landing-brand-mark">
+                <span>E</span>
+              </div>
+              <p>{t.landing.brandIconLabel}</p>
+            </article>
+            <article className="landing-brand-card landing-brand-card-full">
+              <AppLogo />
+              <p>{t.landing.brandWordmarkLabel}</p>
+            </article>
           </div>
         </section>
 
@@ -142,17 +238,61 @@ const Landing = () => {
         </section>
 
         <section className="card landing-final-cta">
-          <h2>{t.landing.finalCtaTitle}</h2>
-          <p>{t.landing.finalCtaBody}</p>
-          <div className="landing-cta-row">
-            <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn btn-primary">
-              {t.common.startFreeTrial}
-            </Link>
+          <div className="landing-cta-surface">
+            <h2>{t.landing.finalCtaTitle}</h2>
+            <p>{t.landing.finalCtaBody}</p>
+            <div className="landing-cta-row">
+              <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn btn-primary">
+                {t.common.startFreeTrial}
+              </Link>
+              <Link to="/pricing" className="btn btn-secondary">
+                {t.landing.seePricing}
+              </Link>
+            </div>
           </div>
         </section>
       </main>
 
-      <PublicFooter />
+      <footer className="public-footer card landing-fat-footer">
+        <div className="landing-fat-footer-grid">
+          <div className="public-footer-copy">
+            <AppLogo compact />
+            <strong>{t.footer.tagline}</strong>
+            <p>{t.footer.description}</p>
+          </div>
+
+          <div>
+            <h4>{t.landing.footerProductTitle}</h4>
+            <nav className="landing-footer-list">
+              <Link to="/leads">{t.privateHeader.leads}</Link>
+              <Link to="/ai">{t.privateHeader.ai}</Link>
+              <Link to="/whatsapp">{t.privateHeader.whatsapp}</Link>
+              <Link to="/reminders">{t.privateHeader.reminders}</Link>
+            </nav>
+          </div>
+
+          <div>
+            <h4>{t.landing.footerCompanyTitle}</h4>
+            <nav className="landing-footer-list">
+              <Link to="/pricing">{t.pricing.pricing}</Link>
+              <Link to="/agent">{t.agent.title}</Link>
+              <Link to="/login">{t.auth.login}</Link>
+            </nav>
+          </div>
+
+          <div>
+            <h4>{t.landing.footerSupportTitle}</h4>
+            <nav className="landing-footer-list">
+              <Link to="/pricing">{t.landing.seePricing}</Link>
+              <Link to="/agent">{t.agent.title}</Link>
+              <Link to={isAuthenticated ? '/dashboard' : '/login'}>
+                {isAuthenticated ? t.publicHeader.openDashboard : t.common.startFreeTrial}
+              </Link>
+            </nav>
+          </div>
+        </div>
+        <p className="public-footer-note">{t.footer.copyright}</p>
+      </footer>
     </div>
   );
 };

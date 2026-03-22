@@ -496,11 +496,11 @@ const Leads = () => {
 
   const hasActiveFilters = searchTerm || statusFilter !== 'all';
   const stageLabelMap: Record<string, string> = {
-    inquiry: 'Inquiry',
-    booking: 'Booking',
-    quoted: 'Quoted',
-    payment: 'Payment',
-    closed: 'Closed',
+    inquiry: t.leads.stageInquiry,
+    booking: t.leads.stageBooking,
+    quoted: t.leads.stageQuoted,
+    payment: t.leads.stagePayment,
+    closed: t.leads.stageClosed,
   };
 
   if (loading) {
@@ -520,7 +520,7 @@ const Leads = () => {
 
       <div className="page-header-inline-actions">
         <button onClick={handleExportCsv} className="btn btn-secondary" disabled={exporting}>
-          {exporting ? t.common.loading : 'Export CSV'}
+          {exporting ? t.common.loading : t.leads.exportCsv}
         </button>
         <button
           onClick={() => {

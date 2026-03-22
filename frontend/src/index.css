@@ -254,6 +254,7 @@ code {
   width: 74px;
   padding-left: 8px;
   padding-right: 8px;
+  overflow: hidden;
 }
 
 .backend-sidebar-brand {
@@ -263,6 +264,16 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.backend-sidebar-collapsed .backend-sidebar-brand {
+  justify-content: center;
+}
+
+.backend-sidebar-collapsed .backend-sidebar-brand .btn {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 0;
 }
 
 .backend-sidebar-nav {
@@ -281,6 +292,11 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.backend-sidebar-collapsed .backend-sidebar-link {
+  justify-content: center;
+  padding: 10px 8px;
 }
 
 .backend-sidebar-link:hover {
@@ -315,6 +331,10 @@ code {
 
 .backend-topbar-left {
   width: min(520px, 100%);
+}
+
+.backend-topbar-left form {
+  width: 100%;
 }
 
 .backend-search {
@@ -1137,6 +1157,10 @@ code {
   margin-bottom: 2px;
 }
 
+.backend-sidebar-collapsed .app-logo-wordmark {
+  display: none;
+}
+
 .app-logo-mark {
   width: 48px;
   height: 48px;
@@ -1361,6 +1385,11 @@ code {
   min-height: 520px;
 }
 
+.whatsapp-contact-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .whatsapp-pane-header {
   display: flex;
   justify-content: space-between;
@@ -1377,7 +1406,7 @@ code {
 }
 
 .whatsapp-contact-list {
-  max-height: 440px;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1421,7 +1450,7 @@ code {
 
 .whatsapp-conversation-pane {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   position: relative;
 }
 
@@ -1429,8 +1458,7 @@ code {
   display: grid;
   gap: 10px;
   padding: 16px;
-  padding-bottom: 72px;
-  max-height: 520px;
+  min-height: 0;
   overflow-y: auto;
   align-content: start;
 }
@@ -2164,6 +2192,27 @@ code {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.landing-problem-visual {
+  height: 100%;
+  min-height: 280px;
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  background:
+    radial-gradient(circle at top right, rgba(64, 156, 255, 0.14), transparent 44%),
+    radial-gradient(circle at bottom left, rgba(15, 157, 116, 0.2), transparent 40%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.landing-problem-chat-bubble {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
 }
 
 .landing-workflow-panel {

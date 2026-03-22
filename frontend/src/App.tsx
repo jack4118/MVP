@@ -186,6 +186,22 @@ const AppRoutes = () => {
         }
       />
       <Route path="/profile" element={<Navigate to="/settings" replace />} />
+      <Route
+        path="/app/pricing"
+        element={
+          <PrivateRoute>
+            <Pricing />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/app/agent"
+        element={
+          <PrivateRoute>
+            <AgentProgram />
+          </PrivateRoute>
+        }
+      />
       <Route path="/pricing" element={<Pricing />} />
       <Route path="/agent" element={<AgentProgram />} />
       <Route path="*" element={<Navigate to="/" replace />} />

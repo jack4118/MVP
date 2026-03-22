@@ -113,10 +113,10 @@ const Settings = () => {
       <AuthenticatedHeader title={t.profile.title} subtitle={t.profile.subtitle} />
 
       <div className="whatsapp-view-switch">
-        <button className={`whatsapp-view-tab ${tab === 'profile' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('profile')}>Profile</button>
-        <button className={`whatsapp-view-tab ${tab === 'ai' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('ai')}>AI Defaults</button>
-        <button className={`whatsapp-view-tab ${tab === 'notifications' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('notifications')}>Notifications</button>
-        <button className={`whatsapp-view-tab ${tab === 'security' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('security')}>Security</button>
+        <button className={`whatsapp-view-tab ${tab === 'profile' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('profile')}>{t.profile.tabProfile}</button>
+        <button className={`whatsapp-view-tab ${tab === 'ai' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('ai')}>{t.profile.tabAiDefaults}</button>
+        <button className={`whatsapp-view-tab ${tab === 'notifications' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('notifications')}>{t.profile.tabNotifications}</button>
+        <button className={`whatsapp-view-tab ${tab === 'security' ? 'whatsapp-view-tab-active' : ''}`} onClick={() => setTab('security')}>{t.profile.tabSecurity}</button>
       </div>
 
       {isSetupFlow ? <div className="alert alert-success"><span>{t.profile.setupNotice}</span></div> : null}
@@ -194,23 +194,23 @@ const Settings = () => {
 
         {tab === 'notifications' && (
           <section className="card">
-            <div className="section-heading"><h3>Notifications</h3></div>
+            <div className="section-heading"><h3>{t.profile.notificationsTitle}</h3></div>
             <label className="simple-list-item settings-clickable-item">
               <div>
-                <strong>New inbound WhatsApp</strong>
-                <p>Show unread/inbound notifications in workspace.</p>
+                <strong>{t.profile.notifyNewInbound}</strong>
+                <p>{t.profile.notifyNewInboundHint}</p>
               </div>
               <input type="checkbox" checked={form.notifyNewInbound} onChange={(e) => setForm((c) => ({ ...c, notifyNewInbound: e.target.checked }))} />
             </label>
             <label className="simple-list-item settings-clickable-item">
               <div>
-                <strong>Reminder due alert</strong>
-                <p>Enable reminder due notifications.</p>
+                <strong>{t.profile.notifyReminderDue}</strong>
+                <p>{t.profile.notifyReminderDueHint}</p>
               </div>
               <input type="checkbox" checked={form.notifyReminderDue} onChange={(e) => setForm((c) => ({ ...c, notifyReminderDue: e.target.checked }))} />
             </label>
             <div className="form-group">
-              <label className="form-label">Daily digest hour (0-23)</label>
+              <label className="form-label">{t.profile.notifyDailyDigestHour}</label>
               <input className="input" type="number" min={0} max={23} value={form.notifyDailyDigestHour} onChange={(e) => setForm((c) => ({ ...c, notifyDailyDigestHour: Math.max(0, Math.min(23, Number(e.target.value) || 0)) }))} />
             </div>
           </section>
@@ -218,10 +218,10 @@ const Settings = () => {
 
         {tab === 'security' && (
           <section className="card">
-            <div className="section-heading"><h3>Security</h3></div>
+            <div className="section-heading"><h3>{t.profile.securityTitle}</h3></div>
             <div className="simple-list">
-              <div className="simple-list-item"><div><strong>Last login</strong><p>{securityInfo.lastLoginAt}</p></div></div>
-              <div className="simple-list-item"><div><strong>Last password change</strong><p>{securityInfo.lastPasswordAt}</p></div></div>
+              <div className="simple-list-item"><div><strong>{t.profile.securityLastLogin}</strong><p>{securityInfo.lastLoginAt}</p></div></div>
+              <div className="simple-list-item"><div><strong>{t.profile.securityLastPasswordChange}</strong><p>{securityInfo.lastPasswordAt}</p></div></div>
             </div>
           </section>
         )}

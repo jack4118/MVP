@@ -52,7 +52,7 @@ const WhatsApp = () => {
   });
   const [testData, setTestData] = useState({
     toPhone: '',
-    content: 'Hi! This is a test message from my CRM WhatsApp integration.',
+    content: t.whatsapp.defaultTestMessage,
   });
 
   useEffect(() => {
@@ -599,7 +599,12 @@ const WhatsApp = () => {
           </div>
           <div className="form-group">
             <label className="form-label">{t.whatsapp.targetPhone}</label>
-            <input className="input" value={testData.toPhone} onChange={(e) => setTestData({ ...testData, toPhone: e.target.value })} placeholder="60123456789" />
+            <input
+              className="input"
+              value={testData.toPhone}
+              onChange={(e) => setTestData({ ...testData, toPhone: e.target.value })}
+              placeholder={t.whatsapp.testPhonePlaceholder}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">{t.whatsapp.testMessage}</label>
@@ -750,11 +755,11 @@ const WhatsApp = () => {
               rows={3}
               value={composerText}
               onChange={(e) => setComposerText(e.target.value)}
-              placeholder={t.whatsapp.testMessage}
+              placeholder={t.whatsapp.composerPlaceholder}
               disabled={!selectedPhone || sending}
             />
             <button className="btn btn-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim()}>
-              {sending ? t.common.loading : t.whatsapp.sendTest}
+              {sending ? t.common.loading : t.whatsapp.sendMessage}
             </button>
             <div className="whatsapp-form-actions">
               <select
@@ -763,18 +768,18 @@ const WhatsApp = () => {
                 onChange={(e) => setMediaType(e.target.value as 'image' | 'document')}
                 disabled={!selectedPhone || sendingMedia}
               >
-                <option value="image">image</option>
-                <option value="document">document</option>
+                <option value="image">{t.whatsapp.mediaTypeImage}</option>
+                <option value="document">{t.whatsapp.mediaTypeDocument}</option>
               </select>
               <input
                 className="input"
                 value={mediaUrl}
                 onChange={(e) => setMediaUrl(e.target.value)}
-                placeholder="https://... (media URL)"
+                placeholder={t.whatsapp.mediaUrlPlaceholder}
                 disabled={!selectedPhone || sendingMedia}
               />
               <button className="btn btn-secondary" onClick={handleSendMediaFromInbox} disabled={!selectedPhone || sendingMedia || !mediaUrl.trim()}>
-                {sendingMedia ? t.common.loading : 'Send media'}
+                {sendingMedia ? t.common.loading : t.whatsapp.sendMedia}
               </button>
             </div>
           </div>
@@ -808,9 +813,9 @@ const WhatsApp = () => {
             setContactsPage(1);
           }}
         >
-          <option value={8}>8 / page</option>
-          <option value={12}>12 / page</option>
-          <option value={20}>20 / page</option>
+          <option value={8}>{t.whatsapp.perPage.replace('{count}', '8')}</option>
+          <option value={12}>{t.whatsapp.perPage.replace('{count}', '12')}</option>
+          <option value={20}>{t.whatsapp.perPage.replace('{count}', '20')}</option>
         </select>
       </div>
 

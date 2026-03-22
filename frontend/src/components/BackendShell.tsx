@@ -1,5 +1,5 @@
-import { Link, useLocation } from 'react-router-dom';
-import { ReactNode, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { FormEvent, ReactNode, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 import AppLogo from './AppLogo';
@@ -14,7 +14,9 @@ const BackendShell = ({ children }: BackendShellProps) => {
   const { t } = useLanguage();
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const [workspaceSearch, setWorkspaceSearch] = useState('');
 
   const navItems = [
     { to: '/dashboard', label: t.privateHeader.home, icon: '🏠' },
@@ -22,10 +24,30 @@ const BackendShell = ({ children }: BackendShellProps) => {
     { to: '/reminders', label: t.privateHeader.reminders, icon: '⏰' },
     { to: '/ai', label: t.privateHeader.ai, icon: '✨' },
     { to: '/whatsapp', label: t.privateHeader.whatsapp, icon: '💬' },
-    { to: '/pricing', label: t.pricing.pricing, icon: '💳' },
-    { to: '/agent', label: t.agent.title, icon: '🤝' },
+    { to: '/app/pricing', label: t.pricing.pricing, icon: '💳' },
+    { to: '/app/agent', label: t.agent.title, icon: '🤝' },
     { to: '/settings', label: t.privateHeader.profile, icon: '⚙️' },
   ];
+
+  const searchableItems = [...navItems, { to: '/', label: t.privateHeader.viewSite, icon: '🌐' }];
+
+  const handleWorkspaceSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const query = workspaceSearch.trim().toLowerCase();
+    if (!query) return;
+
+    if (query.startsWith('/')) {
+      navigate(query);
+      setWorkspaceSearch('');
+      return;
+    }
+
+    const matched = searchableItems.find((item) => item.label.toLowerCase().includes(query));
+    if (matched) {
+      navigate(matched.to);
+      setWorkspaceSearch('');
+    }
+  };
 
   return (
     <div className={`backend-shell ${collapsed ? 'backend-shell-collapsed' : ''}`}>
@@ -59,13 +81,20 @@ const BackendShell = ({ children }: BackendShellProps) => {
       <div className="backend-main">
         <header className="backend-topbar">
           <div className="backend-topbar-left">
-            <input
-              className="input backend-search"
-              placeholder={t.common.search}
-              aria-label={t.common.search}
-            />
+            <form onSubmit={handleWorkspaceSearch}>
+              <input
+                className="input backend-search"
+                placeholder={t.common.search}
+                aria-label={t.common.search}
+                value={workspaceSearch}
+                onChange={(e) => setWorkspaceSearch(e.target.value)}
+              />
+            </form>
           </div>
           <div className="backend-topbar-right">
+            <Link to="/" className="btn btn-secondary">
+              {t.privateHeader.viewSite}
+            </Link>
             <span className="task-pill">{t.privateHeader.unreadLabel}</span>
             <LanguageToggle />
             <ThemeToggle />
