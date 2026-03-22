@@ -363,6 +363,16 @@ export interface WhatsAppContactsPage {
   totalPages: number;
 }
 
+export interface WhatsAppSendPreflight {
+  connected: boolean;
+  active: boolean;
+  verified: boolean;
+  hasRecentInbound: boolean;
+  canSendFreeform: boolean;
+  reasonCode: 'OK' | 'WHATSAPP_NOT_CONNECTED' | 'WHATSAPP_INACTIVE' | 'WHATSAPP_NOT_VERIFIED' | 'WHATSAPP_TEMPLATE_REQUIRED';
+  reasonMessage: string;
+}
+
 export const authApi = {
   register: async (email: string, password: string): Promise<ApiResponse<User>> => {
     try {
@@ -695,6 +705,13 @@ export const whatsappApi = {
 
   verifyConnection: async (): Promise<ApiResponse<{ connected: boolean; displayPhone?: string | null; verifiedName?: string | null }>> => {
     const response = await api.post<ApiResponse<{ connected: boolean; displayPhone?: string | null; verifiedName?: string | null }>>('/whatsapp/connection/verify');
+    return response.data;
+  },
+
+  getPreflight: async (phone?: string): Promise<ApiResponse<WhatsAppSendPreflight>> => {
+    const response = await api.get<ApiResponse<WhatsAppSendPreflight>>('/whatsapp/preflight', {
+      params: phone ? { phone } : undefined,
+    });
     return response.data;
   },
 

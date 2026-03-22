@@ -7,6 +7,7 @@ import {
   getWhatsAppContactSummariesPaged,
   getWhatsAppConversationMessages,
   getWhatsAppMessageLogs,
+  getWhatsAppSendPreflight,
   markWhatsAppConversationRead,
   processWhatsAppWebhook,
   sendWhatsAppMedia,
@@ -94,6 +95,20 @@ router.post('/connection/verify', async (req: AuthRequest, res: Response, next: 
     if (error instanceof Error && error.message === 'WhatsApp connection not found') {
       return res.status(404).json({ success: false, error: { message: 'Please save connection first', code: 'WHATSAPP_NOT_CONNECTED' } });
     }
+    next(error);
+  }
+});
+
+router.get('/preflight', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const phone = typeof req.query.phone === 'string' ? req.query.phone : undefined;
+    const preflight = await getWhatsAppSendPreflight(req.userId, phone);
+    return res.json({ success: true, data: preflight });
+  } catch (error) {
     next(error);
   }
 });

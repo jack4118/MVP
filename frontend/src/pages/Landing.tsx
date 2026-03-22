@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 import PublicHeader from '../components/PublicHeader';
@@ -7,6 +8,8 @@ import AppLogo from '../components/AppLogo';
 const Landing = () => {
   const { t } = useLanguage();
   const { isAuthenticated } = useAuth();
+  const workflowRef = useRef<HTMLElement | null>(null);
+  const [workflowHighlight, setWorkflowHighlight] = useState(false);
 
   const featureCards = [
     { title: t.landing.featureLeadTitle, body: t.landing.featureLeadBody },
@@ -35,6 +38,41 @@ const Landing = () => {
     t.landing.problemPoint4,
   ];
 
+  const scrollToWorkflow = () => {
+    const node = workflowRef.current;
+    if (!node) {
+      return;
+    }
+
+    const header = document.querySelector('.landing-header') as HTMLElement | null;
+    const offset = header ? header.offsetHeight + 12 : 12;
+    const top = node.getBoundingClientRect().top + window.scrollY - offset;
+
+    window.scrollTo({ top, behavior: 'smooth' });
+    window.history.replaceState(null, '', '#workflow');
+    window.setTimeout(() => {
+      node.focus();
+      setWorkflowHighlight(true);
+      window.setTimeout(() => setWorkflowHighlight(false), 1200);
+    }, 260);
+  };
+
+  useEffect(() => {
+    const onScrollRequest = () => {
+      scrollToWorkflow();
+    };
+
+    window.addEventListener('ezreply-scroll-workflow', onScrollRequest);
+
+    if (window.location.hash === '#workflow') {
+      window.setTimeout(() => scrollToWorkflow(), 0);
+    }
+
+    return () => {
+      window.removeEventListener('ezreply-scroll-workflow', onScrollRequest);
+    };
+  }, []);
+
   return (
     <div className="landing-shell">
       <PublicHeader />
@@ -48,11 +86,11 @@ const Landing = () => {
               <p className="landing-subtitle">{t.landing.heroSubtitle}</p>
               <div className="landing-cta-row">
                 <Link to={isAuthenticated ? '/dashboard' : '/login'} className="btn btn-primary">
-                  {t.landing.heroPrimaryCta}
+                  {t.common.startFreeTrial}
                 </Link>
-                <Link to="/pricing" className="btn btn-secondary">
+                <button type="button" className="btn btn-secondary" onClick={scrollToWorkflow}>
                   {t.landing.heroSecondaryCta}
-                </Link>
+                </button>
               </div>
               <p className="landing-outcome">{t.landing.outcomeStatement}</p>
             </div>
@@ -76,6 +114,24 @@ const Landing = () => {
             </div>
           </div>
           <p className="landing-social-line">{t.landing.socialProofLine}</p>
+        </section>
+
+        <section className="card landing-social-proof landing-trust-block">
+          <p className="eyebrow">{t.landing.socialEyebrow}</p>
+          <h2>{t.landing.socialTitle}</h2>
+          <p>{t.landing.socialBody}</p>
+          <div className="landing-social-chips">
+            {socialProofLabels.map((label) => (
+              <span key={label} className="task-pill">
+                {label}
+              </span>
+            ))}
+          </div>
+          <div className="landing-trust-list">
+            <p>{t.landing.trustPoint1}</p>
+            <p>{t.landing.trustPoint2}</p>
+            <p>{t.landing.trustPoint3}</p>
+          </div>
         </section>
 
         <section className="card landing-problem landing-problem-panel">
@@ -102,7 +158,12 @@ const Landing = () => {
           </div>
         </section>
 
-        <section className="card landing-workflow landing-workflow-panel">
+        <section
+          id="workflow"
+          ref={workflowRef}
+          className={`card landing-workflow landing-workflow-panel ${workflowHighlight ? 'landing-workflow-highlight' : ''}`}
+          tabIndex={-1}
+        >
           <p className="eyebrow">{t.landing.workflowEyebrow}</p>
           <h2>{t.landing.workflowTitle}</h2>
           <div className="landing-workflow-line">{t.landing.workflowLine}</div>
@@ -134,19 +195,6 @@ const Landing = () => {
               <p>{feature.body}</p>
             </article>
           ))}
-        </section>
-
-        <section className="card landing-social-proof">
-          <p className="eyebrow">{t.landing.socialEyebrow}</p>
-          <h2>{t.landing.socialTitle}</h2>
-          <p>{t.landing.socialBody}</p>
-          <div className="landing-social-chips">
-            {socialProofLabels.map((label) => (
-              <span key={label} className="task-pill">
-                {label}
-              </span>
-            ))}
-          </div>
         </section>
 
         <section className="card landing-testimonial-panel">

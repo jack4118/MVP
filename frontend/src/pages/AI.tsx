@@ -264,6 +264,13 @@ const AI = () => {
     try {
       setSendingWhatsApp(true);
       setError('');
+
+      const preflight = await whatsappApi.getPreflight(whatsAppPhone.trim());
+      if (!preflight.success || !preflight.data || !preflight.data.canSendFreeform) {
+        setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
+        return;
+      }
+
       const response = await whatsappApi.sendText({
         toPhone: whatsAppPhone,
         content: generatedText,

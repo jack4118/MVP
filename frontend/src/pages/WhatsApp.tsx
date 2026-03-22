@@ -8,6 +8,8 @@ import { storage } from '../utils/storage';
 
 type WhatsAppView = 'setup' | 'inbox' | 'contacts';
 const WHATSAPP_VIEW_KEY = 'whatsapp_active_view';
+const WHATSAPP_WIZARD_STATE_KEY = 'whatsapp_setup_wizard_v1';
+type SetupStep = 1 | 2 | 3 | 4;
 
 const WhatsApp = () => {
   const { t } = useLanguage();
@@ -55,10 +57,47 @@ const WhatsApp = () => {
     phoneNumberId: '',
     accessToken: '',
   });
+  const [wizardStep, setWizardStep] = useState<SetupStep>(1);
+  const [startedConnectStep, setStartedConnectStep] = useState(false);
+  const [tokenPasted, setTokenPasted] = useState(false);
+  const [testReceivedConfirmed, setTestReceivedConfirmed] = useState(false);
   const [testData, setTestData] = useState({
     toPhone: '',
     content: t.whatsapp.defaultTestMessage,
   });
+
+  useEffect(() => {
+    const saved = storage.getItem(WHATSAPP_WIZARD_STATE_KEY);
+    if (!saved) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as {
+        wizardStep?: SetupStep;
+        startedConnectStep?: boolean;
+        tokenPasted?: boolean;
+        testReceivedConfirmed?: boolean;
+      };
+      if (parsed.wizardStep && [1, 2, 3, 4].includes(parsed.wizardStep)) {
+        setWizardStep(parsed.wizardStep);
+      }
+      setStartedConnectStep(Boolean(parsed.startedConnectStep));
+      setTokenPasted(Boolean(parsed.tokenPasted));
+      setTestReceivedConfirmed(Boolean(parsed.testReceivedConfirmed));
+    } catch (_error) {
+      // ignore invalid local wizard state
+    }
+  }, []);
+
+  useEffect(() => {
+    storage.setItem(WHATSAPP_WIZARD_STATE_KEY, JSON.stringify({
+      wizardStep,
+      startedConnectStep,
+      tokenPasted,
+      testReceivedConfirmed,
+    }));
+  }, [wizardStep, startedConnectStep, tokenPasted, testReceivedConfirmed]);
 
   useEffect(() => {
     loadAll();
@@ -440,6 +479,7 @@ const WhatsApp = () => {
         return;
       }
       setSuccess(t.whatsapp.saveSuccess);
+      setStartedConnectStep(true);
       await loadAll();
     } catch (err) {
       setError(getApiErrorMessage(err, t.common.error));
@@ -478,6 +518,7 @@ const WhatsApp = () => {
         return;
       }
       setSuccess(`${t.whatsapp.verifySuccess}${response.data?.displayPhone ? ` (${response.data.displayPhone})` : ''}`);
+      setWizardStep(4);
       await loadAll();
     } catch (err) {
       setError(getApiErrorMessage(err, t.common.error));
@@ -491,6 +532,11 @@ const WhatsApp = () => {
       setSending(true);
       setError('');
       setSuccess('');
+      const preflight = await whatsappApi.getPreflight();
+      if (!preflight.success || !preflight.data || !preflight.data.canSendFreeform) {
+        setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
+        return;
+      }
       const response = await whatsappApi.sendText({
         toPhone: testData.toPhone,
         content: testData.content,
@@ -500,6 +546,7 @@ const WhatsApp = () => {
         return;
       }
       setSuccess(t.whatsapp.testSent);
+      setTestReceivedConfirmed(false);
       await loadAll();
       await loadConversation(testData.toPhone);
       await markConversationRead(testData.toPhone);
@@ -521,6 +568,11 @@ const WhatsApp = () => {
     try {
       setSending(true);
       setError('');
+      const preflight = await whatsappApi.getPreflight(selectedPhone);
+      if (!preflight.success || !preflight.data || !preflight.data.canSendFreeform) {
+        setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
+        return;
+      }
       const clientMessageId = `web-${Date.now()}`;
       const response = await whatsappApi.sendText({
         toPhone: selectedPhone,
@@ -585,98 +637,184 @@ const WhatsApp = () => {
   };
 
   const renderSetupView = () => (
+    (() => {
+      const canPassStep1 = !!formData.businessAccountId.trim() && !!formData.phoneNumberId.trim();
+      const tokenLength = formData.accessToken.trim().length;
+      const canPassStep2 = tokenLength >= 20;
+      const canPassStep3 = Boolean(connection?.isActive);
+      const canPassStep4 = Boolean(testReceivedConfirmed);
+      const progressPercent = Math.round((wizardStep / 4) * 100);
+      const activeStep = wizardStep;
+
+      const goNext = () => {
+        if (activeStep === 1 && !canPassStep1) {
+          setError(t.whatsapp.fillConnectionFirst);
+          return;
+        }
+        if (activeStep === 2 && !canPassStep2) {
+          setError(t.whatsapp.tokenFormatHint);
+          return;
+        }
+        if (activeStep === 3 && !canPassStep3) {
+          setError(t.whatsapp.verifyFirstHint);
+          return;
+        }
+        if (activeStep === 4 && !canPassStep4) {
+          setError(t.whatsapp.confirmTestReceiptHint);
+          return;
+        }
+        setWizardStep((current) => {
+          const next = Math.min(4, current + 1);
+          return (next === 1 || next === 2 || next === 3 || next === 4 ? next : 4) as SetupStep;
+        });
+      };
+
+      const goBack = () => setWizardStep((current) => {
+        const next = Math.max(1, current - 1);
+        return (next === 1 || next === 2 || next === 3 || next === 4 ? next : 1) as SetupStep;
+      });
+
+      return (
     <div className="whatsapp-section-stack">
-      <div className="whatsapp-step-grid">
-        <section className="card whatsapp-panel">
-          <div className="section-heading">
-            <h2>{t.whatsapp.quickStartTitle}</h2>
-            <p>{t.whatsapp.quickStartDesc}</p>
-          </div>
-          <ol className="whatsapp-quickstart-list">
-            <li>{t.whatsapp.quickStartStep1}</li>
-            <li>{t.whatsapp.quickStartStep2}</li>
-            <li>{t.whatsapp.quickStartStep3}</li>
-            <li>{t.whatsapp.quickStartStep4}</li>
-          </ol>
-          <div className="whatsapp-quickstart-actions">
-            <a
-              className="btn btn-secondary"
-              href="https://developers.facebook.com/apps/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t.whatsapp.openMetaConsole}
+      <section className="card whatsapp-panel">
+        <div className="section-heading">
+          <h2>{t.whatsapp.wizardTitle}</h2>
+          <p>{t.whatsapp.wizardProgress.replace('{step}', String(activeStep)).replace('{total}', '4')}</p>
+        </div>
+        <div className="whatsapp-wizard-progress">
+          <div className="whatsapp-wizard-progress-bar" style={{ width: `${progressPercent}%` }}></div>
+        </div>
+        {activeStep === 1 ? (
+          <>
+            <div className="section-heading">
+              <h2>{t.whatsapp.stepConnectLabel}</h2>
+              <p>{t.whatsapp.connectStepDescription}</p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t.whatsapp.businessAccountId}</label>
+              <input className="input" value={formData.businessAccountId} onChange={(e) => setFormData({ ...formData, businessAccountId: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t.whatsapp.phoneNumberId}</label>
+              <input className="input" value={formData.phoneNumberId} onChange={(e) => setFormData({ ...formData, phoneNumberId: e.target.value })} />
+            </div>
+            <div className="whatsapp-form-actions">
+              <a
+                className="btn btn-secondary"
+                href="https://developers.facebook.com/apps/"
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setStartedConnectStep(true)}
+              >
+                {t.whatsapp.openMetaConsole}
+              </a>
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving || !canPassStep1}>
+                {saving ? t.common.loading : t.whatsapp.connectAction}
+              </button>
+            </div>
+            <a className="whatsapp-help-link" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer">
+              {t.whatsapp.needHelp}
             </a>
-          </div>
-        </section>
-
-        <section className="card whatsapp-panel">
-          <div className="section-heading">
-            <h2>{t.whatsapp.setupPanelTitle}</h2>
+          </>
+        ) : null}
+        {activeStep === 2 ? (
+          <>
+            <div className="section-heading">
+              <h2>{t.whatsapp.stepTokenLabel}</h2>
+              <p>{t.whatsapp.tokenStepDescription}</p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t.whatsapp.accessToken}</label>
+              <input
+                className="input"
+                type="password"
+                value={formData.accessToken}
+                onPaste={() => setTokenPasted(true)}
+                onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })}
+                placeholder={t.whatsapp.tokenPlaceholder}
+              />
+            </div>
             <p>
-              {t.whatsapp.statusLabel}: {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
-              {connection?.displayPhone ? ` • ${connection.displayPhone}` : ''}
+              {tokenPasted ? t.whatsapp.tokenPasteDetected : t.whatsapp.tokenFormatHint}
             </p>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.whatsapp.businessAccountId}</label>
-            <input className="input" value={formData.businessAccountId} onChange={(e) => setFormData({ ...formData, businessAccountId: e.target.value })} />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.whatsapp.phoneNumberId}</label>
-            <input className="input" value={formData.phoneNumberId} onChange={(e) => setFormData({ ...formData, phoneNumberId: e.target.value })} />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.whatsapp.accessToken}</label>
-            <input className="input" type="password" value={formData.accessToken} onChange={(e) => setFormData({ ...formData, accessToken: e.target.value })} placeholder={t.whatsapp.tokenPlaceholder} />
-          </div>
-
-          <div className="whatsapp-form-actions">
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              {saving ? t.common.loading : t.whatsapp.save}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={handleVerify}
-              disabled={
-                verifying ||
-                (!connection &&
-                  (!formData.businessAccountId.trim() || !formData.phoneNumberId.trim() || !formData.accessToken.trim()))
-              }
-            >
-              {verifying ? t.common.loading : t.whatsapp.verify}
-            </button>
-          </div>
-        </section>
-      </div>
+            <a className="whatsapp-help-link" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer">
+              {t.whatsapp.needHelp}
+            </a>
+          </>
+        ) : null}
+        {activeStep === 3 ? (
+          <>
+            <div className="section-heading">
+              <h2>{t.whatsapp.stepVerifyLabel}</h2>
+              <p>
+                {t.whatsapp.statusLabel}: {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
+                {connection?.displayPhone ? ` • ${connection.displayPhone}` : ''}
+              </p>
+            </div>
+            <div className="whatsapp-form-actions">
+              <button
+                className="btn btn-secondary"
+                onClick={handleVerify}
+                disabled={
+                  verifying ||
+                  (!connection &&
+                    (!formData.businessAccountId.trim() || !formData.phoneNumberId.trim() || !formData.accessToken.trim()))
+                }
+              >
+                {verifying ? t.common.loading : t.whatsapp.verify}
+              </button>
+              {!connection?.isActive ? <p>{t.whatsapp.verifyFixHint}</p> : null}
+            </div>
+            <a className="whatsapp-help-link" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer">
+              {t.whatsapp.needHelp}
+            </a>
+          </>
+        ) : null}
+        {activeStep === 4 ? (
+          <>
+            <div className="section-heading">
+              <h2>{t.whatsapp.stepTestLabel}</h2>
+              <p>{t.whatsapp.inboxSubtitle}</p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t.whatsapp.targetPhone}</label>
+              <input
+                className="input"
+                value={testData.toPhone}
+                onChange={(e) => setTestData({ ...testData, toPhone: e.target.value })}
+                placeholder={t.whatsapp.testPhonePlaceholder}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">{t.whatsapp.testMessage}</label>
+              <textarea className="input" rows={5} value={testData.content} onChange={(e) => setTestData({ ...testData, content: e.target.value })} />
+            </div>
+            <div className="whatsapp-form-actions">
+              <button className="btn btn-success" onClick={handleSendTest} disabled={sending || !testData.toPhone.trim() || !testData.content.trim()}>
+                {sending ? t.common.loading : t.whatsapp.sendTest}
+              </button>
+            </div>
+            <label className="whatsapp-checkline">
+              <input type="checkbox" checked={testReceivedConfirmed} onChange={(e) => setTestReceivedConfirmed(e.target.checked)} />
+              <span>{t.whatsapp.testReceivedLabel}</span>
+            </label>
+            {testReceivedConfirmed ? <div className="alert alert-success"><span>{t.whatsapp.wizardSuccess}</span></div> : null}
+            <a className="whatsapp-help-link" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer">
+              {t.whatsapp.needHelp}
+            </a>
+          </>
+        ) : null}
+        <div className="whatsapp-form-actions">
+          <button className="btn btn-secondary" onClick={goBack} disabled={activeStep === 1}>
+            {t.common.back}
+          </button>
+          <button className="btn btn-primary" onClick={goNext} disabled={(activeStep === 1 && !canPassStep1) || (activeStep === 2 && !canPassStep2) || (activeStep === 3 && !canPassStep3) || (activeStep === 4 && !canPassStep4)}>
+            {activeStep === 4 ? t.whatsapp.finishSetup : t.common.next}
+          </button>
+        </div>
+      </section>
 
       <div className="whatsapp-step-grid">
-        <section className="card whatsapp-panel">
-          <div className="section-heading">
-            <h2>{t.whatsapp.testPanelTitle}</h2>
-            <p>{t.whatsapp.inboxSubtitle}</p>
-          </div>
-          <div className="form-group">
-            <label className="form-label">{t.whatsapp.targetPhone}</label>
-            <input
-              className="input"
-              value={testData.toPhone}
-              onChange={(e) => setTestData({ ...testData, toPhone: e.target.value })}
-              placeholder={t.whatsapp.testPhonePlaceholder}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">{t.whatsapp.testMessage}</label>
-            <textarea className="input" rows={5} value={testData.content} onChange={(e) => setTestData({ ...testData, content: e.target.value })} />
-          </div>
-          <button className="btn btn-success" onClick={handleSendTest} disabled={sending}>
-            {sending ? t.common.loading : t.whatsapp.sendTest}
-          </button>
-        </section>
-
         <section className="card whatsapp-panel">
           <div className="section-heading">
             <h2>{t.whatsapp.logs}</h2>
@@ -704,6 +842,8 @@ const WhatsApp = () => {
         </section>
       </div>
     </div>
+      );
+    })()
   );
 
   const renderInboxView = () => (

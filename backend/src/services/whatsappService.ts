@@ -317,6 +317,120 @@ export const getWhatsappConnection = async (userId: string) => {
   });
 };
 
+export interface WhatsAppSendPreflight {
+  connected: boolean;
+  active: boolean;
+  verified: boolean;
+  hasRecentInbound: boolean;
+  canSendFreeform: boolean;
+  reasonCode:
+    | 'OK'
+    | 'WHATSAPP_NOT_CONNECTED'
+    | 'WHATSAPP_INACTIVE'
+    | 'WHATSAPP_NOT_VERIFIED'
+    | 'WHATSAPP_TEMPLATE_REQUIRED';
+  reasonMessage: string;
+}
+
+export const getWhatsAppSendPreflight = async (
+  userId: string,
+  phone?: string
+): Promise<WhatsAppSendPreflight> => {
+  const connection = await prisma.whatsAppConnection.findUnique({
+    where: { userId },
+    select: {
+      isActive: true,
+      lastVerifiedAt: true,
+    },
+  });
+
+  if (!connection) {
+    return {
+      connected: false,
+      active: false,
+      verified: false,
+      hasRecentInbound: false,
+      canSendFreeform: false,
+      reasonCode: 'WHATSAPP_NOT_CONNECTED',
+      reasonMessage: 'Connect WhatsApp first before sending.',
+    };
+  }
+
+  if (!connection.isActive) {
+    return {
+      connected: true,
+      active: false,
+      verified: Boolean(connection.lastVerifiedAt),
+      hasRecentInbound: false,
+      canSendFreeform: false,
+      reasonCode: 'WHATSAPP_INACTIVE',
+      reasonMessage: 'Your WhatsApp connection is inactive. Reconnect and verify again.',
+    };
+  }
+
+  if (!connection.lastVerifiedAt) {
+    return {
+      connected: true,
+      active: true,
+      verified: false,
+      hasRecentInbound: false,
+      canSendFreeform: false,
+      reasonCode: 'WHATSAPP_NOT_VERIFIED',
+      reasonMessage: 'Verify your WhatsApp connection before sending.',
+    };
+  }
+
+  const normalizedPhone = sanitizePhone(phone || '');
+  if (!normalizedPhone) {
+    return {
+      connected: true,
+      active: true,
+      verified: true,
+      hasRecentInbound: false,
+      canSendFreeform: true,
+      reasonCode: 'OK',
+      reasonMessage: 'Ready to send.',
+    };
+  }
+
+  const state = await prisma.whatsAppConversationState.findUnique({
+    where: {
+      userId_phone: {
+        userId,
+        phone: normalizedPhone,
+      },
+    },
+    select: {
+      lastInboundAt: true,
+    },
+  });
+
+  const lastInboundAt = state?.lastInboundAt || null;
+  const hasRecentInbound = Boolean(lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() <= 24 * 60 * 60 * 1000);
+
+  if (!hasRecentInbound) {
+    return {
+      connected: true,
+      active: true,
+      verified: true,
+      hasRecentInbound: false,
+      canSendFreeform: false,
+      reasonCode: 'WHATSAPP_TEMPLATE_REQUIRED',
+      reasonMessage: 'This contact appears outside the 24-hour window. Send an approved template first.',
+    };
+  }
+
+  return {
+    connected: true,
+    active: true,
+    verified: true,
+    hasRecentInbound: true,
+    canSendFreeform: true,
+    reasonCode: 'OK',
+    reasonMessage: 'Ready to send.',
+  };
+};
+
 export const upsertWhatsappConnection = async (
   userId: string,
   data: { businessAccountId: string; phoneNumberId: string; accessToken?: string }

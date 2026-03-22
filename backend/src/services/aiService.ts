@@ -671,6 +671,175 @@ const getHardConstraints = (language: Language, outputFormat: OutputFormat): str
   return common.join('\n');
 };
 
+const REPLY_POLICY_BANNED: Record<Language, string[]> = {
+  en: [
+    'just checking in',
+    'this one',
+    'let me know if any questions',
+  ],
+  'zh-CN': [
+    '再跟进一下',
+    '这个跟进',
+    '有需要随时联系',
+  ],
+  ms: [
+    'follow up ni',
+    'details',
+    'continue later',
+  ],
+};
+
+const REPLY_POLICY_SOFTENERS: Record<Language, string[]> = {
+  en: ['no rush'],
+  'zh-CN': ['不急'],
+  ms: ['tak urgent'],
+};
+
+const REPLY_POLICY_CTA_PATTERNS: Record<Language, RegExp[]> = {
+  en: [/\bcan you\b/i, /\bcould you\b/i, /\bwant me to\b/i, /\blet me know\b/i, /\bconfirm\b/i],
+  'zh-CN': [/要不要/u, /可以.*吗/u, /确认/u, /回我/u],
+  ms: [/\bnak saya\b/i, /\bboleh\b/i, /\bconfirm\b/i, /\bbalas\b/i, /\bsahkan\b/i],
+};
+
+const tokenizeForPolicy = (text: string): string[] => {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (!compact) {
+    return [];
+  }
+  const cjkUnits = (compact.match(/[\u4e00-\u9fff]+/gu) || []).flatMap((chunk) => chunk.split(''));
+  const latinUnits = compact.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)*/g) || [];
+  const malayUnits = compact.match(/[A-Za-z]+(?:-[A-Za-z]+)*/g) || [];
+  const merged = [...cjkUnits, ...latinUnits, ...malayUnits]
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return merged;
+};
+
+const countPolicyWords = (text: string): number => tokenizeForPolicy(text).length;
+
+const countSofteners = (text: string, language: Language): number => {
+  const lower = text.toLowerCase();
+  return REPLY_POLICY_SOFTENERS[language].reduce((count, phrase) => (
+    lower.includes(phrase.toLowerCase()) ? count + 1 : count
+  ), 0);
+};
+
+const countCtaSignals = (text: string, language: Language): number => {
+  const patterns = REPLY_POLICY_CTA_PATTERNS[language];
+  const phraseHits = patterns.reduce((count, regex) => (regex.test(text) ? count + 1 : count), 0);
+  const questionHits = (text.match(/\?/g) || []).length + (text.match(/？/g) || []).length;
+  return Math.max(phraseHits, questionHits);
+};
+
+const hasContextAnchor = (text: string, language: Language): boolean => {
+  if (/"[^"]{2,}"/.test(text) || /“[^”]{2,}”/u.test(text) || /'[^']{2,}'/.test(text)) {
+    return true;
+  }
+  if (/\b(?:today|tomorrow|yesterday|quote|meeting|3pm|4pm|5pm)\b/i.test(text)) {
+    return true;
+  }
+  if (language === 'ms' && /\b(?:hari tu|esok|semalam|quotation|pukul)\b/i.test(text)) {
+    return true;
+  }
+  if (language === 'zh-CN' && /(?:明天|昨天|报价|上次|点|今天)/u.test(text)) {
+    return true;
+  }
+  return /\d{1,2}\s?(?:am|pm)/i.test(text) || /\b\d{1,2}[:.]\d{2}\b/.test(text);
+};
+
+const sanitizePolicyBannedPhrases = (text: string, language: Language): string => {
+  let next = text;
+  for (const phrase of REPLY_POLICY_BANNED[language]) {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    next = next.replace(new RegExp(escaped, 'gi'), '');
+  }
+  return next.replace(/\s{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+interface ReplyPolicyCheck {
+  valid: boolean;
+  violations: string[];
+}
+
+const checkReplyPolicy = (text: string, language: Language): ReplyPolicyCheck => {
+  const violations: string[] = [];
+  const words = countPolicyWords(text);
+  const softenerCount = countSofteners(text, language);
+  const ctaCount = countCtaSignals(text, language);
+  const hasBanned = REPLY_POLICY_BANNED[language].some((phrase) => text.toLowerCase().includes(phrase.toLowerCase()));
+  const anchorPresent = hasContextAnchor(text, language);
+
+  if (words > 30) {
+    violations.push(`word_count>${words}`);
+  }
+  if (softenerCount > 1) {
+    violations.push(`too_many_softeners>${softenerCount}`);
+  }
+  if (ctaCount > 1) {
+    violations.push(`too_many_cta>${ctaCount}`);
+  }
+  if (!anchorPresent) {
+    violations.push('missing_context_anchor');
+  }
+  if (hasBanned) {
+    violations.push('contains_banned_phrase');
+  }
+
+  return {
+    valid: violations.length === 0,
+    violations,
+  };
+};
+
+const buildPolicyRewritePrompt = (text: string, language: Language, violations: string[]): string => {
+  if (language === 'zh-CN') {
+    return [
+      '请重写这条消息并严格通过以下规则：',
+      '- 最多 30 个词',
+      '- 最多 1 个缓和词（例如“不急”）',
+      '- 最多 1 个 CTA（只问一件事）',
+      '- 必须包含 1 个上下文锚点（例如上次报价、明天3点、hari tu）',
+      '- 删除禁用短语',
+      `当前问题：${violations.join(', ')}`,
+      '',
+      '原文：',
+      text,
+      '',
+      '只输出最终消息。',
+    ].join('\n');
+  }
+  if (language === 'ms') {
+    return [
+      'Tulis semula mesej ini dan patuhi semua polisi:',
+      '- Maksimum 30 perkataan',
+      '- Maksimum 1 softener (contoh: tak urgent)',
+      '- Maksimum 1 CTA (satu soalan/tindakan sahaja)',
+      '- Mesti ada 1 context anchor (contoh: quote hari tu, esok 3pm)',
+      '- Buang frasa dilarang',
+      `Isu semasa: ${violations.join(', ')}`,
+      '',
+      'Asal:',
+      text,
+      '',
+      'Output mesej akhir sahaja.',
+    ].join('\n');
+  }
+  return [
+    'Rewrite this message and pass all policy checks:',
+    '- Max 30 words',
+    '- Max 1 softener',
+    '- Max 1 CTA (single ask only)',
+    '- Include 1 context anchor (example: quote from earlier, tomorrow 3pm, hari tu)',
+    '- Remove banned phrases',
+    `Current issues: ${violations.join(', ')}`,
+    '',
+    'Original:',
+    text,
+    '',
+    'Return only the final sendable message.',
+  ].join('\n');
+};
+
 const getConversationModeInstruction = (
   language: Language,
   mode: ConversationMode,
@@ -974,6 +1143,39 @@ const enforceDraftConfig = async (
 
   const formatAdjusted = enforceOutputFormatConsistency(current, config.outputFormat);
   return ensureEmojiRange(formatAdjusted, config.outputFormat, config.emojiPreference);
+};
+
+const enforceReplyPolicy = async (
+  systemPrompt: string,
+  draft: string,
+  language: Language
+): Promise<string> => {
+  let current = sanitizePolicyBannedPhrases(draft, language);
+  let check = checkReplyPolicy(current, language);
+  let attempts = 0;
+
+  while (!check.valid && attempts < 2) {
+    const rewritten = await generateCompletion(systemPrompt, buildPolicyRewritePrompt(current, language, check.violations));
+    const next = sanitizePolicyBannedPhrases(cleanGeneratedMessage(rewritten.choices[0]?.message?.content || ''), language);
+    if (!next.trim()) {
+      break;
+    }
+    current = next;
+    check = checkReplyPolicy(current, language);
+    attempts += 1;
+  }
+
+  if (check.valid) {
+    return current;
+  }
+
+  const words = tokenizeForPolicy(current);
+  if (words.length > 30) {
+    const clipped = words.slice(0, 30).join(' ');
+    current = clipped.endsWith('?') || clipped.endsWith('？') ? clipped : `${clipped}?`;
+  }
+  current = sanitizePolicyBannedPhrases(current, language);
+  return current;
 };
 
 const getObjectiveCoverageThreshold = (objectiveItems: string[]): number => (objectiveItems.length > 1 ? 0.9 : 1);
@@ -2037,11 +2239,16 @@ export const generateFollowUpText = async (
     : isMalay
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
+  const replyPolicyInstruction = isChinese
+    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须有1个上下文锚点；禁止使用黑名单短语。'
+    : isMalay
+      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib 1 context anchor; dilarang frasa blacklist.'
+      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include 1 context anchor, and avoid banned phrases.';
   const sellerContext = [
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'follow_up', variantCount);
 
   try {
@@ -2077,10 +2284,12 @@ export const generateFollowUpText = async (
           localTimeContext.hour,
           greetingPolicy
         );
+        next = await enforceReplyPolicy(systemPrompt, next, language);
         return enforceGreetingPolicy(next, greetingPolicy);
       })
     );
     let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
+    generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2129,13 +2338,14 @@ export const generateFollowUpText = async (
       : isChinese
         ? `你好 ${data.leadName}，\n\n我这边简短跟进以下事项：\n${objectiveSummary}\n${daysPassed > 0 ? `\n距离上次沟通已 ${daysPassed} 天。` : ''}\n\n方便的话，请按以上事项回复大概时间。`
         : createFollowUpFallback(data, daysPassed, isChinese, selectedPreset).replace(data.objective, objectiveSummary);
-    const fallbackText = enforceGreetingPolicy(formatFallbackMessage(
+    const fallbackBase = enforceGreetingPolicy(formatFallbackMessage(
       baseFallbackText,
       outputFormat,
       language,
       data.leadName,
       isChinese ? '跟进确认' : isMalay ? 'Susulan Ringkas' : 'Quick Follow-up'
     ), greetingPolicy);
+    const fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
 
     await prisma.aiLog.create({
       data: {
@@ -2214,11 +2424,16 @@ export const generatePaymentText = async (
     : isMalay
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
+  const replyPolicyInstruction = isChinese
+    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须有1个上下文锚点；禁止使用黑名单短语。'
+    : isMalay
+      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib 1 context anchor; dilarang frasa blacklist.'
+      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include 1 context anchor, and avoid banned phrases.';
   const sellerContext = [
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'payment', variantCount);
 
   try {
@@ -2254,10 +2469,12 @@ export const generatePaymentText = async (
           localTimeContext.hour,
           greetingPolicy
         );
+        next = await enforceReplyPolicy(systemPrompt, next, language);
         return enforceGreetingPolicy(next, greetingPolicy);
       })
     );
     let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
+    generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2306,13 +2523,14 @@ export const generatePaymentText = async (
       : isChinese
         ? `你好 ${data.leadName}，\n\n这边提醒以下事项：\n${objectiveSummary}${amount ? `\n当前金额：${amount.toFixed(2)}。` : ''}\n\n方便的话，请优先确认付款时间，并告知其余事项安排。`
         : createPaymentFallback(data, isChinese, selectedPreset, daysOverdue).replace(data.objective, objectiveSummary);
-    const fallbackText = enforceGreetingPolicy(formatFallbackMessage(
+    const fallbackBase = enforceGreetingPolicy(formatFallbackMessage(
       baseFallbackText,
       outputFormat,
       language,
       data.leadName,
       isChinese ? '付款提醒' : isMalay ? 'Peringatan Bayaran' : 'Payment Reminder'
     ), greetingPolicy);
+    const fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
 
     await prisma.aiLog.create({
       data: {
