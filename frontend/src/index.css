@@ -1014,6 +1014,10 @@ code {
 .whatsapp-inbox-composer {
   border-top: 1px solid var(--border-color);
   padding-top: 10px;
+  background: var(--bg-primary);
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
 }
 
 .reminders-create-card {
@@ -1331,6 +1335,10 @@ code {
   gap: 0;
 }
 
+.whatsapp-page-inbox .whatsapp-panel > .section-heading {
+  display: none;
+}
+
 .whatsapp-view-tab {
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
@@ -1372,6 +1380,7 @@ code {
 .whatsapp-page-inbox .whatsapp-panel {
   min-height: 0;
   height: 100%;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .whatsapp-quickstart-list {
@@ -1394,6 +1403,10 @@ code {
   gap: 16px;
   min-height: clamp(520px, calc(100vh - 280px), 760px);
   height: 100%;
+}
+
+.whatsapp-page-inbox .whatsapp-chat-layout {
+  min-height: 0;
 }
 
 .whatsapp-contact-pane,
@@ -1482,6 +1495,10 @@ code {
   min-height: 0;
   overflow-y: auto;
   align-content: start;
+}
+
+.whatsapp-page-inbox .whatsapp-chat-body {
+  max-height: none;
 }
 
 .whatsapp-scroll-latest {
