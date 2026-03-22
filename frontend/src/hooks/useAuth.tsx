@@ -45,9 +45,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const syncPreferredLanguage = (nextUser: User | null) => {
+  const syncPreferredLanguage = (nextUser: User | null, force = false) => {
     const preferredLanguage = nextUser?.defaultLanguage;
-    if (preferredLanguage) {
+    const existingLocalLanguage = localStorage.getItem('language');
+    if (preferredLanguage && (force || !existingLocalLanguage)) {
       localStorage.setItem('language', preferredLanguage);
       window.dispatchEvent(new CustomEvent('ezreply-language-changed', { detail: preferredLanguage }));
     }
@@ -133,7 +134,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const response = await authApi.updateCurrentUser(data);
     if (response.success && response.data) {
       setUser(response.data);
-      syncPreferredLanguage(response.data);
+      syncPreferredLanguage(response.data, !!data.defaultLanguage);
     }
     return response;
   };

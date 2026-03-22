@@ -1378,6 +1378,7 @@ code {
   display: grid;
   grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
   gap: 16px;
+  min-height: clamp(520px, calc(100vh - 280px), 760px);
 }
 
 .whatsapp-contact-pane,
@@ -1386,7 +1387,8 @@ code {
   border-radius: 16px;
   overflow: hidden;
   background: var(--bg-primary);
-  min-height: 520px;
+  min-height: 0;
+  height: 100%;
 }
 
 .whatsapp-contact-pane {
@@ -1486,14 +1488,6 @@ code {
 .whatsapp-scroll-latest:hover {
   transform: translateY(-1px);
   background: rgba(15, 157, 116, 0.92);
-}
-
-.whatsapp-scroll-latest-fixed {
-  position: fixed;
-  right: 24px;
-  bottom: 28px;
-  z-index: 40;
-  box-shadow: 0 14px 32px rgba(10, 18, 28, 0.28);
 }
 
 .ai-cutoff-card {
@@ -2779,6 +2773,7 @@ code {
   .whatsapp-contact-pane,
   .whatsapp-conversation-pane {
     min-height: auto;
+    height: auto;
   }
 
   .whatsapp-chat-body,
@@ -2787,12 +2782,6 @@ code {
   }
 
   .whatsapp-scroll-latest {
-    left: 16px;
-    right: 16px;
-    bottom: 84px;
-  }
-
-  .whatsapp-scroll-latest-fixed {
     left: 16px;
     right: 16px;
     bottom: 84px;

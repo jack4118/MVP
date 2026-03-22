@@ -238,9 +238,6 @@ const WhatsApp = () => {
         top: conversationBodyRef.current.scrollHeight,
         behavior: 'smooth',
       });
-      const rect = conversationBodyRef.current.getBoundingClientRect();
-      const targetTop = window.scrollY + rect.top + conversationBodyRef.current.scrollHeight - window.innerHeight + 56;
-      window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
       setIsConversationAtBottom(true);
       void markConversationRead(selectedPhone);
     }
@@ -707,7 +704,6 @@ const WhatsApp = () => {
                     setSelectedPhone(contact.phone);
                     setSelectedByUser(true);
                     setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
-                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                   }}
                   className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
                 >
@@ -754,6 +750,9 @@ const WhatsApp = () => {
             </div>
             <button className="btn btn-secondary" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
               {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
+            </button>
+            <button className="btn btn-secondary" onClick={scrollConversationToLatest} disabled={!selectedPhone || conversation.length === 0}>
+              {t.whatsapp.jumpToLatest}
             </button>
           </div>
           <div className="whatsapp-chat-body" ref={conversationBodyRef}>
@@ -926,7 +925,6 @@ const WhatsApp = () => {
                       setSelectedPhone(contact.phone);
                       setSelectedByUser(true);
                       setActiveView('inbox');
-                      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
                     }}
                   >
                     {t.whatsapp.openConversation}
@@ -1035,7 +1033,7 @@ const WhatsApp = () => {
       {activeView === 'contacts' && renderContactsView()}
 
       {activeView === 'inbox' && selectedPhone && conversation.length > 0 && !isConversationAtBottom && (
-        <button type="button" className="whatsapp-scroll-latest whatsapp-scroll-latest-fixed" onClick={scrollConversationToLatest}>
+        <button type="button" className="whatsapp-scroll-latest" onClick={scrollConversationToLatest}>
           {t.whatsapp.jumpToLatest}
         </button>
       )}
