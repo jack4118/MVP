@@ -30,6 +30,9 @@ interface AuthContextType {
     defaultFollowUpDays?: number | null;
     defaultCountryCode?: string | null;
     inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+    notifyNewInbound?: boolean;
+    notifyReminderDue?: boolean;
+    notifyDailyDigestHour?: number | null;
   }) => Promise<ApiResponse<User>>;
   refreshUser: () => Promise<void>;
   logout: () => void;
@@ -123,6 +126,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     defaultFollowUpDays?: number | null;
     defaultCountryCode?: string | null;
     inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+    notifyNewInbound?: boolean;
+    notifyReminderDue?: boolean;
+    notifyDailyDigestHour?: number | null;
   }) => {
     const response = await authApi.updateCurrentUser(data);
     if (response.success && response.data) {

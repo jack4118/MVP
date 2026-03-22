@@ -4,6 +4,7 @@ import {
   createLead,
   getLeads,
   getLeadById,
+  getLeadsForExport,
   importLeads,
   parseImportedLeadRows,
   updateLead,
@@ -77,6 +78,52 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       success: true,
       data: leads,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/export.csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Unauthorized' },
+      });
+    }
+
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const stage = typeof req.query.stage === 'string' ? req.query.stage : undefined;
+    const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+
+    const leads = await getLeadsForExport(req.userId, { status, stage, tag, q });
+    const escapeCsv = (value: unknown) => {
+      const text = String(value ?? '');
+      if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const rows = [
+      ['id', 'name', 'contact', 'status', 'stage', 'tags', 'nextFollowUpAt', 'createdAt'],
+      ...leads.map((lead) => [
+        lead.id,
+        lead.name,
+        lead.contact || '',
+        lead.status,
+        (lead as any).stage || '',
+        Array.isArray((lead as any).tags) ? (lead as any).tags.join('|') : '',
+        (lead as any).nextFollowUpAt ? new Date((lead as any).nextFollowUpAt).toISOString() : '',
+        new Date((lead as any).createdAt).toISOString(),
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map(escapeCsv).join(',')).join('\n')}`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="leads-export.csv"');
+    return res.status(200).send(csv);
   } catch (error) {
     next(error);
   }

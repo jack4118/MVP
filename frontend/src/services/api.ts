@@ -127,6 +127,11 @@ export interface User {
   defaultFollowUpDays?: number | null;
   defaultCountryCode?: string | null;
   inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+  notifyNewInbound?: boolean;
+  notifyReminderDue?: boolean;
+  notifyDailyDigestHour?: number | null;
+  securityLastPasswordAt?: string | null;
+  securityLastLoginAt?: string | null;
 }
 
 export interface LoginResponse {
@@ -210,6 +215,15 @@ export interface DashboardSummary {
     hasSentFollowUp: boolean;
     totalLeads: number;
     sentMessagesCount: number;
+  };
+  waitingPaymentAmount?: number;
+  onboardingProgressPercent?: number;
+  calculationNote?: string;
+  kpiTrend?: {
+    todayTasks: number;
+    unreadMessages: number;
+    overdueFollowUps: number;
+    payments: number;
   };
 }
 
@@ -399,6 +413,9 @@ export const authApi = {
     defaultFollowUpDays?: number | null;
     defaultCountryCode?: string | null;
     inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+    notifyNewInbound?: boolean;
+    notifyReminderDue?: boolean;
+    notifyDailyDigestHour?: number | null;
   }): Promise<ApiResponse<User>> => {
     try {
       const response = await api.put<ApiResponse<User>>('/auth/me', data);
@@ -510,6 +527,19 @@ export const leadsApi = {
     }>>(`/leads/${id}/memory/refresh`, { language });
     return response.data;
   },
+
+  exportCsv: async (params?: {
+    status?: LeadStatus;
+    stage?: string;
+    tag?: string;
+    q?: string;
+  }): Promise<Blob> => {
+    const response = await api.get('/leads/export.csv', {
+      params,
+      responseType: 'blob',
+    });
+    return response.data as Blob;
+  },
 };
 
 export const remindersApi = {
@@ -558,13 +588,21 @@ export const remindersApi = {
     return response.data;
   },
 
-  getDispatchLogs: async (limit: number = 30): Promise<ApiResponse<ReminderDispatchLog[]>> => {
-    const response = await api.get<ApiResponse<ReminderDispatchLog[]>>('/reminders/dispatch-logs', { params: { limit } });
+  getDispatchLogs: async (
+    limit: number = 30,
+    status?: 'sent' | 'failed' | 'requires_template' | 'skipped'
+  ): Promise<ApiResponse<ReminderDispatchLog[]>> => {
+    const response = await api.get<ApiResponse<ReminderDispatchLog[]>>('/reminders/dispatch-logs', { params: { limit, status } });
     return response.data;
   },
 
   runDispatchNow: async (): Promise<ApiResponse<{ scanned: number; processed: number }>> => {
     const response = await api.post<ApiResponse<{ scanned: number; processed: number }>>('/reminders/dispatch/run');
+    return response.data;
+  },
+
+  retryDispatchLog: async (id: string): Promise<ApiResponse<{ retried: boolean; status: string; reason?: string }>> => {
+    const response = await api.post<ApiResponse<{ retried: boolean; status: string; reason?: string }>>(`/reminders/dispatch-logs/${id}/retry`);
     return response.data;
   },
 };
@@ -664,8 +702,24 @@ export const whatsappApi = {
     toPhone: string;
     content: string;
     leadId?: string;
-  }): Promise<ApiResponse<{ sent: boolean; messageId?: string; toPhone: string }>> => {
-    const response = await api.post<ApiResponse<{ sent: boolean; messageId?: string; toPhone: string }>>('/whatsapp/send', data);
+    conversationPhone?: string;
+    clientMessageId?: string;
+  }): Promise<ApiResponse<{ sent: boolean; messageId?: string; serverMessageId?: string; clientMessageId?: string | null; toPhone: string; deduped?: boolean }>> => {
+    const response = await api.post<ApiResponse<{ sent: boolean; messageId?: string; serverMessageId?: string; clientMessageId?: string | null; toPhone: string; deduped?: boolean }>>('/whatsapp/send', data);
+    return response.data;
+  },
+
+  sendMedia: async (data: {
+    toPhone: string;
+    leadId?: string;
+    conversationPhone?: string;
+    clientMessageId?: string;
+    mediaType: 'image' | 'document';
+    mediaUrl: string;
+    caption?: string;
+    filename?: string;
+  }): Promise<ApiResponse<{ sent: boolean; messageId?: string; serverMessageId?: string; clientMessageId?: string | null; toPhone: string; deduped?: boolean }>> => {
+    const response = await api.post<ApiResponse<{ sent: boolean; messageId?: string; serverMessageId?: string; clientMessageId?: string | null; toPhone: string; deduped?: boolean }>>('/whatsapp/send-media', data);
     return response.data;
   },
 
@@ -693,6 +747,11 @@ export const whatsappApi = {
 export const dashboardApi = {
   getSummary: async (): Promise<ApiResponse<DashboardSummary>> => {
     const response = await api.get<ApiResponse<DashboardSummary>>('/dashboard/summary');
+    return response.data;
+  },
+
+  getSummaryV2: async (): Promise<ApiResponse<DashboardSummary>> => {
+    const response = await api.get<ApiResponse<DashboardSummary>>('/dashboard/summary-v2');
     return response.data;
   },
 };

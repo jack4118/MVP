@@ -8,6 +8,7 @@ import {
   getReminders,
   getTodayReminders,
   markReminderDone,
+  retryReminderDispatchLog,
   updateReminder,
 } from '../services/reminderService';
 import { createReminderSchema, updateReminderSchema } from '../utils/validation';
@@ -131,9 +132,32 @@ router.get('/dispatch-logs', async (req: AuthRequest, res: Response, next: NextF
     }
 
     const limit = Number(req.query.limit || 50);
-    const logs = await getReminderDispatchLogs(req.userId, limit);
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const logs = await getReminderDispatchLogs(
+      req.userId,
+      limit,
+      status === 'sent' || status === 'failed' || status === 'requires_template' || status === 'skipped'
+        ? status
+        : undefined
+    );
     return res.json({ success: true, data: logs });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/dispatch-logs/:id/retry', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const result = await retryReminderDispatchLog(req.userId, req.params.id);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Dispatch log not found or not retryable') {
+      return res.status(404).json({ success: false, error: { message: error.message } });
+    }
     next(error);
   }
 });

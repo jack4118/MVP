@@ -9,6 +9,7 @@ const Reminders = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dispatchLogs, setDispatchLogs] = useState<ReminderDispatchLog[]>([]);
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'all' | 'sent' | 'failed' | 'requires_template' | 'skipped'>('all');
   const [view, setView] = useState<'today' | 'upcoming' | 'all'>('today');
   const [status, setStatus] = useState<'all' | 'pending' | 'done'>('pending');
   const [days, setDays] = useState(30);
@@ -56,9 +57,9 @@ const Reminders = () => {
     }
   };
 
-  const loadDispatchLogs = async () => {
+  const loadDispatchLogs = async (nextStatus: 'all' | 'sent' | 'failed' | 'requires_template' | 'skipped' = dispatchStatusFilter) => {
     try {
-      const response = await remindersApi.getDispatchLogs(20);
+      const response = await remindersApi.getDispatchLogs(20, nextStatus === 'all' ? undefined : nextStatus);
       if (response.success && response.data) {
         setDispatchLogs(response.data);
       }
@@ -129,8 +130,8 @@ const Reminders = () => {
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: '16px', background: 'linear-gradient(145deg, rgba(255,216,80,0.12), rgba(80,170,255,0.07))' }}>
-        <h2 style={{ marginTop: 0 }}>{t.reminders.createReminder}</h2>
+      <div className="card reminders-create-card">
+        <h2 className="reminders-card-title">{t.reminders.createReminder}</h2>
         <form onSubmit={handleCreate}>
           <div className="form-group">
             <label className="form-label">{t.reminders.lead}</label>
@@ -176,7 +177,7 @@ const Reminders = () => {
         </form>
       </div>
 
-      <div className="card" style={{ marginBottom: '16px' }}>
+      <div className="card reminders-filter-card">
         <div className="reminder-filter-grid">
           <div>
             <label className="form-label">{t.reminders.view}</label>
@@ -250,13 +251,7 @@ const Reminders = () => {
           {reminders.map((reminder) => (
             <div
               key={reminder.id}
-              className="card reminder-card"
-              style={{
-                border: reminder.isDone ? '1px solid rgba(90,200,120,0.5)' : '1px solid var(--border-color)',
-                background: reminder.isDone
-                  ? 'linear-gradient(145deg, rgba(70,180,110,0.10), rgba(40,120,90,0.05))'
-                  : 'linear-gradient(145deg, rgba(255,255,255,0.03), rgba(120,160,255,0.05))',
-              }}
+              className={`card reminder-card ${reminder.isDone ? 'reminder-card-done' : 'reminder-card-pending'}`}
             >
               <div className="reminder-header">
                 <div>
@@ -267,7 +262,7 @@ const Reminders = () => {
                     <span className="badge badge-status">{reminder.isDone ? t.reminders.done : t.reminders.pending}</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div className="reminder-actions-row">
                   <button onClick={() => handleMarkDone(reminder)} className="btn btn-success">
                     {reminder.isDone ? `↺ ${t.reminders.reopen}` : `✓ ${t.reminders.markDone}`}
                   </button>
@@ -291,9 +286,9 @@ const Reminders = () => {
         </div>
       )}
 
-      <div className="card" style={{ marginTop: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '10px', flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0 }}>{t.reminders.dispatchLogs}</h2>
+      <div className="card reminders-logs-card">
+        <div className="reminders-logs-header">
+          <h2 className="reminders-card-title">{t.reminders.dispatchLogs}</h2>
           <button
             className="btn btn-secondary"
             onClick={async () => {
@@ -304,21 +299,49 @@ const Reminders = () => {
           >
             {t.reminders.runNow}
           </button>
+          <select
+            className="input"
+            value={dispatchStatusFilter}
+            onChange={(e) => {
+              const next = e.target.value as 'all' | 'sent' | 'failed' | 'requires_template' | 'skipped';
+              setDispatchStatusFilter(next);
+              void loadDispatchLogs(next);
+            }}
+          >
+            <option value="all">all</option>
+            <option value="sent">sent</option>
+            <option value="failed">failed</option>
+            <option value="requires_template">requires_template</option>
+            <option value="skipped">skipped</option>
+          </select>
         </div>
         {dispatchLogs.length === 0 ? (
-          <p style={{ color: 'var(--text-secondary)' }}>{t.reminders.noDispatchLogs}</p>
+          <p className="reminders-muted">{t.reminders.noDispatchLogs}</p>
         ) : (
-          <div style={{ display: 'grid', gap: '8px' }}>
+          <div className="reminders-logs-grid">
             {dispatchLogs.map((log) => (
-              <div key={log.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+              <div key={log.id} className="reminders-log-item">
+                <div className="reminders-log-item-head">
                   <strong>{log.reminder.lead.name}</strong>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>{new Date(log.sentAt).toLocaleString()}</span>
+                  <span className="reminders-log-item-time">{new Date(log.sentAt).toLocaleString()}</span>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                <div className="reminders-log-item-meta">
                   {log.channel} • {log.status} • {log.reminder.type}
                 </div>
-                {log.error && <div style={{ marginTop: '6px', color: 'var(--danger)' }}>{log.error}</div>}
+                {log.error && <div className="reminders-log-item-error">{log.error}</div>}
+                {(log.status === 'failed' || log.status === 'requires_template') && (
+                  <div className="reminders-log-item-actions">
+                    <button
+                      className="btn btn-secondary"
+                      onClick={async () => {
+                        await remindersApi.retryDispatchLog(log.id);
+                        await loadDispatchLogs();
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

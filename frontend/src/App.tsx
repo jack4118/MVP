@@ -13,7 +13,8 @@ import WhatsApp from './pages/WhatsApp';
 import Pricing from './pages/Pricing';
 import AgentProgram from './pages/AgentProgram';
 import Landing from './pages/Landing';
-import Profile from './pages/Profile';
+import Settings from './pages/Settings';
+import BackendShell from './components/BackendShell';
 
 const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, loading, user, updateProfile } = useAuth();
@@ -120,7 +121,7 @@ const PrivateRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  return <>{children}</>;
+  return <BackendShell>{children}</BackendShell>;
 };
 
 const AppRoutes = () => {
@@ -161,6 +162,14 @@ const AppRoutes = () => {
         }
       />
       <Route
+        path="/ai-composer"
+        element={
+          <PrivateRoute>
+            <Navigate to="/ai" replace />
+          </PrivateRoute>
+        }
+      />
+      <Route
         path="/whatsapp"
         element={
           <PrivateRoute>
@@ -169,15 +178,17 @@ const AppRoutes = () => {
         }
       />
       <Route
-        path="/profile"
+        path="/settings"
         element={
           <PrivateRoute>
-            <Profile />
+            <Settings />
           </PrivateRoute>
         }
       />
+      <Route path="/profile" element={<Navigate to="/settings" replace />} />
       <Route path="/pricing" element={<Pricing />} />
       <Route path="/agent" element={<AgentProgram />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 };

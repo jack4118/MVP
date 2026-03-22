@@ -392,16 +392,43 @@ export const verifyWhatsappConnection = async (userId: string) => {
 
 export const sendWhatsAppText = async (
   userId: string,
-  data: { toPhone: string; content: string; leadId?: string; scheduleFollowUp?: boolean }
+  data: {
+    toPhone: string;
+    content: string;
+    leadId?: string;
+    scheduleFollowUp?: boolean;
+    conversationPhone?: string;
+    clientMessageId?: string;
+  }
 ) => {
   const connection = await prisma.whatsAppConnection.findUnique({ where: { userId } });
   if (!connection) {
     throw new Error('WhatsApp connection not found');
   }
 
-  const toPhone = sanitizePhone(data.toPhone);
+  const toPhone = sanitizePhone(data.conversationPhone || data.toPhone);
   if (!toPhone) {
     throw new Error('Invalid phone number');
+  }
+
+  if (data.clientMessageId) {
+    const existing = await prisma.whatsAppMessageLog.findFirst({
+      where: {
+        userId,
+        toPhone,
+        direction: 'outbound',
+        messageId: data.clientMessageId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing && existing.status !== 'failed') {
+      return {
+        sent: true,
+        messageId: existing.messageId,
+        toPhone,
+        deduped: true,
+      };
+    }
   }
 
   const body = {
@@ -433,6 +460,7 @@ export const sendWhatsAppText = async (
         data: {
           userId,
           leadId: data.leadId,
+          messageId: data.clientMessageId || null,
           direction: 'outbound',
           messageType: 'text',
           transcriptionStatus: 'not_applicable',
@@ -448,7 +476,8 @@ export const sendWhatsAppText = async (
       throw new Error(message);
     }
 
-    const messageId = payload?.messages?.[0]?.id || null;
+    const serverMessageId = payload?.messages?.[0]?.id || null;
+    const messageId = data.clientMessageId || serverMessageId;
 
     const messageAt = new Date();
 
@@ -466,7 +495,11 @@ export const sendWhatsAppText = async (
         status: 'sent',
         error: null,
         externalTimestamp: messageAt,
-        rawPayload: payload,
+        rawPayload: {
+          ...payload,
+          clientMessageId: data.clientMessageId || null,
+          serverMessageId,
+        },
       },
     });
 
@@ -507,6 +540,8 @@ export const sendWhatsAppText = async (
     return {
       sent: true,
       messageId,
+      serverMessageId,
+      clientMessageId: data.clientMessageId || null,
       toPhone,
     };
   } catch (error: any) {
@@ -515,6 +550,152 @@ export const sendWhatsAppText = async (
     }
     throw error;
   }
+};
+
+export const sendWhatsAppMedia = async (
+  userId: string,
+  data: {
+    toPhone: string;
+    mediaType: 'image' | 'document';
+    mediaUrl: string;
+    caption?: string;
+    filename?: string;
+    leadId?: string;
+    conversationPhone?: string;
+    clientMessageId?: string;
+  }
+) => {
+  const connection = await prisma.whatsAppConnection.findUnique({ where: { userId } });
+  if (!connection) {
+    throw new Error('WhatsApp connection not found');
+  }
+
+  const toPhone = sanitizePhone(data.conversationPhone || data.toPhone);
+  if (!toPhone) {
+    throw new Error('Invalid phone number');
+  }
+
+  if (data.clientMessageId) {
+    const existing = await prisma.whatsAppMessageLog.findFirst({
+      where: {
+        userId,
+        toPhone,
+        direction: 'outbound',
+        messageId: data.clientMessageId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing && existing.status !== 'failed') {
+      return {
+        sent: true,
+        messageId: existing.messageId,
+        toPhone,
+        deduped: true,
+      };
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: toPhone,
+    type: data.mediaType,
+  };
+
+  if (data.mediaType === 'image') {
+    body.image = {
+      link: data.mediaUrl,
+      caption: data.caption || undefined,
+    };
+  } else {
+    body.document = {
+      link: data.mediaUrl,
+      caption: data.caption || undefined,
+      filename: data.filename || undefined,
+    };
+  }
+
+  const response = await fetch(getGraphUrl(`${connection.phoneNumberId}/messages`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${connection.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload: any = await response.json();
+  const content = data.caption || `[${data.mediaType}] ${data.mediaUrl}`;
+
+  if (!response.ok) {
+    const message = payload?.error?.message || `Failed to send WhatsApp ${data.mediaType}`;
+    await prisma.whatsAppMessageLog.create({
+      data: {
+        userId,
+        leadId: data.leadId,
+        messageId: data.clientMessageId || null,
+        direction: 'outbound',
+        messageType: data.mediaType,
+        transcriptionStatus: 'not_applicable',
+        fromPhone: connection.displayPhone ? sanitizePhone(connection.displayPhone) : null,
+        toPhone,
+        content,
+        status: 'failed',
+        error: message,
+        rawPayload: payload,
+      },
+    });
+    throw new Error(message);
+  }
+
+  const serverMessageId = payload?.messages?.[0]?.id || null;
+  const messageId = data.clientMessageId || serverMessageId;
+  const messageAt = new Date();
+
+  await prisma.whatsAppMessageLog.create({
+    data: {
+      userId,
+      leadId: data.leadId,
+      messageId,
+      direction: 'outbound',
+      messageType: data.mediaType,
+      transcriptionStatus: 'not_applicable',
+      fromPhone: connection.displayPhone ? sanitizePhone(connection.displayPhone) : null,
+      toPhone,
+      content,
+      status: 'sent',
+      error: null,
+      externalTimestamp: messageAt,
+      rawPayload: {
+        ...payload,
+        mediaType: data.mediaType,
+        mediaUrl: data.mediaUrl,
+        clientMessageId: data.clientMessageId || null,
+        serverMessageId,
+      },
+    },
+  });
+
+  const resolvedLeadId = data.leadId || (await resolveLeadForPhone(userId, toPhone))?.id || null;
+  await updateConversationState({
+    userId,
+    phone: toPhone,
+    leadId: resolvedLeadId,
+    messageId,
+    preview: content,
+    status: 'sent',
+    error: null,
+    direction: 'outbound',
+    messageAt,
+  });
+
+  return {
+    sent: true,
+    messageId,
+    serverMessageId,
+    clientMessageId: data.clientMessageId || null,
+    toPhone,
+  };
 };
 
 export const getWhatsAppMessageLogs = async (userId: string, limit: number = 30) => {

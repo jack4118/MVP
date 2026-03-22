@@ -66,6 +66,9 @@ export const updateProfileSchema = z.object({
   defaultFollowUpDays: z.number().int().min(0).max(30).optional().nullable(),
   defaultCountryCode: z.string().max(10).optional().nullable(),
   inboxDefaultView: z.enum(['inbox', 'contacts', 'setup']).optional().nullable(),
+  notifyNewInbound: z.boolean().optional(),
+  notifyReminderDue: z.boolean().optional(),
+  notifyDailyDigestHour: z.number().int().min(0).max(23).optional().nullable(),
 });
 
 export const createLeadSchema = z.object({
@@ -170,6 +173,19 @@ export const whatsappSendSchema = z.object({
   leadId: z.string().optional(),
   toPhone: z.string().min(6, 'toPhone is required'),
   content: z.string().min(1, 'content is required').max(5000, 'content is too long'),
+  conversationPhone: z.string().min(6).optional(),
+  clientMessageId: z.string().max(128).optional(),
+});
+
+export const whatsappSendMediaSchema = z.object({
+  leadId: z.string().optional(),
+  toPhone: z.string().min(6, 'toPhone is required'),
+  conversationPhone: z.string().min(6).optional(),
+  clientMessageId: z.string().max(128).optional(),
+  mediaType: z.enum(['image', 'document']),
+  mediaUrl: z.string().url('mediaUrl must be a valid URL'),
+  caption: z.string().max(1024).optional(),
+  filename: z.string().max(255).optional(),
 });
 
 export const whatsappMarkReadSchema = z.object({

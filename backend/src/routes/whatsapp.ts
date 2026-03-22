@@ -1,6 +1,6 @@
 import express, { Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { whatsappConnectionSchema, whatsappMarkReadSchema, whatsappSendSchema } from '../utils/validation';
+import { whatsappConnectionSchema, whatsappMarkReadSchema, whatsappSendMediaSchema, whatsappSendSchema } from '../utils/validation';
 import {
   getWhatsappConnection,
   getWhatsAppContactSummariesPaged,
@@ -8,6 +8,7 @@ import {
   getWhatsAppMessageLogs,
   markWhatsAppConversationRead,
   processWhatsAppWebhook,
+  sendWhatsAppMedia,
   sendWhatsAppText,
   upsertWhatsappConnection,
   verifyWhatsappConnection,
@@ -145,6 +146,24 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
           code: 'WHATSAPP_TEMPLATE_REQUIRED',
         },
       });
+    }
+    next(error);
+  }
+});
+
+router.post('/send-media', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const validatedData = whatsappSendMediaSchema.parse(req.body);
+    const result = await sendWhatsAppMedia(req.userId, validatedData);
+
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'WhatsApp connection not found') {
+      return res.status(404).json({ success: false, error: { message: 'Please connect WhatsApp first', code: 'WHATSAPP_NOT_CONNECTED' } });
     }
     next(error);
   }

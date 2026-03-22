@@ -214,10 +214,17 @@ export const deleteReminder = async (userId: string, reminderId: string) => {
   return { deleted: true };
 };
 
-export const getReminderDispatchLogs = async (userId: string, limit: number = 50) => {
+export const getReminderDispatchLogs = async (
+  userId: string,
+  limit: number = 50,
+  status?: 'sent' | 'failed' | 'requires_template' | 'skipped'
+) => {
   const safeLimit = Math.min(Math.max(limit, 1), 200);
   return prisma.reminderDispatchLog.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(status ? { status } : {}),
+    },
     include: {
       reminder: {
         select: {
@@ -237,6 +244,94 @@ export const getReminderDispatchLogs = async (userId: string, limit: number = 50
     orderBy: { sentAt: 'desc' },
     take: safeLimit,
   });
+};
+
+export const retryReminderDispatchLog = async (userId: string, logId: string) => {
+  const log = await prisma.reminderDispatchLog.findFirst({
+    where: {
+      id: logId,
+      userId,
+      status: { in: ['failed', 'requires_template'] },
+    },
+    include: {
+      reminder: {
+        include: {
+          lead: true,
+        },
+      },
+    },
+  });
+
+  if (!log) {
+    throw new Error('Dispatch log not found or not retryable');
+  }
+
+  const reminder = log.reminder;
+  const contactPhone = reminder.lead.contact?.trim();
+  const dispatchKey = `${reminder.id}:retry:${Date.now()}`;
+
+  if (!contactPhone) {
+    await createDispatchLog({
+      reminderId: reminder.id,
+      userId,
+      dispatchKey,
+      channel: 'whatsapp',
+      status: 'failed',
+      error: 'Lead contact phone is missing',
+    });
+    return { retried: false, status: 'failed', reason: 'Lead contact phone is missing' };
+  }
+
+  const connection = await getWhatsappConnection(userId);
+  if (!connection?.isActive) {
+    await createDispatchLog({
+      reminderId: reminder.id,
+      userId,
+      dispatchKey,
+      channel: 'whatsapp',
+      status: 'failed',
+      error: 'WhatsApp connection is not active',
+    });
+    return { retried: false, status: 'failed', reason: 'WhatsApp connection is not active' };
+  }
+
+  const content = buildDispatchMessage(reminder as any);
+  try {
+    await sendWhatsAppText(userId, {
+      leadId: reminder.lead.id,
+      toPhone: contactPhone,
+      content,
+      scheduleFollowUp: false,
+    });
+
+    await createDispatchLog({
+      reminderId: reminder.id,
+      userId,
+      dispatchKey,
+      channel: 'whatsapp',
+      status: 'sent',
+      payload: {
+        leadId: reminder.lead.id,
+        retriedFromLogId: log.id,
+      },
+    });
+
+    return { retried: true, status: 'sent' };
+  } catch (error) {
+    await createDispatchLog({
+      reminderId: reminder.id,
+      userId,
+      dispatchKey,
+      channel: 'whatsapp',
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Retry failed',
+      payload: {
+        leadId: reminder.lead.id,
+        retriedFromLogId: log.id,
+      },
+    });
+    return { retried: false, status: 'failed', reason: error instanceof Error ? error.message : 'Retry failed' };
+  }
 };
 
 export const dispatchDueReminders = async () => {

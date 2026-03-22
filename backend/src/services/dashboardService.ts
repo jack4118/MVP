@@ -117,3 +117,76 @@ export const getDashboardSummary = async (userId: string) => {
     },
   };
 };
+
+export const getDashboardSummaryV2 = async (userId: string) => {
+  const now = new Date();
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const fourteenDaysAgo = new Date(now);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+  const [summary, recentReminders, previousReminders, recentUnread, previousUnread, recentWon, previousWon] = await Promise.all([
+    getDashboardSummary(userId),
+    prisma.reminder.count({
+      where: {
+        lead: { userId },
+        triggerAt: { gte: sevenDaysAgo, lte: now },
+      },
+    }),
+    prisma.reminder.count({
+      where: {
+        lead: { userId },
+        triggerAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+      },
+    }),
+    prisma.whatsAppMessageLog.count({
+      where: {
+        userId,
+        direction: 'inbound',
+        createdAt: { gte: sevenDaysAgo, lte: now },
+      },
+    }),
+    prisma.whatsAppMessageLog.count({
+      where: {
+        userId,
+        direction: 'inbound',
+        createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+      },
+    }),
+    prisma.lead.count({
+      where: {
+        userId,
+        status: 'won',
+        lastActivityAt: { gte: sevenDaysAgo, lte: now },
+      },
+    }),
+    prisma.lead.count({
+      where: {
+        userId,
+        status: 'won',
+        lastActivityAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+      },
+    }),
+  ]);
+
+  const waitingPaymentAmount = summary.waitingPayment * 100;
+  const onboardingDoneCount = [
+    summary.onboarding.hasConnectedWhatsApp,
+    summary.onboarding.hasLeads,
+    summary.onboarding.hasSentFollowUp,
+  ].filter(Boolean).length;
+  const onboardingProgressPercent = Math.round((onboardingDoneCount / 3) * 100);
+
+  return {
+    ...summary,
+    waitingPaymentAmount,
+    onboardingProgressPercent,
+    calculationNote: 'waitingPaymentAmount is estimated using RM100 per waiting payment lead until order amount is modeled.',
+    kpiTrend: {
+      todayTasks: recentReminders - previousReminders,
+      unreadMessages: recentUnread - previousUnread,
+      overdueFollowUps: summary.overdueFollowUps,
+      payments: recentWon - previousWon,
+    },
+  };
+};

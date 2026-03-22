@@ -64,6 +64,7 @@ const Leads = () => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [importSummary, setImportSummary] = useState<null | { importedCount: number; skippedCount: number; totalRows: number }>(null);
   const [memorySummary, setMemorySummary] = useState('');
   const [refreshingMemory, setRefreshingMemory] = useState(false);
@@ -255,6 +256,28 @@ const Leads = () => {
       setError(getApiErrorMessage(err, t.leads.importFailed));
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      setExporting(true);
+      const blob = await leadsApi.exportCsv({
+        q: searchTerm || undefined,
+        status: statusFilter !== 'all' ? (statusFilter as LeadStatus) : undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'leads-export.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -496,6 +519,9 @@ const Leads = () => {
       <AuthenticatedHeader title={t.leads.title} subtitle={t.dashboard.leadsNavBody} />
 
       <div className="page-header-inline-actions">
+        <button onClick={handleExportCsv} className="btn btn-secondary" disabled={exporting}>
+          {exporting ? t.common.loading : 'Export CSV'}
+        </button>
         <button
           onClick={() => {
             setShowImport((value) => !value);

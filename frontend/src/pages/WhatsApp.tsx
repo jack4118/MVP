@@ -41,6 +41,10 @@ const WhatsApp = () => {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [sending, setSending] = useState(false);
+  const [composerText, setComposerText] = useState('');
+  const [mediaType, setMediaType] = useState<'image' | 'document'>('image');
+  const [mediaUrl, setMediaUrl] = useState('');
+  const [sendingMedia, setSendingMedia] = useState(false);
   const [formData, setFormData] = useState({
     businessAccountId: '',
     phoneNumberId: '',
@@ -457,6 +461,67 @@ const WhatsApp = () => {
     }
   };
 
+  const handleSendFromInbox = async () => {
+    if (!selectedPhone || !composerText.trim()) {
+      setError(t.whatsapp.selectContact);
+      return;
+    }
+
+    try {
+      setSending(true);
+      setError('');
+      const clientMessageId = `web-${Date.now()}`;
+      const response = await whatsappApi.sendText({
+        toPhone: selectedPhone,
+        conversationPhone: selectedPhone,
+        content: composerText.trim(),
+        clientMessageId,
+      });
+      if (!response.success) {
+        setError(response.error?.message || t.common.error);
+        return;
+      }
+      setComposerText('');
+      await loadConversation(selectedPhone);
+      await loadContacts(contactQuery, contactsPage);
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendMediaFromInbox = async () => {
+    if (!selectedPhone || !mediaUrl.trim()) {
+      setError(t.whatsapp.selectContact);
+      return;
+    }
+
+    try {
+      setSendingMedia(true);
+      setError('');
+      const clientMessageId = `media-${Date.now()}`;
+      const response = await whatsappApi.sendMedia({
+        toPhone: selectedPhone,
+        conversationPhone: selectedPhone,
+        mediaType,
+        mediaUrl: mediaUrl.trim(),
+        clientMessageId,
+      });
+      if (!response.success) {
+        setError(response.error?.message || t.common.error);
+        return;
+      }
+      setMediaUrl('');
+      await loadConversation(selectedPhone);
+      await loadContacts(contactQuery, contactsPage);
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
+    } finally {
+      setSendingMedia(false);
+    }
+  };
+
   const renderSetupView = () => (
     <div className="whatsapp-section-stack">
       <div className="whatsapp-step-grid">
@@ -678,6 +743,40 @@ const WhatsApp = () => {
                 );
               })
             )}
+          </div>
+          <div className="whatsapp-form-actions whatsapp-inbox-composer">
+            <textarea
+              className="input"
+              rows={3}
+              value={composerText}
+              onChange={(e) => setComposerText(e.target.value)}
+              placeholder={t.whatsapp.testMessage}
+              disabled={!selectedPhone || sending}
+            />
+            <button className="btn btn-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim()}>
+              {sending ? t.common.loading : t.whatsapp.sendTest}
+            </button>
+            <div className="whatsapp-form-actions">
+              <select
+                className="input whatsapp-page-size"
+                value={mediaType}
+                onChange={(e) => setMediaType(e.target.value as 'image' | 'document')}
+                disabled={!selectedPhone || sendingMedia}
+              >
+                <option value="image">image</option>
+                <option value="document">document</option>
+              </select>
+              <input
+                className="input"
+                value={mediaUrl}
+                onChange={(e) => setMediaUrl(e.target.value)}
+                placeholder="https://... (media URL)"
+                disabled={!selectedPhone || sendingMedia}
+              />
+              <button className="btn btn-secondary" onClick={handleSendMediaFromInbox} disabled={!selectedPhone || sendingMedia || !mediaUrl.trim()}>
+                {sendingMedia ? t.common.loading : 'Send media'}
+              </button>
+            </div>
           </div>
         </section>
       </div>

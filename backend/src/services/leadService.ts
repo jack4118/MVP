@@ -74,6 +74,38 @@ export const getLeads = async (userId: string) => {
   return leads.map(normalizeLead);
 };
 
+export const getLeadsForExport = async (
+  userId: string,
+  filters: { status?: string; stage?: string; tag?: string; q?: string }
+) => {
+  const leads = await prisma.lead.findMany({
+    where: {
+      userId,
+      ...(filters.status ? { status: normalizeLeadStatus(filters.status) } : {}),
+      ...(filters.stage ? { stage: filters.stage } : {}),
+      ...(filters.tag
+        ? {
+            tags: {
+              array_contains: [filters.tag],
+            },
+          }
+        : {}),
+      ...(filters.q
+        ? {
+            OR: [
+              { name: { contains: filters.q, mode: 'insensitive' } },
+              { contact: { contains: filters.q, mode: 'insensitive' } },
+              { notes: { contains: filters.q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ createdAt: 'desc' }],
+  });
+
+  return leads.map(normalizeLead);
+};
+
 export const getLeadById = async (userId: string, leadId: string) => {
   const lead = await prisma.lead.findFirst({
     where: {

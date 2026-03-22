@@ -25,6 +25,9 @@ export interface UpdateProfileData {
   defaultFollowUpDays?: number | null;
   defaultCountryCode?: string | null;
   inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
+  notifyNewInbound?: boolean;
+  notifyReminderDue?: boolean;
+  notifyDailyDigestHour?: number | null;
 }
 
 const userSelect = {
@@ -43,6 +46,11 @@ const userSelect = {
   defaultFollowUpDays: true,
   defaultCountryCode: true,
   inboxDefaultView: true,
+  notifyNewInbound: true,
+  notifyReminderDue: true,
+  notifyDailyDigestHour: true,
+  securityLastPasswordAt: true,
+  securityLastLoginAt: true,
 } as const;
 
 export const register = async (data: RegisterData) => {
@@ -61,6 +69,7 @@ export const register = async (data: RegisterData) => {
       email: data.email,
       passwordHash,
       hasCompletedOnboarding: false,
+      securityLastPasswordAt: new Date(),
     },
     select: userSelect,
   });
@@ -87,6 +96,11 @@ export const login = async (data: LoginData) => {
     throw new Error('JWT_SECRET is not defined');
   }
 
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { securityLastLoginAt: new Date() },
+  });
+
   const token = jwt.sign(
     { userId: user.id },
     process.env.JWT_SECRET,
@@ -111,6 +125,11 @@ export const login = async (data: LoginData) => {
       defaultFollowUpDays: user.defaultFollowUpDays,
       defaultCountryCode: user.defaultCountryCode,
       inboxDefaultView: user.inboxDefaultView,
+      notifyNewInbound: user.notifyNewInbound,
+      notifyReminderDue: user.notifyReminderDue,
+      notifyDailyDigestHour: user.notifyDailyDigestHour,
+      securityLastPasswordAt: user.securityLastPasswordAt,
+      securityLastLoginAt: new Date(),
     },
   };
 };
@@ -144,6 +163,9 @@ export const updateCurrentUser = async (userId: string, data: UpdateProfileData)
       ...(data.defaultFollowUpDays !== undefined ? { defaultFollowUpDays: data.defaultFollowUpDays ?? null } : {}),
       ...(data.defaultCountryCode !== undefined ? { defaultCountryCode: data.defaultCountryCode || null } : {}),
       ...(data.inboxDefaultView !== undefined ? { inboxDefaultView: data.inboxDefaultView || null } : {}),
+      ...(data.notifyNewInbound !== undefined ? { notifyNewInbound: data.notifyNewInbound } : {}),
+      ...(data.notifyReminderDue !== undefined ? { notifyReminderDue: data.notifyReminderDue } : {}),
+      ...(data.notifyDailyDigestHour !== undefined ? { notifyDailyDigestHour: data.notifyDailyDigestHour ?? null } : {}),
     },
     select: userSelect,
   });

@@ -54,7 +54,7 @@ const Dashboard = () => {
   const loadSummary = async () => {
     try {
       setLoading(true);
-      const response = await dashboardApi.getSummary();
+      const response = await dashboardApi.getSummaryV2();
       if (response.success && response.data) {
         setSummary(response.data);
       } else {
@@ -69,11 +69,15 @@ const Dashboard = () => {
 
   const stats = useMemo(
     () => [
-      { label: t.dashboard.todayTasksLabel, value: String(summary?.todayTasks.length || 0) },
-      { label: t.dashboard.unreadMessagesLabel, value: String(summary?.unreadMessages || 0) },
-      { label: t.dashboard.overdueFollowUpsLabel, value: String(summary?.overdueFollowUps || 0) },
-      { label: t.dashboard.waitingPaymentLabel, value: String(summary?.waitingPayment || 0) },
-      { label: t.dashboard.recentlyRepliedLabel, value: String(summary?.recentlyReplied.length || 0) },
+      { label: t.dashboard.todayTasksLabel, value: String(summary?.todayTasks.length || 0), trend: summary?.kpiTrend?.todayTasks || 0 },
+      { label: t.dashboard.unreadMessagesLabel, value: String(summary?.unreadMessages || 0), trend: summary?.kpiTrend?.unreadMessages || 0 },
+      { label: t.dashboard.overdueFollowUpsLabel, value: String(summary?.overdueFollowUps || 0), trend: summary?.kpiTrend?.overdueFollowUps || 0 },
+      {
+        label: t.dashboard.waitingPaymentLabel,
+        value: summary?.waitingPaymentAmount ? `RM ${summary.waitingPaymentAmount}` : String(summary?.waitingPayment || 0),
+        trend: summary?.kpiTrend?.payments || 0,
+      },
+      { label: t.dashboard.recentlyRepliedLabel, value: String(summary?.recentlyReplied.length || 0), trend: 0 },
     ],
     [summary, t]
   );
@@ -382,9 +386,16 @@ const Dashboard = () => {
           <article key={card.label} className="card stat-card">
             <span>{card.label}</span>
             <strong>{card.value}</strong>
+            {card.trend ? <small className={card.trend > 0 ? 'status-won' : 'status-lost'}>{card.trend > 0 ? '+' : ''}{card.trend} / 7d</small> : null}
           </article>
         ))}
       </section>
+
+      {summary?.calculationNote ? (
+        <section className="card">
+          <p className="page-subtitle">{summary.calculationNote}</p>
+        </section>
+      ) : null}
 
       <section className="card hero-card">
         <p className="eyebrow">{t.dashboard.heroEyebrow}</p>

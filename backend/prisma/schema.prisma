@@ -27,6 +27,11 @@ model User {
   defaultFollowUpDays     Int?     @map("default_follow_up_days")
   defaultCountryCode      String?  @map("default_country_code")
   inboxDefaultView        String?  @map("inbox_default_view")
+  notifyNewInbound        Boolean  @default(true) @map("notify_new_inbound")
+  notifyReminderDue       Boolean  @default(true) @map("notify_reminder_due")
+  notifyDailyDigestHour   Int?     @map("notify_daily_digest_hour")
+  securityLastPasswordAt  DateTime? @map("security_last_password_at")
+  securityLastLoginAt     DateTime? @map("security_last_login_at")
   createdAt               DateTime @default(now()) @map("created_at")
 
   leads                      Lead[]
