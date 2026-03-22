@@ -38,6 +38,8 @@ const WhatsApp = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [sending, setSending] = useState(false);
@@ -60,6 +62,14 @@ const WhatsApp = () => {
 
   useEffect(() => {
     loadAll();
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    const syncMedia = () => setIsMobile(mediaQuery.matches);
+    syncMedia();
+    mediaQuery.addEventListener('change', syncMedia);
+    return () => mediaQuery.removeEventListener('change', syncMedia);
   }, []);
 
   useEffect(() => {
@@ -95,6 +105,9 @@ const WhatsApp = () => {
 
   useEffect(() => {
     storage.setItem(WHATSAPP_VIEW_KEY, activeView);
+    if (activeView !== 'inbox') {
+      setMobileThreadOpen(false);
+    }
   }, [activeView]);
 
   useEffect(() => {
@@ -107,7 +120,10 @@ const WhatsApp = () => {
       return;
     }
     loadConversation(selectedPhone);
-  }, [selectedPhone]);
+    if (isMobile) {
+      setMobileThreadOpen(true);
+    }
+  }, [selectedPhone, isMobile]);
 
   useEffect(() => {
     if (activeView !== 'inbox' || !selectedPhone || conversation.length === 0) {
@@ -234,9 +250,11 @@ const WhatsApp = () => {
 
   const scrollConversationToLatest = () => {
     if (conversationBodyRef.current) {
-      conversationBodyRef.current.scrollTo({
-        top: conversationBodyRef.current.scrollHeight,
-        behavior: 'smooth',
+      conversationBodyRef.current.scrollTop = conversationBodyRef.current.scrollHeight;
+      requestAnimationFrame(() => {
+        if (conversationBodyRef.current) {
+          conversationBodyRef.current.scrollTop = conversationBodyRef.current.scrollHeight;
+        }
       });
       setIsConversationAtBottom(true);
       void markConversationRead(selectedPhone);
@@ -266,15 +284,22 @@ const WhatsApp = () => {
     handleMediaFile(event.dataTransfer.files?.[0] || null);
   };
 
+  const handleSelectContact = (phone: string) => {
+    setSelectedPhone(phone);
+    setSelectedByUser(true);
+    setTestData((prev) => ({ ...prev, toPhone: phone }));
+    if (isMobile) {
+      setMobileThreadOpen(true);
+    }
+  };
+
   const openUnreadConversation = () => {
     if (!latestUnreadContact) {
       return;
     }
 
     setActiveView('inbox');
-    setSelectedPhone(latestUnreadContact.phone);
-    setSelectedByUser(true);
-    setTestData((prev) => ({ ...prev, toPhone: latestUnreadContact.phone }));
+    handleSelectContact(latestUnreadContact.phone);
     setShowUnreadBanner(false);
   };
 
@@ -688,7 +713,7 @@ const WhatsApp = () => {
         <p>{t.whatsapp.inboxSubtitle}</p>
       </div>
       <div className="whatsapp-chat-layout">
-        <aside className="whatsapp-contact-pane">
+        <aside className={`whatsapp-contact-pane ${isMobile && mobileThreadOpen ? 'whatsapp-mobile-hidden' : ''}`}>
           <div className="whatsapp-pane-header">
             <strong>{t.whatsapp.contacts}</strong>
           </div>
@@ -700,11 +725,7 @@ const WhatsApp = () => {
                 <button
                   key={`chat-${contact.phone}`}
                   type="button"
-                  onClick={() => {
-                    setSelectedPhone(contact.phone);
-                    setSelectedByUser(true);
-                    setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
-                  }}
+                  onClick={() => handleSelectContact(contact.phone)}
                   className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
                 >
                   <div className="whatsapp-contact-title-row">
@@ -742,9 +763,12 @@ const WhatsApp = () => {
           </div>
         </aside>
 
-        <section className="whatsapp-conversation-pane">
+        <section className={`whatsapp-conversation-pane ${isMobile && !mobileThreadOpen ? 'whatsapp-mobile-hidden' : ''}`}>
           <div className="whatsapp-pane-header">
             <div>
+              {isMobile && mobileThreadOpen ? (
+                <button className="btn btn-secondary" onClick={() => setMobileThreadOpen(false)}>{t.common.back}</button>
+              ) : null}
               <strong>{selectedContact?.lead?.name || selectedPhone || t.whatsapp.selectContact}</strong>
               <p>{selectedContact?.phone || t.whatsapp.selectContact}</p>
             </div>
@@ -921,9 +945,7 @@ const WhatsApp = () => {
                   <button
                     className="btn btn-secondary"
                     onClick={() => {
-                      setTestData((prev) => ({ ...prev, toPhone: contact.phone }));
-                      setSelectedPhone(contact.phone);
-                      setSelectedByUser(true);
+                      handleSelectContact(contact.phone);
                       setActiveView('inbox');
                     }}
                   >
@@ -939,7 +961,7 @@ const WhatsApp = () => {
   );
 
   return (
-    <div className="page-container">
+    <div className={`page-container ${activeView === 'inbox' ? 'whatsapp-page-inbox' : ''}`}>
       <AuthenticatedHeader
         title={t.whatsapp.title}
         subtitle={connection?.isActive ? t.whatsapp.inboxSubtitle : t.whatsapp.setupPanelTitle}
@@ -949,7 +971,7 @@ const WhatsApp = () => {
       {error && <div className="alert alert-error"><span>{error}</span></div>}
       {success && <div className="alert alert-success"><span>{success}</span></div>}
 
-      {showUnreadBanner && latestUnreadContact && (
+      {activeView !== 'inbox' && showUnreadBanner && latestUnreadContact && (
         <section className="card whatsapp-unread-banner">
           <div>
             <strong>{t.whatsapp.unreadMessagesLabel}: {latestUnreadContact.lead?.name || latestUnreadContact.phone}</strong>
@@ -966,53 +988,55 @@ const WhatsApp = () => {
         </section>
       )}
 
-      <section className="card whatsapp-overview">
-        <div className="section-heading">
-          <h2>{t.whatsapp.overviewTitle}</h2>
-          <p>{t.whatsapp.overviewSubtitle}</p>
-        </div>
-        <div className="whatsapp-kpi-grid">
-          <div className="simple-list-item">
-            <div>
-              <strong>{t.whatsapp.statusLabel}</strong>
-              <p>{connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}</p>
-            </div>
-            <span className={`task-pill ${connection?.isActive ? '' : 'task-pill-overdue'}`}>
-              {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
-            </span>
+      {activeView !== 'inbox' ? (
+        <section className="card whatsapp-overview">
+          <div className="section-heading">
+            <h2>{t.whatsapp.overviewTitle}</h2>
+            <p>{t.whatsapp.overviewSubtitle}</p>
           </div>
-          <div className="simple-list-item">
-            <div>
-              <strong>{t.whatsapp.connectedNumber}</strong>
-              <p>{connection?.displayPhone || t.whatsapp.notConnected}</p>
+          <div className="whatsapp-kpi-grid">
+            <div className="simple-list-item">
+              <div>
+                <strong>{t.whatsapp.statusLabel}</strong>
+                <p>{connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}</p>
+              </div>
+              <span className={`task-pill ${connection?.isActive ? '' : 'task-pill-overdue'}`}>
+                {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
+              </span>
             </div>
-            <span className="task-pill">{contactsTotal}</span>
-          </div>
-          <div className="simple-list-item">
-            <div>
-              <strong>{t.whatsapp.messageVolume}</strong>
-              <p>{t.whatsapp.totalMessages}</p>
+            <div className="simple-list-item">
+              <div>
+                <strong>{t.whatsapp.connectedNumber}</strong>
+                <p>{connection?.displayPhone || t.whatsapp.notConnected}</p>
+              </div>
+              <span className="task-pill">{contactsTotal}</span>
             </div>
-            <span className="task-pill">{totalMessages}</span>
-          </div>
-          <div className="simple-list-item">
-            <div>
-              <strong>{t.whatsapp.failedMessages}</strong>
-              <p>
-                {t.whatsapp.lastVerified}: {connection?.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString() : t.whatsapp.notVerifiedYet}
-              </p>
+            <div className="simple-list-item">
+              <div>
+                <strong>{t.whatsapp.messageVolume}</strong>
+                <p>{t.whatsapp.totalMessages}</p>
+              </div>
+              <span className="task-pill">{totalMessages}</span>
             </div>
-            <span className={`task-pill ${totalFailedMessages > 0 ? 'task-pill-overdue' : ''}`}>{totalFailedMessages}</span>
-          </div>
-          <div className="simple-list-item">
-            <div>
-              <strong>{t.whatsapp.unreadMessagesLabel}</strong>
-              <p>{t.whatsapp.unreadMessagesHint}</p>
+            <div className="simple-list-item">
+              <div>
+                <strong>{t.whatsapp.failedMessages}</strong>
+                <p>
+                  {t.whatsapp.lastVerified}: {connection?.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString() : t.whatsapp.notVerifiedYet}
+                </p>
+              </div>
+              <span className={`task-pill ${totalFailedMessages > 0 ? 'task-pill-overdue' : ''}`}>{totalFailedMessages}</span>
             </div>
-            <span className={`task-pill ${unreadContacts.length > 0 ? 'task-pill-overdue' : ''}`}>{totalUnreadMessages}</span>
+            <div className="simple-list-item">
+              <div>
+                <strong>{t.whatsapp.unreadMessagesLabel}</strong>
+                <p>{t.whatsapp.unreadMessagesHint}</p>
+              </div>
+              <span className={`task-pill ${unreadContacts.length > 0 ? 'task-pill-overdue' : ''}`}>{totalUnreadMessages}</span>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <div className="whatsapp-view-switch">
         {tabs.map((tab) => (
