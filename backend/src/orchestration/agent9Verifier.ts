@@ -133,7 +133,14 @@ export const verifyAgent9Execution = async (input: Agent9VerificationInput): Pro
 
   const requirePush = String(process.env.EZR_AGENT9_REQUIRE_PUSH || 'true').toLowerCase() !== 'false';
   if (requirePush) {
-    if (contract.PUSH_STATUS !== 'SUCCESS') {
+    const patchRequired = contract.PATCH_STATUS === 'YES';
+    if (!patchRequired) {
+      // No code patch means push may legitimately be skipped.
+      checks.push = contract.PUSH_STATUS === 'SUCCESS' || contract.PUSH_STATUS === 'NOT_REQUIRED' ? contract.PUSH_STATUS : 'FAIL';
+      if (checks.push === 'FAIL') {
+        summary.push('Push status must be SUCCESS or NOT_REQUIRED when PATCH_STATUS=NO.');
+      }
+    } else if (contract.PUSH_STATUS !== 'SUCCESS') {
       checks.push = 'FAIL';
       summary.push('Push status is not SUCCESS.');
     } else {

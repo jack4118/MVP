@@ -113,7 +113,21 @@ const runOne = async (agent: AgentName, loopCount: number): Promise<void> => {
       `${API_BASE}/api/orchestrator/auto/prompt/${agent}`
     );
 
-    const prompt = promptResp.data.prompt;
+    let prompt = promptResp.data.prompt;
+    if (agent === 'agent9' && preGit) {
+      const frontendLiveUrl = process.env.EZR_AGENT9_FRONTEND_LIVE_URL || process.env.EZR_STAGING_URL || '';
+      const backendHealthUrl = process.env.EZR_AGENT9_BACKEND_HEALTH_URL || `${API_BASE.replace(/\/+$/, '')}/health`;
+      prompt = [
+        prompt,
+        '',
+        'Local worker execution context (authoritative):',
+        `- EXPECTED_GIT_BEFORE_SHA=${preGit.headSha}`,
+        `- EXPECTED_GIT_BEFORE_UPSTREAM_SHA=${preGit.upstreamSha || 'none'}`,
+        `- FRONTEND_LIVE_URL=${frontendLiveUrl || 'missing'}`,
+        `- BACKEND_HEALTH_URL=${backendHealthUrl || 'missing'}`,
+        'Output contract must match this local context and real command results.',
+      ].join('\n');
+    }
     const result = await withTimeout(
       agent,
       runAgentViaCodex({

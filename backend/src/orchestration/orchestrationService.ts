@@ -795,6 +795,14 @@ export const buildAgentPrompt = async (params: { state: WorkflowState; agent: Ag
     base.push('- LIVE_VERIFY_STATUS: SUCCESS|FAIL');
     base.push('- STAGING_READY/NEXT_AGENT_ALLOWED: YES|NO');
     base.push('Do not omit any contract field.');
+    base.push('Agent9 execution rules (strict):');
+    base.push('- Run `git rev-parse HEAD` before making changes and set that exact value in GIT_BEFORE_SHA.');
+    base.push('- After patch/build/deploy flow completes, run `git rev-parse HEAD` again and set exact value in GIT_AFTER_SHA.');
+    base.push('- If PATCH_STATUS=YES then PUSH_STATUS must be SUCCESS after a real push.');
+    base.push('- If PATCH_STATUS=NO then PUSH_STATUS can be NOT_REQUIRED.');
+    base.push('- DEPLOY_FRONTEND_STATUS/DEPLOY_BACKEND_STATUS must reflect real deployment commands/triggers, not intent.');
+    base.push('- LIVE_VERIFY_STATUS=SUCCESS only if real URLs respond OK after deploy.');
+    base.push('- If any hard check fails, set AGENT_STATUS=FAIL, STAGING_READY=NO, NEXT_AGENT_ALLOWED=NO.');
   }
 
   return base.join('\n');
