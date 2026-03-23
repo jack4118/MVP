@@ -104,11 +104,13 @@ export const runAgentViaCodex = async (params: {
   agent: AgentName;
   prompt: string;
   loopCount: number;
+  cwd?: string;
 }): Promise<Pick<AgentExecutionResult, 'status' | 'summary' | 'artifacts' | 'rawOutput'>> => {
   try {
     const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn('codex', ['exec', '-', '--json'], {
         env: process.env,
+        cwd: params.cwd || process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 

@@ -237,12 +237,13 @@ router.get('/auto/next-action', async (_req: Request, res: Response, next: NextF
 
 router.post('/auto/submit', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { agent, status, summary, artifacts, rawOutput } = req.body as {
+    const { agent, status, summary, artifacts, rawOutput, leaseOwner } = req.body as {
       agent?: string;
       status?: 'PASS' | 'FAIL' | 'OK';
       summary?: string[];
       artifacts?: string[];
       rawOutput?: unknown;
+      leaseOwner?: string;
     };
 
     if (!agent || !status) {
@@ -264,6 +265,7 @@ router.post('/auto/submit', async (req: Request, res: Response, next: NextFuncti
 
     const state = await submitAgentResult({
       agent: normalizedAgent,
+      leaseOwner,
       result: {
         status,
         summary: Array.isArray(summary) ? summary : [],
@@ -320,6 +322,39 @@ router.post('/auto/lease/claim', async (req: Request, res: Response, next: NextF
   }
 });
 
+router.post('/auto/execution/claim', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { agent, workerId } = req.body as { agent?: string; workerId?: string };
+    if (!agent || !workerId) {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_EXECUTION_CLAIM_INVALID_REQUEST',
+        message: 'agent and workerId are required',
+      });
+    }
+    const normalizedAgent = normalizeAgentName(agent);
+    if (!normalizedAgent || normalizedAgent === 'agent0') {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_EXECUTION_CLAIM_INVALID_AGENT',
+        message: 'Invalid agent',
+      });
+    }
+    const state = await claimExecutionLease({ agent: normalizedAgent, leaseOwner: workerId });
+    return res.json({ success: true, data: state });
+  } catch (error: any) {
+    return next(
+      error.statusCode
+        ? error
+        : createAppError({
+            statusCode: 409,
+            code: 'ORCHESTRATOR_EXECUTION_CLAIM_FAILED',
+            message: error.message || 'Failed to claim execution',
+          })
+    );
+  }
+});
+
 router.post('/auto/lease/heartbeat', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { agent, leaseOwner } = req.body as { agent?: string; leaseOwner?: string };
@@ -355,10 +390,11 @@ router.post('/auto/lease/heartbeat', async (req: Request, res: Response, next: N
 
 router.post('/auto/failure', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { agent, reason, detail } = req.body as {
+    const { agent, reason, detail, leaseOwner } = req.body as {
       agent?: string;
       reason?: 'execution_timeout' | 'lease_expired' | 'worker_interrupted';
       detail?: string;
+      leaseOwner?: string;
     };
     if (!agent || !reason) {
       throw createAppError({
@@ -375,7 +411,7 @@ router.post('/auto/failure', async (req: Request, res: Response, next: NextFunct
         message: 'Invalid agent',
       });
     }
-    const state = await reportExecutionFailure({ agent: normalizedAgent, reason, detail });
+    const state = await reportExecutionFailure({ agent: normalizedAgent, reason, detail, leaseOwner });
     return res.json({ success: true, data: state });
   } catch (error: any) {
     return next(

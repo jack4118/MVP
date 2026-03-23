@@ -70,6 +70,7 @@ export const createDefaultState = (): WorkflowState => {
     agentOutputs: {},
     attempts: {},
     leases: {},
+    executionLifecycle: {},
     lastExecutionFailureReason: {},
     currentIssue: null,
     currentLoopStage: 'stage_public_qa',
@@ -154,6 +155,10 @@ const migrateLegacyState = (parsed: Record<string, unknown>): WorkflowState => {
       parsed.leases && typeof parsed.leases === 'object'
         ? (parsed.leases as WorkflowState['leases'])
         : {},
+    executionLifecycle:
+      parsed.executionLifecycle && typeof parsed.executionLifecycle === 'object'
+        ? (parsed.executionLifecycle as WorkflowState['executionLifecycle'])
+        : {},
     lastExecutionFailureReason:
       parsed.lastExecutionFailureReason && typeof parsed.lastExecutionFailureReason === 'object'
         ? (parsed.lastExecutionFailureReason as WorkflowState['lastExecutionFailureReason'])
@@ -215,6 +220,7 @@ export const normalizeWorkflowState = (state: WorkflowState): WorkflowState => {
     },
     attempts: { ...(state.attempts || {}) },
     leases: { ...(state.leases || {}) },
+    executionLifecycle: { ...(state.executionLifecycle || {}) },
     lastExecutionFailureReason: { ...(state.lastExecutionFailureReason || {}) },
   };
 

@@ -276,6 +276,44 @@ const removeLease = (state: WorkflowState, agent: AgentName): void => {
   delete state.leases[agent];
 };
 
+const markExecutionLifecycle = (
+  state: WorkflowState,
+  agent: AgentName,
+  params: {
+    state: 'waiting_approval' | 'approved' | 'claimed' | 'running' | 'completed' | 'failed' | 'blocked';
+    workerId?: string | null;
+    target?: ApprovalTarget | null;
+    approvalId?: string | null;
+    detail?: string | null;
+  }
+): void => {
+  const previous = state.executionLifecycle[agent];
+  const now = toIsoNow();
+  state.executionLifecycle[agent] = {
+    state: params.state,
+    workerId: params.workerId === undefined ? previous?.workerId || null : params.workerId,
+    target: params.target === undefined ? previous?.target || null : params.target,
+    approvalId: params.approvalId === undefined ? previous?.approvalId || null : params.approvalId,
+    claimedAt:
+      params.state === 'claimed'
+        ? now
+        : previous?.claimedAt || null,
+    startedAt:
+      params.state === 'running'
+        ? now
+        : previous?.startedAt || null,
+    completedAt:
+      params.state === 'completed'
+        ? now
+        : previous?.completedAt || null,
+    failedAt:
+      params.state === 'failed' || params.state === 'blocked'
+        ? now
+        : previous?.failedAt || null,
+    detail: params.detail === undefined ? previous?.detail || null : params.detail,
+  };
+};
+
 const claimLeaseForAgent = (state: WorkflowState, agent: AgentName, leaseOwner: string): void => {
   const now = Date.now();
   const attemptNumber = (state.attempts[agent] || 0) || 1;
@@ -295,12 +333,12 @@ const heartbeatLeaseForAgent = (state: WorkflowState, agent: AgentName, leaseOwn
   if (!lease) {
     throw new Error(`No active lease for ${agent}`);
   }
+  if (leaseOwner && lease.leaseOwner !== cleanText(leaseOwner)) {
+    throw new Error(`Lease owner mismatch for ${agent}. Current owner is ${lease.leaseOwner}.`);
+  }
   const now = Date.now();
   lease.heartbeatAt = new Date(now).toISOString();
   lease.leaseExpiresAt = new Date(now + getLeaseTtlMs()).toISOString();
-  if (leaseOwner) {
-    lease.leaseOwner = cleanText(leaseOwner);
-  }
 };
 
 const prepareRunningLease = (state: WorkflowState, agent: AgentName): void => {
@@ -309,6 +347,11 @@ const prepareRunningLease = (state: WorkflowState, agent: AgentName): void => {
   state.retryableAgents = state.retryableAgents.filter((item) => item !== agent);
   state.staleAgents = state.staleAgents.filter((item) => item !== agent);
   state.failedAgents = state.failedAgents.filter((item) => item !== agent);
+  markExecutionLifecycle(state, agent, {
+    state: 'running',
+    workerId: null,
+    detail: 'lease prepared',
+  });
   if (state.status === 'blocked') {
     state.status = 'running';
     state.lastError = null;
@@ -322,6 +365,10 @@ const markRetryExhausted = (state: WorkflowState, agent: AgentName, attempts: nu
   state.retryableAgents = state.retryableAgents.filter((item) => item !== agent);
   state.status = 'blocked';
   state.lastError = `${agent} retry exhausted (${attempts}/${maxAttempts}). Manual intervention required.`;
+  markExecutionLifecycle(state, agent, {
+    state: 'failed',
+    detail: state.lastError,
+  });
 };
 
 const handleExecutionFailureState = async (
@@ -335,6 +382,10 @@ const handleExecutionFailureState = async (
   state.runningAgents = state.runningAgents.filter((item) => item !== agent);
   state.currentRunningAgent = state.runningAgents[0] || null;
   removeLease(state, agent);
+  markExecutionLifecycle(state, agent, {
+    state: 'failed',
+    detail: detail || reason,
+  });
   state.lastExecutionFailureReason[agent] = reason;
   state.context.reports[agent] = sanitizeSummary([detail || reason, `attempt ${attempts}/${maxAttempts}`]);
 
@@ -404,9 +455,26 @@ const extractDeployStatus = (result: Pick<AgentExecutionResult, 'status' | 'summ
 } => {
   let success = result.status === 'PASS';
   let stagingReady = result.status === 'PASS';
+  let summary = sanitizeSummary(result.summary || []);
 
   if (result.rawOutput && typeof result.rawOutput === 'object') {
     const raw = result.rawOutput as Record<string, unknown>;
+    if (raw.contractVerification && typeof raw.contractVerification === 'object') {
+      const contractVerification = raw.contractVerification as {
+        success?: boolean;
+        stagingReady?: boolean;
+        summary?: string[];
+      };
+      if (typeof contractVerification.success === 'boolean') {
+        success = contractVerification.success;
+      }
+      if (typeof contractVerification.stagingReady === 'boolean') {
+        stagingReady = contractVerification.stagingReady;
+      }
+      if (Array.isArray(contractVerification.summary)) {
+        summary = sanitizeSummary(contractVerification.summary);
+      }
+    }
     if (typeof raw.deploySuccess === 'boolean') {
       success = raw.deploySuccess;
     }
@@ -423,7 +491,7 @@ const extractDeployStatus = (result: Pick<AgentExecutionResult, 'status' | 'summ
     stagingReady = false;
   }
 
-  return { success, stagingReady, summary: sanitizeSummary(result.summary || []) };
+  return { success, stagingReady, summary };
 };
 
 const ensureNoPendingApprovalExecution = (state: WorkflowState): void => {
@@ -453,6 +521,15 @@ const proposeNextAndNotifyIfNeeded = async (state: WorkflowState): Promise<void>
     target: next.target,
     reason: next.reason,
   });
+  next.requiredAgents.forEach((agent) =>
+    markExecutionLifecycle(state, agent, {
+      state: 'waiting_approval',
+      workerId: null,
+      target: next.target,
+      approvalId: state.pendingApproval?.approvalId || null,
+      detail: `awaiting telegram approval for ${next.target}`,
+    })
+  );
   state.proposedNext = next;
 
   const sendResult = await sendApprovalCard(state);
@@ -476,9 +553,18 @@ const submitAgentResultInternal = async (
   }
 ): Promise<void> => {
   ensureNoPendingApprovalExecution(state);
+  const rawSource =
+    params.result.rawOutput && typeof params.result.rawOutput === 'object'
+      ? (params.result.rawOutput as Record<string, unknown>).source
+      : null;
+  const isLegacyBypass = rawSource === 'legacy_proposal_endpoint';
 
   if (!isAgentLegalForStage(params.agent, state.currentStage)) {
     throw new Error(`${params.agent} cannot run in current stage ${state.currentStage}`);
+  }
+
+  if (!isLegacyBypass && !state.runningAgents.includes(params.agent) && !state.leases[params.agent]) {
+    throw new Error(`${params.agent} has not been claimed by a worker and cannot submit results.`);
   }
 
   if (!state.runningAgents.includes(params.agent)) {
@@ -612,13 +698,28 @@ export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; a
     return { state, action: { type: 'idle', agents: [], reason: 'waiting for telegram approval' } };
   }
 
+  const approvedAgentsAwaitingClaim = EXECUTION_AGENT_ORDER.filter(
+    (agent) => state.executionLifecycle[agent]?.state === 'approved'
+  );
+  if (approvedAgentsAwaitingClaim.length > 0 && state.runningAgents.length === 0) {
+    const action: RunnableAction =
+      approvedAgentsAwaitingClaim.length === 1
+        ? { type: 'run_agent', agents: approvedAgentsAwaitingClaim, reason: 'approved execution awaiting local worker claim' }
+        : { type: 'run_parallel', agents: approvedAgentsAwaitingClaim, reason: 'approved parallel execution awaiting local worker claim' };
+    await syncAndSave(state);
+    return { state, action };
+  }
+
   if (state.retryableAgents.length > 0) {
     const agent = state.retryableAgents[0];
     if (state.currentStage !== 'completed' && isAgentLegalForStage(agent, state.currentStage)) {
-      state.runningAgents = [agent];
-      state.currentRunningAgent = agent;
-      state.status = 'running';
-      prepareRunningLease(state, agent);
+      markExecutionLifecycle(state, agent, {
+        state: 'approved',
+        workerId: null,
+        target: `agent:${agent}` as ApprovalTarget,
+        approvalId: null,
+        detail: `${agent} auto-retry approved`,
+      });
       await syncAndSave(state);
       return { state, action: { type: 'run_agent', agents: [agent], reason: `${agent} auto-retry` } };
     }
@@ -642,13 +743,19 @@ export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; a
       return { state, action };
     }
 
-    state.runningAgents = action.agents;
-    state.currentRunningAgent = action.type === 'run_agent' ? action.agents[0] : null;
+    action.agents.forEach((agent) =>
+      markExecutionLifecycle(state, agent, {
+        state: 'approved',
+        workerId: null,
+        target,
+        approvalId: state.pendingApproval?.approvalId || null,
+        detail: `approved target ${target}`,
+      })
+    );
     state.approvalStatus = 'idle';
     state.pendingApproval = null;
     state.proposedNext = null;
     state.status = 'running';
-    action.agents.forEach((agent) => prepareRunningLease(state, agent));
     await syncAndSave(state);
     return { state, action };
   }
@@ -662,7 +769,7 @@ export const buildAgentPrompt = async (params: { state: WorkflowState; agent: Ag
   const definition = getAgentDefinition(params.agent);
   const runContext = await buildRunContext(params.agent);
 
-  return [
+  const base = [
     `You are ${definition.displayName} (${params.agent}).`,
     `Role: ${definition.role}`,
     `Current Issue: ${params.state.issueId || 'not provided'}`,
@@ -675,15 +782,64 @@ export const buildAgentPrompt = async (params: { state: WorkflowState; agent: Ag
     `Staging URL: ${runContext.stagingUrl || 'n/a'}`,
     `Constraints: ${runContext.constraints.join(' | ')}`,
     'Output JSON only with fields: status (PASS|FAIL|OK), summary (string[]), artifacts (string[]), classification (optional).',
-  ].join('\n');
+  ];
+
+  if (params.agent === 'agent9') {
+    base.push('Agent9 contract fields are mandatory and must be in the JSON root exactly:');
+    base.push('AGENT_STATUS, PATCH_STATUS, BUILD_STATUS, GIT_BEFORE_SHA, GIT_AFTER_SHA, PUSH_STATUS, DEPLOY_FRONTEND_STATUS, DEPLOY_BACKEND_STATUS, LIVE_VERIFY_STATUS, STAGING_READY, NEXT_AGENT_ALLOWED');
+    base.push('Allowed values:');
+    base.push('- AGENT_STATUS: SUCCESS|FAIL');
+    base.push('- PATCH_STATUS: YES|NO');
+    base.push('- BUILD_STATUS: SUCCESS|FAIL');
+    base.push('- PUSH_STATUS/DEPLOY_FRONTEND_STATUS/DEPLOY_BACKEND_STATUS: SUCCESS|FAIL|NOT_REQUIRED');
+    base.push('- LIVE_VERIFY_STATUS: SUCCESS|FAIL');
+    base.push('- STAGING_READY/NEXT_AGENT_ALLOWED: YES|NO');
+    base.push('Do not omit any contract field.');
+  }
+
+  return base.join('\n');
 };
 
 export const submitAgentResult = async (params: {
   agent: AgentName;
+  leaseOwner?: string;
   result: Pick<AgentExecutionResult, 'status' | 'summary' | 'artifacts' | 'rawOutput'>;
 }): Promise<WorkflowState> => {
   const state = await loadWorkflowState();
+  const lease = state.leases[params.agent];
+  if (lease && params.leaseOwner && lease.leaseOwner !== cleanText(params.leaseOwner)) {
+    throw new Error(`Lease owner mismatch for ${params.agent}. Current owner is ${lease.leaseOwner}.`);
+  }
   await submitAgentResultInternal(state, params);
+  markExecutionLifecycle(state, params.agent, {
+    state: params.result.status === 'FAIL' ? 'failed' : 'completed',
+    workerId: lease?.leaseOwner || params.leaseOwner || null,
+    detail: sanitizeSummary(params.result.summary || []).join(' | ') || null,
+  });
+  if (params.agent === 'agent9') {
+    const deploy = state.context.deployStatus;
+    if (deploy?.success && deploy?.stagingReady) {
+      await sendTelegramMessage(
+        [
+          'Agent9 completed',
+          `Patch: ${state.context.deployStatus?.summary.join(' ').toLowerCase().includes('patch') ? 'yes' : 'unknown'}`,
+          `Build: ${params.result.status === 'PASS' ? 'success' : 'fail'}`,
+          `Push: ${deploy.summary.join(' ').toLowerCase().includes('push') ? 'success' : 'unknown'}`,
+          'Backend deploy: success',
+          'Frontend deploy: success',
+          'Live verify: success',
+          `Staging ready: ${deploy.stagingReady ? 'yes' : 'no'}`,
+        ].join('\n')
+      );
+    } else {
+      await sendTelegramMessage(
+        [
+          'Agent9 failed',
+          `Reason: ${(deploy?.summary || sanitizeSummary(params.result.summary || [])).join(' | ') || 'unknown failure'}`,
+        ].join('\n')
+      );
+    }
+  }
   await syncAndSave(state);
   return state;
 };
@@ -691,13 +847,55 @@ export const submitAgentResult = async (params: {
 export const claimExecutionLease = async (params: { agent: AgentName; leaseOwner: string }): Promise<WorkflowState> => {
   const state = await loadWorkflowState();
   await maybeHandleExpiredRunningExecutions(state);
+  if (!isAgentLegalForStage(params.agent, state.currentStage)) {
+    throw new Error(`${params.agent} is not legal for current stage ${state.currentStage}`);
+  }
+  const owner = cleanText(params.leaseOwner);
+  const existingLease = state.leases[params.agent];
+  if (existingLease && existingLease.leaseOwner !== owner) {
+    throw new Error(`${params.agent} is already claimed by ${existingLease.leaseOwner}`);
+  }
+
+  let lifecycle = state.executionLifecycle[params.agent];
+  if ((!lifecycle || lifecycle.state !== 'approved') && state.runningAgents.includes(params.agent) && !state.leases[params.agent]) {
+    markExecutionLifecycle(state, params.agent, {
+      state: 'approved',
+      workerId: null,
+      target: null,
+      approvalId: null,
+      detail: 'legacy running state bridged to approved claim',
+    });
+    lifecycle = state.executionLifecycle[params.agent];
+  }
+
+  if (!lifecycle || lifecycle.state !== 'approved') {
+    throw new Error(`${params.agent} is not approved for claim`);
+  }
+
   if (!state.runningAgents.includes(params.agent)) {
-    throw new Error(`${params.agent} is not running`);
+    state.runningAgents = unique([...state.runningAgents, params.agent]);
+    state.currentRunningAgent = state.runningAgents[0] || null;
+    state.status = 'running';
   }
+
   if (!state.leases[params.agent]) {
-    prepareRunningLease(state, params.agent);
+    state.attempts[params.agent] = (state.attempts[params.agent] || 0) + 1;
+    markExecutionLifecycle(state, params.agent, {
+      state: 'claimed',
+      workerId: owner,
+      detail: 'claimed by local worker',
+    });
   }
-  claimLeaseForAgent(state, params.agent, params.leaseOwner);
+  claimLeaseForAgent(state, params.agent, owner);
+  markExecutionLifecycle(state, params.agent, {
+    state: 'running',
+    workerId: owner,
+    detail: 'running on local worker',
+  });
+
+  if (params.agent === 'agent9') {
+    await sendTelegramMessage(`Agent9 claimed by local worker ${owner}`);
+  }
   await syncAndSave(state);
   return state;
 };
@@ -716,13 +914,23 @@ export const reportExecutionFailure = async (params: {
   agent: AgentName;
   reason: Exclude<ExecutionFailureReason, 'retry_exhausted'>;
   detail?: string;
+  leaseOwner?: string;
 }): Promise<WorkflowState> => {
   const state = await loadWorkflowState();
+  const lease = state.leases[params.agent];
+  if (lease && params.leaseOwner && lease.leaseOwner !== cleanText(params.leaseOwner)) {
+    throw new Error(`Lease owner mismatch for ${params.agent}. Current owner is ${lease.leaseOwner}.`);
+  }
   if (!state.runningAgents.includes(params.agent) && !state.leases[params.agent]) {
     await syncAndSave(state);
     return state;
   }
   await handleExecutionFailureState(state, params.agent, params.reason, params.detail);
+  if (params.agent === 'agent9') {
+    await sendTelegramMessage(
+      ['Agent9 failed', `Reason: ${params.detail || params.reason}`].join('\n')
+    );
+  }
   await syncAndSave(state);
   return state;
 };
@@ -762,6 +970,13 @@ export const requestManualRepeatRun = async (params: { agent: AgentName; request
   };
   state.approvalStatus = 'approved';
   state.status = 'running';
+  markExecutionLifecycle(state, params.agent, {
+    state: 'approved',
+    workerId: null,
+    target,
+    approvalId: state.pendingApproval.approvalId,
+    detail: `manual repeat-run approved by ${params.requestedBy}`,
+  });
   state.retryableAgents = state.retryableAgents.filter((agent) => agent !== params.agent);
   state.blockedAgents = state.blockedAgents.filter((agent) => agent !== params.agent);
   if (state.lastExecutionFailureReason[params.agent] === 'retry_exhausted') {

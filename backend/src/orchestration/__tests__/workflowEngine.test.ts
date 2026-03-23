@@ -216,7 +216,7 @@ test('13) duplicate concurrent execution blocked', async () => {
         rawOutput: null,
       },
     }),
-    /duplicate concurrent execution blocked/i
+    /has not been claimed by a worker/i
   );
   await rm(dir, { recursive: true, force: true });
 });

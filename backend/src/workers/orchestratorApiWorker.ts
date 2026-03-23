@@ -1,4 +1,7 @@
+import { spawnSync } from 'child_process';
+import path from 'path';
 import { runAgentViaCodex } from '../orchestration/agentRunner';
+import { captureGitSnapshot, verifyAgent9Execution } from '../orchestration/agent9Verifier';
 import { getAgentMaxRuntimeMs, getHeartbeatIntervalMs } from '../orchestration/executionPolicy';
 import { AgentName } from '../orchestration/types';
 
@@ -17,6 +20,7 @@ type NextActionResponse = {
 const API_BASE = process.env.EZR_ORCHESTRATOR_API_BASE || 'https://mvp-backend-rqzt.onrender.com';
 const POLL_MS = Number(process.env.EZR_ORCHESTRATOR_WORKER_POLL_MS || 15000);
 const LEASE_OWNER = process.env.EZR_ORCHESTRATOR_WORKER_ID || `api-worker:${process.pid}`;
+const WORKSPACE_ROOT = process.env.EZR_WORKSPACE_ROOT || path.resolve(process.cwd(), '..');
 const inFlightAgents = new Set<AgentName>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,6 +49,15 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
   return (await response.json()) as T;
 };
 
+const codexIsAvailable = (): boolean => {
+  const result = spawnSync('codex', ['--version'], {
+    env: process.env,
+    cwd: WORKSPACE_ROOT,
+    stdio: 'ignore',
+  });
+  return result.status === 0;
+};
+
 class ExecutionTimeoutError extends Error {
   constructor(public readonly agent: AgentName) {
     super(`${agent} exceeded max runtime`);
@@ -71,6 +84,7 @@ const reportFailure = async (agent: AgentName, reason: 'execution_timeout' | 'wo
     agent,
     reason,
     detail: detail || null,
+    leaseOwner: LEASE_OWNER,
   });
 };
 
@@ -93,6 +107,7 @@ const runOne = async (agent: AgentName, loopCount: number): Promise<void> => {
 
   try {
     inFlightAgents.add(agent);
+    const preGit = agent === 'agent9' ? await captureGitSnapshot(WORKSPACE_ROOT) : null;
     const promptResp = await getJson<{ success: boolean; data: { prompt: string } }>(
       `${API_BASE}/api/orchestrator/auto/prompt/${agent}`
     );
@@ -104,24 +119,59 @@ const runOne = async (agent: AgentName, loopCount: number): Promise<void> => {
         agent,
         prompt,
         loopCount,
+        cwd: WORKSPACE_ROOT,
       })
     );
 
-    const safeSummary = (result.summary || [])
+    let finalStatus = result.status;
+    let finalSummary = [...(result.summary || [])];
+    let finalArtifacts = [...(result.artifacts || [])];
+    let finalRawOutput = result.rawOutput;
+
+    if (agent === 'agent9') {
+      const postGit = await captureGitSnapshot(WORKSPACE_ROOT);
+      const verification = await verifyAgent9Execution({
+        workdir: WORKSPACE_ROOT,
+        apiBase: API_BASE,
+        preGit: preGit!,
+        postGit,
+        rawOutput: result.rawOutput,
+      });
+
+      finalStatus = verification.success ? 'PASS' : 'FAIL';
+      finalSummary = verification.summary.slice(0, 10);
+      finalArtifacts = [
+        `git_before_sha:${preGit!.headSha}`,
+        `git_after_sha:${postGit.headSha}`,
+        `git_before_upstream_sha:${preGit!.upstreamSha || 'none'}`,
+        `git_after_upstream_sha:${postGit.upstreamSha || 'none'}`,
+      ];
+      finalRawOutput = {
+        ...(result.rawOutput && typeof result.rawOutput === 'object' ? (result.rawOutput as object) : {}),
+        contractVerification: verification,
+        gitSnapshot: {
+          before: preGit,
+          after: postGit,
+        },
+      };
+    }
+
+    const safeSummary = (finalSummary || [])
       .map((line) => String(line).replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180))
       .filter(Boolean)
-      .slice(0, 6);
-    const safeArtifacts = (result.artifacts || [])
+      .slice(0, 10);
+    const safeArtifacts = (finalArtifacts || [])
       .map((line) => String(line).replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180))
       .filter(Boolean)
-      .slice(0, 6);
+      .slice(0, 12);
 
     await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
       agent,
-      status: result.status,
+      leaseOwner: LEASE_OWNER,
+      status: finalStatus,
       summary: safeSummary,
       artifacts: safeArtifacts,
-      rawOutput: null,
+      rawOutput: finalRawOutput,
     });
   } catch (error: any) {
     if (error instanceof ExecutionTimeoutError) {
@@ -133,6 +183,7 @@ const runOne = async (agent: AgentName, loopCount: number): Promise<void> => {
     if (msg.includes(' 403 ')) {
       await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
         agent,
+        leaseOwner: LEASE_OWNER,
         status: 'FAIL',
         summary: [`${agent} FAIL`],
         artifacts: [],
@@ -172,6 +223,9 @@ const tick = async (): Promise<void> => {
 };
 
 const main = async () => {
+  if (!codexIsAvailable()) {
+    throw new Error('Local codex binary is not available. Install codex and ensure it is in PATH.');
+  }
   console.log(`[OrchestratorApiWorker] started, api=${API_BASE}`);
   process.on('SIGTERM', () => {
     void shutdown('SIGTERM');

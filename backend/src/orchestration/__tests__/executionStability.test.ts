@@ -45,11 +45,11 @@ test('1) heartbeat refresh keeps lease alive', async () => {
   state.leases.agent1 = leaseFor('agent1', startedAt, oldExpiry);
   await saveWorkflowState(state);
 
-  await heartbeatExecutionLease({ agent: 'agent1', leaseOwner: 'test-worker-2' });
+  await heartbeatExecutionLease({ agent: 'agent1', leaseOwner: 'test-worker' });
   const updated = await loadWorkflowState();
   assert.ok(updated.leases.agent1);
   assert.ok(Date.parse(updated.leases.agent1!.leaseExpiresAt) > Date.parse(oldExpiry));
-  assert.equal(updated.leases.agent1!.leaseOwner, 'test-worker-2');
+  assert.equal(updated.leases.agent1!.leaseOwner, 'test-worker');
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -105,7 +105,8 @@ test('4) auto-retry eligible agent retries once', async () => {
   const result = await getNextRunnableAction();
   assert.equal(result.action.type, 'run_agent');
   assert.deepEqual(result.action.agents, ['agent1']);
-  assert.equal(result.state.attempts.agent1, 2);
+  assert.equal(result.state.attempts.agent1, 1);
+  assert.equal(result.state.executionLifecycle.agent1?.state, 'approved');
   await rm(dir, { recursive: true, force: true });
 });
 

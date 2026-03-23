@@ -2,6 +2,7 @@ import { AgentExecutionResult, AgentName } from './types';
 
 export type WorkflowStatus = 'idle' | 'running' | 'waiting_approval' | 'blocked' | 'completed' | 'cancelled';
 export type ExecutionFailureReason = 'execution_timeout' | 'lease_expired' | 'worker_interrupted' | 'retry_exhausted';
+export type ExecutionLifecycleState = 'waiting_approval' | 'approved' | 'claimed' | 'running' | 'completed' | 'failed' | 'blocked';
 
 export type WorkflowStage =
   | 'stage_public_qa'
@@ -94,6 +95,18 @@ export interface AgentExecutionLease {
   attemptNumber: number;
 }
 
+export interface AgentExecutionLifecycle {
+  state: ExecutionLifecycleState;
+  workerId: string | null;
+  target: ApprovalTarget | null;
+  approvalId: string | null;
+  claimedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  detail: string | null;
+}
+
 export interface WorkflowState {
   schemaVersion: number;
   issueId: string;
@@ -120,6 +133,7 @@ export interface WorkflowState {
   agentOutputs: Partial<Record<AgentName, AgentExecutionResult>>;
   attempts: Partial<Record<AgentName, number>>;
   leases: Partial<Record<AgentName, AgentExecutionLease>>;
+  executionLifecycle: Partial<Record<AgentName, AgentExecutionLifecycle>>;
   lastExecutionFailureReason: Partial<Record<AgentName, ExecutionFailureReason>>;
 
   // Legacy compatibility surface (deprecated)
