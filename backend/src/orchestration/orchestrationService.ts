@@ -32,6 +32,9 @@ type AutoStep = keyof typeof AUTO_FLOW_LABELS;
 const toIsoNow = (): string => new Date().toISOString();
 
 const unique = <T>(items: T[]): T[] => Array.from(new Set(items));
+const TELEGRAM_MESSAGE_LIMIT = 3900;
+const SUMMARY_LINE_LIMIT = 220;
+const SUMMARY_COUNT_LIMIT = 8;
 
 const ensureOrchestrator = (actorAgent: string): void => {
   if (actorAgent.trim().toLowerCase() !== 'agent0') {
@@ -57,6 +60,52 @@ const setAutoStep = (state: WorkflowState, step: AutoStep): void => {
   state.currentLoopStage = AUTO_FLOW_LABELS[step];
 };
 
+const cleanText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const clampText = (value: string, maxLen: number): string => {
+  const cleaned = cleanText(value);
+  if (cleaned.length <= maxLen) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, Math.max(0, maxLen - 3))}...`;
+};
+
+const sanitizeSummary = (items: string[]): string[] =>
+  items
+    .map((line) => clampText(line || '', SUMMARY_LINE_LIMIT))
+    .filter(Boolean)
+    .slice(0, SUMMARY_COUNT_LIMIT);
+
+const toPromptContextSummary = (state: WorkflowState) => {
+  const compactOutputs = Object.fromEntries(
+    Object.entries(state.agentOutputs).map(([agent, output]) => [
+      agent,
+      {
+        status: output.status,
+        summary: sanitizeSummary(output.summary || []),
+        artifacts: (output.artifacts || []).slice(0, 10),
+        loopCount: output.loopCount,
+        completedAt: output.completedAt,
+      },
+    ]),
+  );
+
+  return {
+    currentIssue: state.currentIssue,
+    loopCount: state.loopCount,
+    nextAction: state.nextAction,
+    approvalStatus: state.approvalStatus,
+    outputs: compactOutputs,
+  };
+};
+
+const ensureTelegramLimit = (message: string): string => {
+  if (message.length <= TELEGRAM_MESSAGE_LIMIT) {
+    return message;
+  }
+  return `${message.slice(0, TELEGRAM_MESSAGE_LIMIT - 40)}\n\n[truncated for Telegram length]`;
+};
+
 const formatApprovalMessage = (state: WorkflowState): string => {
   if (!state.lastCompletedAgent || !state.proposedNextAgent) {
     return 'No pending proposal.';
@@ -64,11 +113,12 @@ const formatApprovalMessage = (state: WorkflowState): string => {
 
   const completed = getAgentDefinition(state.lastCompletedAgent).displayName;
   const proposed = getAgentDefinition(state.proposedNextAgent).displayName;
-  const summary = state.proposedSummary.length
-    ? state.proposedSummary.map((line) => `- ${line}`).join('\n')
+  const summaryLines = sanitizeSummary(state.proposedSummary);
+  const summary = summaryLines.length
+    ? summaryLines.map((line) => `- ${line}`).join('\n')
     : '- No summary provided';
 
-  return [
+  return ensureTelegramLimit([
     'EzReply Agent Approval Needed',
     '',
     'Completed:',
@@ -89,7 +139,7 @@ const formatApprovalMessage = (state: WorkflowState): string => {
     '- /status',
     '- /repeat',
     '- /cancel',
-  ].join('\n');
+  ].join('\n'));
 };
 
 const formatStatusMessage = (state: WorkflowState): string => {
@@ -191,11 +241,12 @@ const maybeAdvanceAutoStep = (state: WorkflowState): void => {
 };
 
 const summarizeFromAgents = (state: WorkflowState, agents: AgentName[]): string[] => {
-  return agents
+  return sanitizeSummary(
+    agents
     .map((agent) => state.agentOutputs[agent])
     .filter((output): output is AgentExecutionResult => Boolean(output))
     .flatMap((output) => output.summary)
-    .slice(0, 8);
+  );
 };
 
 const proposeCheckpointIfNeeded = async (state: WorkflowState): Promise<void> => {
@@ -435,7 +486,7 @@ export const buildAgentPrompt = async (params: { state: WorkflowState; agent: Ag
     `Staging URL: ${runContext.stagingUrl || 'n/a'}`,
     `Constraints: ${runContext.constraints.join(' | ')}`,
     'Upstream context summary:',
-    JSON.stringify(params.state.agentOutputs, null, 2),
+    JSON.stringify(toPromptContextSummary(params.state), null, 2),
     'Output JSON only with fields: status (PASS|FAIL|OK), summary (string[]), artifacts (string[]).',
   ].join('\n');
 };
@@ -449,7 +500,7 @@ export const submitAgentResult = async (params: {
   const normalized: AgentExecutionResult = {
     agent: params.agent,
     status: params.result.status,
-    summary: params.result.summary || [],
+    summary: sanitizeSummary(params.result.summary || []),
     artifacts: params.result.artifacts || [],
     rawOutput: params.result.rawOutput,
     loopCount: state.loopCount,
@@ -498,7 +549,7 @@ export const proposeNextAgentForApproval = async (params: {
   state.currentRunningAgent = null;
   state.proposedNextAgent = proposedNextAgent;
   state.proposedReason = params.why.trim();
-  state.proposedSummary = params.resultSummary.filter((item) => item && item.trim()).slice(0, 10);
+  state.proposedSummary = sanitizeSummary(params.resultSummary);
   state.approvalStatus = 'awaiting_approval';
   state.approvedAgent = null;
   state.lastApprovalCommand = null;

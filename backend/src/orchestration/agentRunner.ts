@@ -1,8 +1,5 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import { AgentExecutionResult, AgentName } from './types';
-
-const execAsync = promisify(exec);
 
 interface RunnerRawResult {
   status?: 'PASS' | 'FAIL' | 'OK' | string;
@@ -10,6 +7,14 @@ interface RunnerRawResult {
   artifacts?: string[];
   [key: string]: unknown;
 }
+
+const clamp = (value: string, maxLen: number): string => {
+  const cleaned = value.replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= maxLen) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, Math.max(0, maxLen - 3))}...`;
+};
 
 const parseRunnerOutput = (stdout: string): RunnerRawResult => {
   const trimmed = stdout.trim();
@@ -42,20 +47,42 @@ export const runAgentViaCodex = async (params: {
   prompt: string;
   loopCount: number;
 }): Promise<Pick<AgentExecutionResult, 'status' | 'summary' | 'artifacts' | 'rawOutput'>> => {
-  const escapedPrompt = params.prompt.replace(/"/g, '\\"');
-  const command = `codex exec -p "${escapedPrompt}" --json`;
-
   try {
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 1024 * 1024 * 8,
-      env: process.env,
+    const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn('codex', ['exec', '-', '--json'], {
+        env: process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let out = '';
+      let err = '';
+
+      child.stdout.on('data', (chunk) => {
+        out += chunk.toString();
+      });
+      child.stderr.on('data', (chunk) => {
+        err += chunk.toString();
+      });
+      child.on('error', reject);
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve({ stdout: out, stderr: err });
+          return;
+        }
+        reject(new Error(`codex exited with code ${code}: ${err || out}`));
+      });
+
+      child.stdin.write(params.prompt);
+      child.stdin.end();
     });
 
     const parsed = parseRunnerOutput(stdout);
 
     return {
       status: normalizeStatus(parsed.status),
-      summary: Array.isArray(parsed.summary) ? parsed.summary : [`${params.agent} executed`],
+      summary: Array.isArray(parsed.summary)
+        ? parsed.summary.map((line) => clamp(String(line), 220)).filter(Boolean).slice(0, 8)
+        : [`${params.agent} executed`],
       artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
       rawOutput: {
         parsed,
@@ -63,9 +90,10 @@ export const runAgentViaCodex = async (params: {
       },
     };
   } catch (error: any) {
+    const shortError = clamp(error?.message || 'unknown error', 220);
     return {
       status: 'FAIL',
-      summary: [`${params.agent} execution failed`, error?.message || 'unknown error'],
+      summary: [`${params.agent} execution failed`, shortError],
       artifacts: [],
       rawOutput: {
         error: error?.message || String(error),
