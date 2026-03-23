@@ -22,48 +22,6 @@ export interface AgentDefinition {
   enforceStaging: boolean;
 }
 
-export type ApprovalStatus =
-  | 'idle'
-  | 'awaiting_approval'
-  | 'approved'
-  | 'rejected'
-  | 'cancelled'
-  | 'blocked_webhook'
-  | 'in_progress';
-
-export interface WorkflowState {
-  currentIssue: string | null;
-  currentLoopStage: string;
-  lastCompletedAgent: AgentName | null;
-  currentRunningAgent: AgentName | null;
-  proposedNextAgent: AgentName | null;
-  proposedReason: string | null;
-  proposedSummary: string[];
-  approvalStatus: ApprovalStatus;
-  approvedAgent: AgentName | null;
-  completedAgents: AgentName[];
-  pendingAgents: AgentName[];
-  blockedAgents: AgentName[];
-  agentOutputs: Partial<Record<AgentName, AgentExecutionResult>>;
-  context: Record<string, unknown>;
-  autoMode: boolean;
-  nextAction: string | null;
-  checkpointPolicy: 'critical_only' | 'all_steps';
-  loopCount: number;
-  autoRunStatus: 'idle' | 'running' | 'awaiting_approval' | 'stopped' | 'done' | 'failed';
-  lastTelegramMessageId: number | null;
-  lastApprovalCommand: string | null;
-  lastError: string | null;
-  timestamps: {
-    createdAt: string;
-    updatedAt: string;
-    lastProposalAt: string | null;
-    lastApprovalAt: string | null;
-    lastRejectionAt: string | null;
-    lastWebhookFailureAt: string | null;
-  };
-}
-
 export interface TelegramSendResult {
   ok: boolean;
   messageId: number | null;
@@ -95,10 +53,4 @@ export interface AgentExecutionResult {
   loopCount: number;
   rawOutput?: unknown;
   completedAt: string;
-}
-
-export interface RunnableAction {
-  type: 'run_agent' | 'run_parallel' | 'idle';
-  agents: AgentName[];
-  reason: string;
 }
