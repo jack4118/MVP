@@ -12,6 +12,8 @@ import whatsAppRoutes from './routes/whatsapp';
 import internalRoutes from './routes/internal';
 import dashboardRoutes from './routes/dashboard';
 import { startReminderWorker } from './services/reminderWorker';
+import orchestratorRoutes from './routes/orchestrator';
+import telegramRoutes from './routes/telegram';
 
 dotenv.config();
 
@@ -73,6 +75,8 @@ app.use('/api/events', eventRoutes);
 app.use('/api/whatsapp', whatsAppRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/internal', internalRoutes);
+app.use('/api/orchestrator', orchestratorRoutes);
+app.use('/api/telegram', telegramRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
