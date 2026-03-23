@@ -1944,18 +1944,96 @@ code {
   background: rgba(15, 157, 116, 0.14);
 }
 
-.upgrade-plan-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.upgrade-modal-shell {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 18, 32, 0.56);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 24px;
+}
+
+.upgrade-modal-card {
+  width: min(960px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  position: relative;
+}
+
+.upgrade-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 12px;
+  margin-bottom: 12px;
+}
+
+.upgrade-modal-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.upgrade-modal-close:hover,
+.upgrade-modal-close:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.upgrade-modal-intro,
+.upgrade-modal-generated-count {
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.upgrade-modal-generated-count {
+  margin-bottom: 18px;
+  font-weight: 600;
+}
+
+.upgrade-modal-outcomes {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-left: 18px;
+  color: var(--text-secondary);
+}
+
+.upgrade-plan-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
   margin-bottom: 24px;
+  scroll-snap-type: x mandatory;
+}
+
+.upgrade-plan-grid {
+  --upgrade-plan-min-width: 260px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--upgrade-plan-min-width), 1fr);
+  gap: 12px;
+  min-width: max-content;
 }
 
 .upgrade-plan-card {
+  scroll-snap-align: start;
   padding: 16px;
   border-radius: 14px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  display: grid;
+  gap: 12px;
+  min-width: var(--upgrade-plan-min-width);
 }
 
 .upgrade-plan-card-highlight {
@@ -1964,7 +2042,7 @@ code {
 }
 
 .upgrade-plan-card-muted {
-  opacity: 0.72;
+  opacity: 0.82;
 }
 
 .upgrade-plan-label {
@@ -1975,10 +2053,47 @@ code {
 }
 
 .upgrade-plan-price {
-  margin-top: 8px;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.05em;
+  min-height: 64px;
+  display: grid;
+  align-content: start;
+}
+
+.upgrade-plan-price strong {
+  font-size: clamp(30px, 4vw, 36px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
+}
+
+.upgrade-plan-price span {
+  margin-top: 4px;
+  font-size: clamp(12px, 1.6vw, 14px);
+  color: var(--text-secondary);
+}
+
+.upgrade-plan-feature-list {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.upgrade-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.upgrade-modal-error {
+  margin-bottom: 16px;
+}
+
+.upgrade-modal-spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  margin-right: 8px;
 }
 
 .landing-shell {
@@ -2806,7 +2921,6 @@ code {
   .landing-solution-flow,
   .landing-pricing-preview,
   .today-dashboard-grid,
-  .upgrade-plan-grid,
   .whatsapp-kpi-grid,
   .whatsapp-step-grid,
   .whatsapp-chat-layout,
@@ -2958,7 +3072,8 @@ code {
   .pricing-note-card .btn,
   .whatsapp-form-actions .btn,
   .whatsapp-pagination .btn,
-  .landing-pricing-bridge .btn {
+  .landing-pricing-bridge .btn,
+  .upgrade-modal-actions .btn {
     width: 100%;
   }
 
@@ -3044,6 +3159,40 @@ code {
   .public-footer-links {
     flex-direction: column;
     gap: 10px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .upgrade-plan-scroll {
+    overflow: visible;
+  }
+
+  .upgrade-plan-grid {
+    min-width: 0;
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .upgrade-plan-card {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  .upgrade-plan-scroll {
+    overflow: visible;
+  }
+
+  .upgrade-plan-grid {
+    min-width: 0;
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .upgrade-plan-card {
+    min-width: 0;
   }
 }
 

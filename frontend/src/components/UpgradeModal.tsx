@@ -27,89 +27,102 @@ const UpgradeModal = ({
     trackProductEvent('upgrade_modal_opened', { source });
   }, [isOpen, source]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 2000,
-      }}
+      className="upgrade-modal-shell"
       onClick={onClose}
+      role="presentation"
     >
       <div
-        className="card"
-        style={{
-          maxWidth: '500px',
-          width: '90%',
-          maxHeight: '90vh',
-          overflow: 'auto',
-          position: 'relative',
-        }}
+        className="card upgrade-modal-card"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upgrade-modal-title"
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h2>{t.pricing.upgradeModalTitle}</h2>
+        <div className="upgrade-modal-header">
+          <h2 id="upgrade-modal-title">{t.pricing.upgradeModalTitle}</h2>
           <button
             onClick={onClose}
-            className="btn btn-secondary"
-            style={{ padding: '6px 12px' }}
+            className="upgrade-modal-close"
+            aria-label={t.common.close}
           >
-            {t.common.close}
+            ×
           </button>
         </div>
 
-        <p style={{ marginBottom: '8px', color: 'var(--text-secondary)' }}>
+        <p className="upgrade-modal-intro">
           {t.pricing.upgradeModalDescription}
         </p>
-        <p style={{ marginBottom: '24px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-          {translate(t.pricing.valueMessagesCreated, { count: generatedCount })}
-        </p>
+        <ul className="upgrade-modal-outcomes">
+          <li>{t.pricing.upgradeModalOutcome1}</li>
+          <li>{t.pricing.upgradeModalOutcome2}</li>
+          <li>{t.pricing.upgradeModalOutcome3}</li>
+        </ul>
+        <p className="upgrade-modal-generated-count">{translate(t.pricing.valueMessagesCreated, { count: generatedCount })}</p>
 
-        <div className="upgrade-plan-grid">
-          <div className="upgrade-plan-card">
-            <div className="upgrade-plan-label">{t.pricing.upgradeModalStarterLabel}</div>
-            <div className="upgrade-plan-price">RM29{t.pricing.monthlySuffix}</div>
-            <p>{t.pricing.starterDescription}</p>
-          </div>
-          <div className="upgrade-plan-card upgrade-plan-card-highlight">
-            <div className="upgrade-plan-label">{t.pricing.proPlan}</div>
-            <div className="upgrade-plan-price">RM49{t.pricing.monthlySuffix}</div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0 0' }}>
-              <li style={{ padding: '6px 0' }}>✓ {t.pricing.unlimitedLeads}</li>
-              <li style={{ padding: '6px 0' }}>✓ {t.pricing.unlimitedAi}</li>
-              <li style={{ padding: '6px 0' }}>✓ {t.pricing.oneClickCopy}</li>
-              <li style={{ padding: '6px 0' }}>✓ {t.pricing.futureFeatures}</li>
-            </ul>
-          </div>
-          <div className="upgrade-plan-card upgrade-plan-card-muted">
-            <div className="upgrade-plan-label">{t.pricing.upgradeModalBusinessLabel}</div>
-            <div className="upgrade-plan-price">RM79{t.pricing.monthlySuffix}</div>
-            <p>{t.pricing.businessDescription}</p>
+        <div className="upgrade-plan-scroll">
+          <div className="upgrade-plan-grid">
+            <article className="upgrade-plan-card" tabIndex={0}>
+              <div className="upgrade-plan-label">{t.pricing.upgradeModalStarterLabel}</div>
+              <div className="upgrade-plan-price" aria-label={`RM29 ${t.pricing.perMonthLabel}`}>
+                <strong>RM29</strong>
+                <span>{t.pricing.perMonthLabel}</span>
+              </div>
+              <p>{t.pricing.starterDescription}</p>
+            </article>
+            <article className="upgrade-plan-card upgrade-plan-card-highlight" tabIndex={0}>
+              <div className="upgrade-plan-label">{t.pricing.proPlan}</div>
+              <div className="upgrade-plan-price" aria-label={`RM49 ${t.pricing.perMonthLabel}`}>
+                <strong>RM49</strong>
+                <span>{t.pricing.perMonthLabel}</span>
+              </div>
+              <ul className="upgrade-plan-feature-list">
+                <li>✓ {t.pricing.unlimitedLeads}</li>
+                <li>✓ {t.pricing.unlimitedAi}</li>
+                <li>✓ {t.pricing.oneClickCopy}</li>
+                <li>✓ {t.pricing.futureFeatures}</li>
+              </ul>
+            </article>
+            <article className="upgrade-plan-card upgrade-plan-card-muted" tabIndex={0}>
+              <div className="upgrade-plan-label">{t.pricing.upgradeModalBusinessLabel}</div>
+              <div className="upgrade-plan-price" aria-label={`RM79 ${t.pricing.perMonthLabel}`}>
+                <strong>RM79</strong>
+                <span>{t.pricing.perMonthLabel}</span>
+              </div>
+              <p>{t.pricing.businessDescription}</p>
+            </article>
           </div>
         </div>
 
         {error && (
-          <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+          <div className="alert alert-error upgrade-modal-error">
             <span>{error}</span>
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+        <div className="upgrade-modal-actions">
           <button
             onClick={onClose}
             className="btn btn-secondary"
             disabled={loading}
           >
-            {t.common.cancel}
+            {t.pricing.notNow}
           </button>
           <button
             onClick={async () => {
@@ -139,11 +152,11 @@ const UpgradeModal = ({
           >
             {loading ? (
               <>
-                <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px', marginRight: '8px' }}></div>
+                <div className="spinner upgrade-modal-spinner"></div>
                 {t.common.loading}
               </>
             ) : (
-              t.pricing.upgradeNow
+              t.pricing.upgradeToPro
             )}
           </button>
         </div>

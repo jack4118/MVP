@@ -49,7 +49,7 @@ const Landing = () => {
     const top = node.getBoundingClientRect().top + window.scrollY - offset;
 
     window.scrollTo({ top, behavior: 'smooth' });
-    window.history.replaceState(null, '', '#workflow');
+    window.history.replaceState(null, '', '#how-it-works');
     window.setTimeout(() => {
       node.focus();
       setWorkflowHighlight(true);
@@ -64,7 +64,7 @@ const Landing = () => {
 
     window.addEventListener('ezreply-scroll-workflow', onScrollRequest);
 
-    if (window.location.hash === '#workflow') {
+    if (window.location.hash === '#how-it-works' || window.location.hash === '#workflow') {
       window.setTimeout(() => scrollToWorkflow(), 0);
     }
 
@@ -159,7 +159,7 @@ const Landing = () => {
         </section>
 
         <section
-          id="workflow"
+          id="how-it-works"
           ref={workflowRef}
           className={`card landing-workflow landing-workflow-panel ${workflowHighlight ? 'landing-workflow-highlight' : ''}`}
           tabIndex={-1}
@@ -195,35 +195,6 @@ const Landing = () => {
               <p>{feature.body}</p>
             </article>
           ))}
-        </section>
-
-        <section className="card landing-testimonial-panel">
-          <div className="landing-testimonial-quote">
-            <p className="eyebrow">{t.landing.testimonialEyebrow}</p>
-            <h2>{t.landing.testimonialQuote}</h2>
-            <div className="landing-testimonial-person">
-              <strong>{t.landing.testimonialName}</strong>
-              <span>{t.landing.testimonialRole}</span>
-            </div>
-          </div>
-          <div className="landing-testimonial-stats">
-            <article className="landing-testimonial-stat-card">
-              <strong>{t.landing.statTimeSavedValue}</strong>
-              <span>{t.landing.statTimeSavedLabel}</span>
-            </article>
-            <article className="landing-testimonial-stat-card">
-              <strong>{t.landing.statResponseValue}</strong>
-              <span>{t.landing.statResponseLabel}</span>
-            </article>
-            <article className="landing-testimonial-stat-card">
-              <strong>{t.landing.statCloseRateValue}</strong>
-              <span>{t.landing.statCloseRateLabel}</span>
-            </article>
-            <article className="landing-testimonial-stat-card">
-              <strong>{t.landing.statRoiValue}</strong>
-              <span>{t.landing.statRoiLabel}</span>
-            </article>
-          </div>
         </section>
 
         <section className="card landing-brand-panel">

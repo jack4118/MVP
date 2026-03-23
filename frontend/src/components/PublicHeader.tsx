@@ -36,7 +36,7 @@ const PublicHeader = () => {
   const handleWorkflowNavigate = () => {
     closeMenu();
     if (location.pathname !== '/') {
-      navigate('/#workflow');
+      navigate('/#how-it-works');
       return;
     }
 
