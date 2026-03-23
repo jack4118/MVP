@@ -146,6 +146,7 @@ test('11) invalid /approve target rejected', async () => {
   state.approvalStatus = 'pending';
   state.currentStage = 'stage_patch_deploy';
   state.pendingApproval = {
+    approvalId: 'appr_test1',
     target: 'agent:agent9',
     reason: 'Deploy',
     stage: 'stage_patch_deploy',
@@ -184,6 +185,7 @@ test('12) approval pending prevents execution', async () => {
   state.status = 'waiting_approval';
   state.approvalStatus = 'pending';
   state.pendingApproval = {
+    approvalId: 'appr_test2',
     target: 'group:stage_public_qa',
     reason: 'Start QA',
     stage: 'stage_public_qa',
@@ -216,6 +218,114 @@ test('13) duplicate concurrent execution blocked', async () => {
     }),
     /duplicate concurrent execution blocked/i
   );
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('14) /start-run enforces single active run', async () => {
+  const { dir } = await withTempState();
+  const state = createDefaultState();
+  state.status = 'running';
+  state.issueId = 'existing run';
+  await saveWorkflowState(state);
+
+  const originalFetch = global.fetch;
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  process.env.TELEGRAM_APPROVER_CHAT_ID = '123';
+  global.fetch = (async () =>
+    ({
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 1 } }),
+    }) as any) as typeof fetch;
+
+  const result = await handleTelegramWebhookUpdate({
+    message: { chat: { id: 123 }, text: '/start-run fix whatsapp send flow' },
+  });
+  assert.match(result.response || '', /cannot start a new run/i);
+
+  global.fetch = originalFetch;
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('15) callback approve is stale-safe and idempotent', async () => {
+  const { dir } = await withTempState();
+  const state = createDefaultState();
+  state.issueId = 'fix send flow';
+  state.status = 'waiting_approval';
+  state.approvalStatus = 'pending';
+  state.currentStage = 'stage_patch_deploy';
+  state.pendingApproval = {
+    approvalId: 'appr_cb1',
+    target: 'agent:agent9',
+    reason: 'Deploy',
+    stage: 'stage_patch_deploy',
+    requestedAt: new Date().toISOString(),
+  };
+  state.proposedNext = {
+    target: 'agent:agent9',
+    reason: 'Deploy',
+    stage: 'stage_patch_deploy',
+    requiredAgents: ['agent9'],
+  };
+  await saveWorkflowState(state);
+
+  const originalFetch = global.fetch;
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  process.env.TELEGRAM_APPROVER_CHAT_ID = '123';
+  global.fetch = (async (input: any, init?: any) => {
+    const url = String(input || '');
+    if (url.includes('answerCallbackQuery')) {
+      return {
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as any;
+    }
+    return {
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 99 } }),
+    } as any;
+  }) as typeof fetch;
+
+  const approvalCard = await handleTelegramWebhookUpdate({
+    message: { chat: { id: 123 }, text: '/repeat' },
+  });
+  assert.match(approvalCard.response || '', /approval prompt repeated/i);
+
+  let capturedCallbackData = '';
+  global.fetch = (async (input: any, init?: any) => {
+    const url = String(input || '');
+    if (url.includes('sendMessage')) {
+      const body = JSON.parse(String(init?.body || '{}'));
+      const callback = body?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data;
+      if (typeof callback === 'string' && callback.includes('a:approve')) {
+        capturedCallbackData = callback;
+      }
+      return {
+        ok: true,
+        json: async () => ({ ok: true, result: { message_id: 100 } }),
+      } as any;
+    }
+    return {
+      ok: true,
+      json: async () => ({ ok: true }),
+    } as any;
+  }) as typeof fetch;
+
+  await handleTelegramWebhookUpdate({
+    message: { chat: { id: 123 }, text: '/repeat' },
+  });
+
+  assert.ok(capturedCallbackData.length > 0);
+  const first = await handleTelegramWebhookUpdate({
+    callback_query: { id: 'cb1', data: capturedCallbackData, message: { chat: { id: 123 }, message_id: 100 } },
+  });
+  assert.match(first.response || '', /approved/i);
+
+  const second = await handleTelegramWebhookUpdate({
+    callback_query: { id: 'cb2', data: capturedCallbackData, message: { chat: { id: 123 }, message_id: 100 } },
+  });
+  assert.match(second.response || '', /already handled|outdated button/i);
+
+  global.fetch = originalFetch;
   await rm(dir, { recursive: true, force: true });
 });
 

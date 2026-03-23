@@ -7,6 +7,7 @@ This module enforces **Agent 0 approval-gated orchestration** for your multi-age
 - Agent registry with explicit role constraints (allowed/forbidden actions, required inputs, expected outputs).
 - Approval-gated transitions: Agent 0 must propose next agent, then wait for Telegram approval.
 - Telegram webhook command handling:
+  - `/start-run <issue>`
   - `/approve <agentName>`
   - `/reject`
   - `/status`
@@ -68,6 +69,14 @@ Telegram token management commands:
 - `/wa_token confirm`
 - `/wa_token cancel`
 
+Orchestrator operator commands:
+
+- `/start-run <issue>`
+- `/status`
+- `/approve <target>` / `/reject`
+- `/repeat-run <agent>`
+- `/cancel`
+
 ## Typical Flow
 
 1. Agent 0 resets workflow:
@@ -92,11 +101,10 @@ curl -X POST http://localhost:3001/api/orchestrator/proposals \
   }'
 ```
 
-3. Approver replies in Telegram:
+3. Approver uses Telegram mobile controls:
 
-- `/approve agent6`
-- or `/reject`
-- or `/status`
+- Tap inline `Approve` / `Reject` / `Status` buttons
+- Slash commands remain as fallback (`/approve`, `/reject`, `/status`)
 
 4. Only after approval, Agent 0 claims next agent execution payload:
 
@@ -134,6 +142,17 @@ Worker behavior:
 - Runs agents through `codex exec ... --json`.
 - Submits normalized result payload.
 - Runs token-expiry check every 15 minutes.
+
+### Render Always-On Worker (Phase 0)
+
+`render.yaml` includes a dedicated `mvp-orchestrator-worker` service:
+
+- command: `npm run worker:orchestrator:api`
+- must set `EZR_ORCHESTRATOR_API_BASE` to your backend URL
+- polls `GET /api/orchestrator/auto/next-action`
+- performs lease claim/heartbeat and submits results back to API
+
+This removes dependence on a local terminal for workflow progression after Telegram approvals.
 
 ## Telegram Webhook Setup
 

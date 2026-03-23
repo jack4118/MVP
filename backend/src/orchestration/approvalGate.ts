@@ -1,6 +1,7 @@
 import { ApprovalTarget, WorkflowState } from './workflowModel';
 
 const toIsoNow = (): string => new Date().toISOString();
+const generateApprovalId = (): string => `appr_${Math.random().toString(36).slice(2, 10)}`;
 
 export const clearApprovalState = (state: WorkflowState): void => {
   state.pendingApproval = null;
@@ -14,6 +15,7 @@ export const setPendingApproval = (
 ): void => {
   const now = toIsoNow();
   state.pendingApproval = {
+    approvalId: generateApprovalId(),
     target: params.target,
     reason: params.reason,
     stage: state.currentStage,
@@ -30,9 +32,13 @@ export const setPendingApproval = (
   state.timestamps.lastProposalAt = now;
 };
 
-export const approvePendingTarget = (state: WorkflowState, target: ApprovalTarget): void => {
+export const approvePendingTarget = (state: WorkflowState, target: ApprovalTarget, approvalId?: string): void => {
   if (state.approvalStatus !== 'pending' || !state.pendingApproval) {
     throw new Error(`Cannot approve now. Current approval status is ${state.approvalStatus}.`);
+  }
+
+  if (approvalId && state.pendingApproval.approvalId !== approvalId) {
+    throw new Error('Approval request has changed. Button is stale.');
   }
 
   if (state.pendingApproval.target !== target) {

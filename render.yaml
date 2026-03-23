@@ -50,3 +50,24 @@ services:
         value: render
       - key: EZR_ORCHESTRATOR_WORKER_POLL_MS
         value: "15000"
+
+  - type: worker
+    name: mvp-orchestrator-worker
+    env: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run worker:orchestrator:api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: EZR_ORCHESTRATOR_API_BASE
+        sync: false
+      - key: EZR_ORCHESTRATOR_WORKER_ID
+        value: render-worker
+      - key: EZR_ORCHESTRATOR_WORKER_POLL_MS
+        value: "15000"
+      - key: EZR_AGENT_HEARTBEAT_INTERVAL_SECONDS
+        value: "45"
+      - key: EZR_AGENT_LEASE_TTL_SECONDS
+        value: "90"

@@ -12,8 +12,19 @@ import {
   setPendingTemplateTokenUpdate,
 } from './credentialService';
 import { createDefaultState, loadWorkflowState, saveWorkflowState } from './stateStore';
-import { formatApprovalMessage, formatStatusMessage } from './statusFormatter';
-import { extractTelegramCommand, sendTelegramMessage } from './telegramClient';
+import { formatCompactApprovalCard, formatCompactStatusCard } from './statusFormatter';
+import {
+  answerTelegramCallbackQuery,
+  extractTelegramUpdate,
+  sendTelegramMessage,
+  TelegramReplyMarkup,
+} from './telegramClient';
+import {
+  consumeTelegramCallbackRecord,
+  createTelegramCallbackData,
+  loadTelegramCallbackRecord,
+  TelegramCallbackAction,
+} from './telegramCallbackRegistry';
 import {
   getAgentMaxRuntimeMinutes,
   getAgentMaxRuntimeMs,
@@ -34,6 +45,7 @@ import { AgentExecutionResult, AgentName } from './types';
 import { ApprovalTarget, ExecutionFailureReason, RunnableAction, WorkflowState } from './workflowModel';
 
 const APPROVE_PREFIX = '/approve';
+const START_RUN_PREFIX = '/start-run';
 const WA_TOKEN_SET_PREFIX = '/wa_token set';
 const REPEAT_RUN_PREFIX = '/repeat-run';
 
@@ -75,6 +87,105 @@ const parseRepeatRunAgent = (command: string): AgentName | null => {
     return null;
   }
   return parsed;
+};
+
+const parseStartRunIssue = (command: string): string | null => {
+  const trimmed = command.trim();
+  if (!trimmed.toLowerCase().startsWith(START_RUN_PREFIX)) {
+    return null;
+  }
+  const issue = trimmed.slice(START_RUN_PREFIX.length).trim();
+  return issue.length > 0 ? issue : null;
+};
+
+const hasActiveRun = (state: WorkflowState): boolean => {
+  return state.status === 'running' || state.status === 'waiting_approval' || state.status === 'blocked';
+};
+
+const buildApprovalReplyMarkup = (state: WorkflowState): TelegramReplyMarkup | undefined => {
+  const pending = state.pendingApproval;
+  if (!pending || state.approvalStatus !== 'pending') {
+    return undefined;
+  }
+
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: 'Approve',
+          callback_data: createTelegramCallbackData({
+            action: 'approve',
+            issueId: state.issueId,
+            stage: state.currentStage,
+            status: state.status,
+            target: pending.target,
+            approvalId: pending.approvalId,
+            messageId: state.approvalMessageId,
+          }),
+        },
+        {
+          text: 'Reject',
+          callback_data: createTelegramCallbackData({
+            action: 'reject',
+            issueId: state.issueId,
+            stage: state.currentStage,
+            status: state.status,
+            target: pending.target,
+            approvalId: pending.approvalId,
+            messageId: state.approvalMessageId,
+          }),
+        },
+      ],
+      [
+        {
+          text: 'Status',
+          callback_data: createTelegramCallbackData({
+            action: 'status',
+            issueId: state.issueId,
+            stage: state.currentStage,
+            status: state.status,
+            target: pending.target,
+            approvalId: pending.approvalId,
+            messageId: state.approvalMessageId,
+          }),
+        },
+      ],
+    ],
+  };
+};
+
+const buildStatusReplyMarkup = (state: WorkflowState): TelegramReplyMarkup => {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: 'Status',
+          callback_data: createTelegramCallbackData({
+            action: 'status',
+            issueId: state.issueId,
+            stage: state.currentStage,
+            status: state.status,
+            target: state.pendingApproval?.target || null,
+            approvalId: state.pendingApproval?.approvalId || null,
+            messageId: null,
+          }),
+        },
+      ],
+    ],
+  };
+};
+
+const sendApprovalCard = async (state: WorkflowState): Promise<{ ok: boolean; messageId: number | null; error?: string }> => {
+  const message = formatCompactApprovalCard(state);
+  return await sendTelegramMessage(message, {
+    replyMarkup: buildApprovalReplyMarkup(state),
+  });
+};
+
+const sendStatusCard = async (state: WorkflowState): Promise<{ ok: boolean; messageId: number | null; error?: string }> => {
+  return await sendTelegramMessage(formatCompactStatusCard(state), {
+    replyMarkup: buildStatusReplyMarkup(state),
+  });
 };
 
 const buildExecutionIssueMessage = (
@@ -344,7 +455,7 @@ const proposeNextAndNotifyIfNeeded = async (state: WorkflowState): Promise<void>
   });
   state.proposedNext = next;
 
-  const sendResult = await sendTelegramMessage(formatApprovalMessage(state));
+  const sendResult = await sendApprovalCard(state);
   if (!sendResult.ok) {
     state.status = 'blocked';
     state.lastError = sendResult.error || 'Telegram send failed';
@@ -637,6 +748,7 @@ export const requestManualRepeatRun = async (params: { agent: AgentName; request
   const target = `agent:${params.agent}` as ApprovalTarget;
 
   state.pendingApproval = {
+    approvalId: `appr_${Math.random().toString(36).slice(2, 10)}`,
     target,
     reason: `Manual repeat-run requested by ${params.requestedBy}`,
     stage: state.currentStage,
@@ -705,7 +817,7 @@ export const proposeNextAgentForApproval = async (params: {
     });
   }
 
-  const sendResult = await sendTelegramMessage(formatApprovalMessage(state));
+  const sendResult = await sendApprovalCard(state);
   if (!sendResult.ok) {
     state.status = 'blocked';
     state.lastError = sendResult.error || 'Telegram send failed';
@@ -772,25 +884,106 @@ export const runCredentialExpiryCheck = async (): Promise<void> => {
   await notifyExpiringTemplateTokenIfNeeded();
 };
 
-export const handleTelegramWebhookUpdate = async (body: any): Promise<{
-  handled: boolean;
-  command?: string | null;
-  response?: string;
-}> => {
-  await initializeOrchestrator();
+const validateMutatingCallbackAgainstState = (
+  state: WorkflowState,
+  record: {
+    issueId: string;
+    stage: WorkflowState['currentStage'];
+    target: ApprovalTarget | null;
+    approvalId: string | null;
+    status: WorkflowState['status'];
+  }
+): { ok: true } | { ok: false; reason: string } => {
+  if (state.issueId !== record.issueId) {
+    return { ok: false, reason: 'Outdated button, tap Status.' };
+  }
+  if (state.currentStage !== record.stage) {
+    return { ok: false, reason: 'Outdated button, tap Status.' };
+  }
+  if (state.status !== record.status && state.status !== 'waiting_approval' && state.status !== 'running') {
+    return { ok: false, reason: 'Outdated button, tap Status.' };
+  }
+  if (!state.pendingApproval || state.approvalStatus !== 'pending') {
+    return { ok: false, reason: 'No active approval request. Tap Status.' };
+  }
+  if (state.pendingApproval.target !== record.target) {
+    return { ok: false, reason: 'Target already changed. Tap Status.' };
+  }
+  if (state.pendingApproval.approvalId !== record.approvalId) {
+    return { ok: false, reason: 'Approval request changed. Tap Status.' };
+  }
+  return { ok: true };
+};
 
-  const { chatId, text } = extractTelegramCommand(body);
-  if (!text) {
-    return { handled: false, command: null };
+const handleTelegramCallbackAction = async (params: {
+  action: TelegramCallbackAction;
+  callbackData: string;
+  callbackQueryId: string;
+}): Promise<{ handled: boolean; command: string; response: string }> => {
+  const loaded = loadTelegramCallbackRecord(params.callbackData);
+  if (!loaded.ok) {
+    const reason = 'Outdated button, tap Status.';
+    await answerTelegramCallbackQuery(params.callbackQueryId, reason);
+    await sendTelegramMessage(reason);
+    return { handled: true, command: `callback:${params.action}`, response: reason };
   }
 
-  const allowedChatId = process.env.TELEGRAM_APPROVER_CHAT_ID;
-  if (!allowedChatId || !chatId || chatId !== allowedChatId) {
-    return { handled: false, command: text };
-  }
-
+  const { cbid, record } = loaded;
   const state = await loadWorkflowState();
-  const command = text.trim();
+  let response = '';
+
+  if (record.action !== params.action) {
+    response = 'Outdated button, tap Status.';
+    await answerTelegramCallbackQuery(params.callbackQueryId, response);
+    await sendTelegramMessage(response);
+    return { handled: true, command: `callback:${params.action}`, response };
+  }
+
+  if (params.action === 'status') {
+    await answerTelegramCallbackQuery(params.callbackQueryId, 'Status refreshed');
+    await sendStatusCard(state);
+    return { handled: true, command: 'callback:status', response: 'Status refreshed.' };
+  }
+
+  if (consumeTelegramCallbackRecord(cbid).ok === false) {
+    response = 'Button already handled. Tap Status.';
+    await answerTelegramCallbackQuery(params.callbackQueryId, response);
+    await sendTelegramMessage(response);
+    return { handled: true, command: `callback:${params.action}`, response };
+  }
+
+  const validation = validateMutatingCallbackAgainstState(state, record);
+  if (!validation.ok) {
+    await answerTelegramCallbackQuery(params.callbackQueryId, validation.reason);
+    await sendTelegramMessage(validation.reason);
+    return { handled: true, command: `callback:${params.action}`, response: validation.reason };
+  }
+
+  if (params.action === 'approve') {
+    approvePendingTarget(state, record.target as ApprovalTarget, record.approvalId || undefined);
+    state.lastApprovalCommand = `/approve ${record.target}`;
+    await syncAndSave(state);
+    response = `${record.target} approved.`;
+    await answerTelegramCallbackQuery(params.callbackQueryId, 'Approved');
+    await sendTelegramMessage(response);
+    return { handled: true, command: 'callback:approve', response };
+  }
+
+  rejectPendingTarget(state);
+  state.lastApprovalCommand = '/reject';
+  await syncAndSave(state);
+  response = 'Rejected. Workflow remains blocked until Agent 0 proposes a valid new target.';
+  await answerTelegramCallbackQuery(params.callbackQueryId, 'Rejected');
+  await sendTelegramMessage(response);
+  return { handled: true, command: 'callback:reject', response };
+};
+
+const handleTelegramTextCommand = async (params: {
+  chatId: string;
+  command: string;
+}): Promise<{ handled: boolean; command: string; response: string }> => {
+  const state = await loadWorkflowState();
+  const command = params.command.trim();
   const normalized = command.toLowerCase();
   let response = '';
 
@@ -804,7 +997,7 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
     try {
       const parsed = parseWaTokenSetCommand(command);
       const pending = await setPendingTemplateTokenUpdate({
-        chatId,
+        chatId: params.chatId,
         token: parsed.token,
         expiresOn: parsed.expiresOn,
       });
@@ -826,7 +1019,7 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
 
   if (normalized === '/wa_token confirm') {
     try {
-      const saved = await confirmPendingTemplateTokenUpdate(chatId);
+      const saved = await confirmPendingTemplateTokenUpdate(params.chatId);
       response = [
         'Template token updated successfully.',
         `Token: ${saved.masked}`,
@@ -842,15 +1035,39 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
   }
 
   if (normalized === '/wa_token cancel') {
-    const cancelled = await cancelPendingTemplateTokenUpdate(chatId);
+    const cancelled = await cancelPendingTemplateTokenUpdate(params.chatId);
     response = cancelled ? 'Pending token update cancelled.' : 'No pending token update found.';
     await sendTelegramMessage(response);
     return { handled: true, command, response };
   }
 
+  if (normalized.startsWith(START_RUN_PREFIX)) {
+    const issue = parseStartRunIssue(command);
+    if (!issue) {
+      response = 'Usage: /start-run <issue>';
+      await sendTelegramMessage(response);
+      return { handled: true, command, response };
+    }
+    if (hasActiveRun(state)) {
+      response = `Cannot start a new run while current run is ${state.status}. Use /status first.`;
+      await sendTelegramMessage(response);
+      return { handled: true, command, response };
+    }
+
+    const started = await startAutoRun({
+      actorAgent: 'agent0',
+      issue,
+      checkpointPolicy: 'critical_only',
+    });
+
+    await sendTelegramMessage(`Run started.\nIssue: ${started.issueId}\nStage: ${started.currentStage}`);
+    response = started.pendingApproval ? 'Run started and approval sent.' : 'Run started.';
+    return { handled: true, command, response };
+  }
+
   if (normalized === '/status') {
-    response = formatStatusMessage(state);
-    await sendTelegramMessage(response);
+    await sendStatusCard(state);
+    response = formatCompactStatusCard(state);
     return { handled: true, command, response };
   }
 
@@ -860,7 +1077,7 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
       await sendTelegramMessage(response);
       return { handled: true, command, response };
     }
-    const sendResult = await sendTelegramMessage(formatApprovalMessage(state));
+    const sendResult = await sendApprovalCard(state);
     if (!sendResult.ok) {
       state.status = 'blocked';
       state.lastError = sendResult.error || 'Telegram send failed during /repeat';
@@ -885,7 +1102,7 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
       return { handled: true, command, response };
     }
     try {
-      await requestManualRepeatRun({ agent: repeatAgent, requestedBy: `telegram:${chatId}` });
+      await requestManualRepeatRun({ agent: repeatAgent, requestedBy: `telegram:${params.chatId}` });
       response = `Repeat-run scheduled for ${repeatAgent}.`;
     } catch (error: any) {
       response = error.message || `Failed to repeat-run ${repeatAgent}.`;
@@ -937,7 +1154,7 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
       return { handled: true, command, response };
     }
 
-    approvePendingTarget(state, target);
+    approvePendingTarget(state, target, state.pendingApproval.approvalId);
     state.lastApprovalCommand = `/approve ${target}`;
     await syncAndSave(state);
     response = `${target} approved.`;
@@ -946,9 +1163,46 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
   }
 
   response =
-    'Unknown command. Use /approve <target>, /reject, /status, /repeat, /repeat-run <agent>, /cancel, /wa_token status, /wa_token set, /wa_token confirm, /wa_token cancel.';
+    'Unknown command. Use /start-run <issue>, /approve <target>, /reject, /status, /repeat, /repeat-run <agent>, /cancel, /wa_token status, /wa_token set, /wa_token confirm, /wa_token cancel.';
   await sendTelegramMessage(response);
   return { handled: true, command, response };
+};
+
+export const handleTelegramWebhookUpdate = async (body: any): Promise<{
+  handled: boolean;
+  command?: string | null;
+  response?: string;
+}> => {
+  await initializeOrchestrator();
+
+  const { chatId, text, callbackData, callbackQueryId } = extractTelegramUpdate(body);
+  if (!text && !(callbackData && callbackQueryId)) {
+    return { handled: false, command: null };
+  }
+
+  const allowedChatId = process.env.TELEGRAM_APPROVER_CHAT_ID;
+  if (!allowedChatId || !chatId || chatId !== allowedChatId) {
+    return { handled: false, command: text || callbackData || null };
+  }
+
+  if (callbackData && callbackQueryId) {
+    const loaded = loadTelegramCallbackRecord(callbackData);
+    const action = loaded.ok ? loaded.record.action : 'status';
+    return await handleTelegramCallbackAction({
+      action,
+      callbackData,
+      callbackQueryId,
+    });
+  }
+
+  if (!text) {
+    return { handled: false, command: null };
+  }
+
+  return await handleTelegramTextCommand({
+    chatId,
+    command: text,
+  });
 };
 
 export const getAgentRegistry = () => listAgentDefinitions();

@@ -33,6 +33,7 @@ export interface ProposedNext {
 }
 
 export interface PendingApproval {
+  approvalId: string;
   target: ApprovalTarget;
   reason: string;
   stage: WorkflowStage;

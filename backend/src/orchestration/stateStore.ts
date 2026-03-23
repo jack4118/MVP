@@ -16,6 +16,7 @@ const ALL_EXEC_AGENTS: AgentName[] = allExecutionAgents();
 export const WORKFLOW_SCHEMA_VERSION = 3;
 
 const unique = <T>(items: T[]): T[] => Array.from(new Set(items));
+const randomApprovalId = (): string => `appr_${Math.random().toString(36).slice(2, 10)}`;
 
 const normalizeStage = (value: unknown): WorkflowState['currentStage'] => {
   const raw = String(value || '');
@@ -182,6 +183,17 @@ const migrateLegacyState = (parsed: Record<string, unknown>): WorkflowState => {
 };
 
 export const normalizeWorkflowState = (state: WorkflowState): WorkflowState => {
+  const pendingApproval =
+    state.pendingApproval && typeof state.pendingApproval === 'object'
+      ? {
+          ...state.pendingApproval,
+          approvalId:
+            typeof state.pendingApproval.approvalId === 'string' && state.pendingApproval.approvalId.trim().length > 0
+              ? state.pendingApproval.approvalId
+              : randomApprovalId(),
+        }
+      : null;
+
   const normalized: WorkflowState = {
     ...state,
     schemaVersion: WORKFLOW_SCHEMA_VERSION,
@@ -195,6 +207,7 @@ export const normalizeWorkflowState = (state: WorkflowState): WorkflowState => {
     retryableAgents: unique(state.retryableAgents || []),
     loopCount: Math.max(1, Number(state.loopCount || 1)),
     transitionLog: Array.isArray(state.transitionLog) ? state.transitionLog.slice(-500) : [],
+    pendingApproval,
     timestamps: {
       ...createDefaultState().timestamps,
       ...(state.timestamps || {}),
