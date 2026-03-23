@@ -369,8 +369,28 @@ export interface WhatsAppSendPreflight {
   verified: boolean;
   hasRecentInbound: boolean;
   canSendFreeform: boolean;
-  reasonCode: 'OK' | 'WHATSAPP_NOT_CONNECTED' | 'WHATSAPP_INACTIVE' | 'WHATSAPP_NOT_VERIFIED' | 'WHATSAPP_TEMPLATE_REQUIRED';
+  reasonCode:
+    | 'OK'
+    | 'WA_SETUP_REQUIRED'
+    | 'WA_AUTH_REQUIRED'
+    | 'WA_CONNECTION_NOT_READY'
+    | 'WA_PROVIDER_NOT_READY'
+    | 'WA_PHONE_INVALID'
+    | 'WA_MESSAGE_INVALID'
+    | 'WHATSAPP_NOT_CONNECTED'
+    | 'WHATSAPP_INACTIVE'
+    | 'WHATSAPP_NOT_VERIFIED'
+    | 'WHATSAPP_TEMPLATE_REQUIRED';
   reasonMessage: string;
+  send_ready: boolean;
+  checks: {
+    connection_ready: boolean;
+    provider_ready: boolean;
+    phone_valid: boolean;
+    message_valid: boolean;
+  };
+  blocking_reasons: string[];
+  recommended_action: 'reconnect' | 'reauth' | 'fix_phone' | 'edit_message' | 'complete_setup' | 'send_test' | 'wait_for_reply' | 'none';
 }
 
 export const authApi = {
@@ -708,9 +728,12 @@ export const whatsappApi = {
     return response.data;
   },
 
-  getPreflight: async (phone?: string): Promise<ApiResponse<WhatsAppSendPreflight>> => {
+  getPreflight: async (phone?: string, message?: string): Promise<ApiResponse<WhatsAppSendPreflight>> => {
     const response = await api.get<ApiResponse<WhatsAppSendPreflight>>('/whatsapp/preflight', {
-      params: phone ? { phone } : undefined,
+      params: {
+        ...(phone ? { phone } : {}),
+        ...(message ? { message } : {}),
+      },
     });
     return response.data;
   },

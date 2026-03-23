@@ -532,8 +532,8 @@ const WhatsApp = () => {
       setSending(true);
       setError('');
       setSuccess('');
-      const preflight = await whatsappApi.getPreflight();
-      if (!preflight.success || !preflight.data || !preflight.data.canSendFreeform) {
+      const preflight = await whatsappApi.getPreflight(testData.toPhone, testData.content);
+      if (!preflight.success || !preflight.data || !preflight.data.send_ready) {
         setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
         return;
       }
@@ -568,8 +568,8 @@ const WhatsApp = () => {
     try {
       setSending(true);
       setError('');
-      const preflight = await whatsappApi.getPreflight(selectedPhone);
-      if (!preflight.success || !preflight.data || !preflight.data.canSendFreeform) {
+      const preflight = await whatsappApi.getPreflight(selectedPhone, composerText.trim());
+      if (!preflight.success || !preflight.data || !preflight.data.send_ready) {
         setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
         return;
       }
@@ -603,6 +603,11 @@ const WhatsApp = () => {
     try {
       setSendingMedia(true);
       setError('');
+      const preflight = await whatsappApi.getPreflight(selectedPhone, mediaFile ? mediaFile.name : (mediaUrl.trim() || '[media]'));
+      if (!preflight.success || !preflight.data || !preflight.data.send_ready) {
+        setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
+        return;
+      }
       const clientMessageId = `media-${Date.now()}`;
       const response = mediaFile
         ? await whatsappApi.sendMediaUpload({

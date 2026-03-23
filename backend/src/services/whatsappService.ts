@@ -325,110 +325,172 @@ export interface WhatsAppSendPreflight {
   canSendFreeform: boolean;
   reasonCode:
     | 'OK'
+    | 'WA_SETUP_REQUIRED'
+    | 'WA_AUTH_REQUIRED'
+    | 'WA_CONNECTION_NOT_READY'
+    | 'WA_PROVIDER_NOT_READY'
+    | 'WA_PHONE_INVALID'
+    | 'WA_MESSAGE_INVALID'
     | 'WHATSAPP_NOT_CONNECTED'
     | 'WHATSAPP_INACTIVE'
     | 'WHATSAPP_NOT_VERIFIED'
     | 'WHATSAPP_TEMPLATE_REQUIRED';
   reasonMessage: string;
+  send_ready: boolean;
+  checks: {
+    connection_ready: boolean;
+    provider_ready: boolean;
+    phone_valid: boolean;
+    message_valid: boolean;
+  };
+  blocking_reasons: string[];
+  recommended_action: 'reconnect' | 'reauth' | 'fix_phone' | 'edit_message' | 'complete_setup' | 'send_test' | 'wait_for_reply' | 'none';
 }
 
-export const getWhatsAppSendPreflight = async (
+interface WhatsAppReadinessInput {
+  phone?: string;
+  message?: string;
+  requirePhone?: boolean;
+  requireMessage?: boolean;
+}
+
+const getRecommendedAction = (code: string): WhatsAppSendPreflight['recommended_action'] => {
+  if (code === 'WA_SETUP_REQUIRED') return 'complete_setup';
+  if (code === 'WA_AUTH_REQUIRED') return 'reauth';
+  if (code === 'WA_CONNECTION_NOT_READY' || code === 'WA_PROVIDER_NOT_READY') return 'reconnect';
+  if (code === 'WA_PHONE_INVALID') return 'fix_phone';
+  if (code === 'WA_MESSAGE_INVALID') return 'edit_message';
+  if (code === 'WHATSAPP_TEMPLATE_REQUIRED') return 'wait_for_reply';
+  return 'none';
+};
+
+const buildReadinessMessage = (code: string): string => {
+  switch (code) {
+    case 'WA_SETUP_REQUIRED':
+      return 'Complete WhatsApp setup first (paste token and verify).';
+    case 'WA_AUTH_REQUIRED':
+      return 'Token verification is required before sending.';
+    case 'WA_CONNECTION_NOT_READY':
+      return 'WhatsApp connection is not ready. Reconnect and verify first.';
+    case 'WA_PROVIDER_NOT_READY':
+      return 'WhatsApp provider credentials are incomplete. Update setup details.';
+    case 'WA_PHONE_INVALID':
+      return 'Recipient phone number is invalid.';
+    case 'WA_MESSAGE_INVALID':
+      return 'Message content is invalid.';
+    case 'WHATSAPP_TEMPLATE_REQUIRED':
+      return 'This contact appears outside the 24-hour window. Send an approved template first.';
+    default:
+      return 'Ready to send.';
+  }
+};
+
+const evaluateWhatsAppReadiness = async (
   userId: string,
-  phone?: string
+  options: WhatsAppReadinessInput = {}
 ): Promise<WhatsAppSendPreflight> => {
   const connection = await prisma.whatsAppConnection.findUnique({
     where: { userId },
     select: {
       isActive: true,
       lastVerifiedAt: true,
+      phoneNumberId: true,
+      accessToken: true,
     },
   });
 
+  const normalizedPhone = sanitizePhone(options.phone || '');
+  const phoneValid = options.requirePhone || normalizedPhone
+    ? normalizedPhone.length >= 8
+    : true;
+  const message = (options.message || '').trim();
+  const messageValid = options.requireMessage || message
+    ? message.length > 0 && message.length <= 5000
+    : true;
+
+  const connectionReady = Boolean(connection && connection.isActive);
+  const providerReady = Boolean(connection && connection.phoneNumberId && connection.accessToken);
+  const verified = Boolean(connection && connection.lastVerifiedAt);
+  const connected = Boolean(connection);
+  const active = Boolean(connection?.isActive);
+
+  const blockingReasons: string[] = [];
   if (!connection) {
-    return {
-      connected: false,
-      active: false,
-      verified: false,
-      hasRecentInbound: false,
-      canSendFreeform: false,
-      reasonCode: 'WHATSAPP_NOT_CONNECTED',
-      reasonMessage: 'Connect WhatsApp first before sending.',
-    };
+    blockingReasons.push('WA_SETUP_REQUIRED');
+  } else {
+    if (!connectionReady) {
+      blockingReasons.push('WA_CONNECTION_NOT_READY');
+    }
+    if (!providerReady) {
+      blockingReasons.push('WA_PROVIDER_NOT_READY');
+    }
+    if (!verified) {
+      blockingReasons.push('WA_AUTH_REQUIRED');
+    }
+  }
+  if (!phoneValid) {
+    blockingReasons.push('WA_PHONE_INVALID');
+  }
+  if (!messageValid) {
+    blockingReasons.push('WA_MESSAGE_INVALID');
   }
 
-  if (!connection.isActive) {
-    return {
-      connected: true,
-      active: false,
-      verified: Boolean(connection.lastVerifiedAt),
-      hasRecentInbound: false,
-      canSendFreeform: false,
-      reasonCode: 'WHATSAPP_INACTIVE',
-      reasonMessage: 'Your WhatsApp connection is inactive. Reconnect and verify again.',
-    };
-  }
-
-  if (!connection.lastVerifiedAt) {
-    return {
-      connected: true,
-      active: true,
-      verified: false,
-      hasRecentInbound: false,
-      canSendFreeform: false,
-      reasonCode: 'WHATSAPP_NOT_VERIFIED',
-      reasonMessage: 'Verify your WhatsApp connection before sending.',
-    };
-  }
-
-  const normalizedPhone = sanitizePhone(phone || '');
-  if (!normalizedPhone) {
-    return {
-      connected: true,
-      active: true,
-      verified: true,
-      hasRecentInbound: false,
-      canSendFreeform: true,
-      reasonCode: 'OK',
-      reasonMessage: 'Ready to send.',
-    };
-  }
-
-  const state = await prisma.whatsAppConversationState.findUnique({
-    where: {
-      userId_phone: {
-        userId,
-        phone: normalizedPhone,
+  let hasRecentInbound = false;
+  if (normalizedPhone) {
+    const state = await prisma.whatsAppConversationState.findUnique({
+      where: {
+        userId_phone: {
+          userId,
+          phone: normalizedPhone,
+        },
       },
-    },
-    select: {
-      lastInboundAt: true,
-    },
-  });
+      select: {
+        lastInboundAt: true,
+      },
+    });
 
-  const lastInboundAt = state?.lastInboundAt || null;
-  const hasRecentInbound = Boolean(lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() <= 24 * 60 * 60 * 1000);
-
-  if (!hasRecentInbound) {
-    return {
-      connected: true,
-      active: true,
-      verified: true,
-      hasRecentInbound: false,
-      canSendFreeform: false,
-      reasonCode: 'WHATSAPP_TEMPLATE_REQUIRED',
-      reasonMessage: 'This contact appears outside the 24-hour window. Send an approved template first.',
-    };
+    const lastInboundAt = state?.lastInboundAt || null;
+    hasRecentInbound = Boolean(lastInboundAt && Date.now() - new Date(lastInboundAt).getTime() <= 24 * 60 * 60 * 1000);
+    if (!hasRecentInbound) {
+      blockingReasons.push('WHATSAPP_TEMPLATE_REQUIRED');
+    }
   }
+
+  const sendReady = blockingReasons.length === 0;
+  const reasonCode = sendReady ? 'OK' : blockingReasons[0];
+  const recommendedAction = getRecommendedAction(reasonCode);
 
   return {
-    connected: true,
-    active: true,
-    verified: true,
-    hasRecentInbound: true,
-    canSendFreeform: true,
-    reasonCode: 'OK',
-    reasonMessage: 'Ready to send.',
+    connected,
+    active,
+    verified,
+    hasRecentInbound,
+    canSendFreeform: sendReady,
+    reasonCode: reasonCode as WhatsAppSendPreflight['reasonCode'],
+    reasonMessage: buildReadinessMessage(reasonCode),
+    send_ready: sendReady,
+    checks: {
+      connection_ready: connectionReady,
+      provider_ready: providerReady,
+      phone_valid: phoneValid,
+      message_valid: messageValid,
+    },
+    blocking_reasons: blockingReasons,
+    recommended_action: recommendedAction,
   };
+}
+
+export const getWhatsAppSendPreflight = async (
+  userId: string,
+  phone?: string,
+  message?: string
+): Promise<WhatsAppSendPreflight> => {
+  return evaluateWhatsAppReadiness(userId, {
+    phone,
+    message,
+    requirePhone: Boolean(phone),
+    requireMessage: Boolean(message),
+  });
 };
 
 export const upsertWhatsappConnection = async (

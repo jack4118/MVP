@@ -16,6 +16,7 @@ import {
   upsertWhatsappConnection,
   verifyWhatsappConnection,
 } from '../services/whatsappService';
+import { createAppError } from '../utils/errors';
 
 const router = express.Router();
 const upload = multer({
@@ -72,6 +73,21 @@ router.post('/connection', async (req: AuthRequest, res: Response, next: NextFun
     }
 
     const validatedData = whatsappConnectionSchema.parse(req.body);
+    const existingConnection = await getWhatsappConnection(req.userId);
+    if (!existingConnection && !validatedData.accessToken) {
+      return next(createAppError({
+        statusCode: 409,
+        code: 'WA_SETUP_REQUIRED',
+        message: 'Access token is required for first-time WhatsApp setup.',
+        recoverable: true,
+        nextAction: 'COMPLETE_SETUP_STEP_1',
+        details: {
+          missing_fields: ['accessToken'],
+          phase: 'first_time_connect',
+        },
+      }));
+    }
+
     await upsertWhatsappConnection(req.userId, validatedData);
 
     return res.status(201).json({
@@ -106,8 +122,24 @@ router.get('/preflight', async (req: AuthRequest, res: Response, next: NextFunct
     }
 
     const phone = typeof req.query.phone === 'string' ? req.query.phone : undefined;
-    const preflight = await getWhatsAppSendPreflight(req.userId, phone);
+    const message = typeof req.query.message === 'string' ? req.query.message : undefined;
+    const preflight = await getWhatsAppSendPreflight(req.userId, phone, message);
     return res.json({ success: true, data: preflight });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/send-readiness', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const phone = typeof req.query.phone === 'string' ? req.query.phone : undefined;
+    const message = typeof req.query.message === 'string' ? req.query.message : undefined;
+    const readiness = await getWhatsAppSendPreflight(req.userId, phone, message);
+    return res.json({ success: true, data: readiness });
   } catch (error) {
     next(error);
   }
@@ -120,6 +152,27 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
     }
 
     const validatedData = whatsappSendSchema.parse(req.body);
+    const readiness = await getWhatsAppSendPreflight(
+      req.userId,
+      validatedData.conversationPhone || validatedData.toPhone,
+      validatedData.content
+    );
+    if (!readiness.send_ready) {
+      return next(createAppError({
+        statusCode: 409,
+        code: readiness.reasonCode === 'OK' ? 'WA_CONNECTION_NOT_READY' : readiness.reasonCode,
+        message: readiness.reasonMessage,
+        recoverable: true,
+        nextAction: readiness.recommended_action.toUpperCase(),
+        details: {
+          send_ready: readiness.send_ready,
+          checks: readiness.checks,
+          blocking_reasons: readiness.blocking_reasons,
+          recommended_action: readiness.recommended_action,
+        },
+      }));
+    }
+
     const result = await sendWhatsAppText(req.userId, validatedData);
 
     return res.json({ success: true, data: result });
@@ -181,6 +234,27 @@ router.post('/send-media', async (req: AuthRequest, res: Response, next: NextFun
     }
 
     const validatedData = whatsappSendMediaSchema.parse(req.body);
+    const readiness = await getWhatsAppSendPreflight(
+      req.userId,
+      validatedData.conversationPhone || validatedData.toPhone,
+      validatedData.caption || '[media]'
+    );
+    if (!readiness.send_ready) {
+      return next(createAppError({
+        statusCode: 409,
+        code: readiness.reasonCode === 'OK' ? 'WA_CONNECTION_NOT_READY' : readiness.reasonCode,
+        message: readiness.reasonMessage,
+        recoverable: true,
+        nextAction: readiness.recommended_action.toUpperCase(),
+        details: {
+          send_ready: readiness.send_ready,
+          checks: readiness.checks,
+          blocking_reasons: readiness.blocking_reasons,
+          recommended_action: readiness.recommended_action,
+        },
+      }));
+    }
+
     const result = await sendWhatsAppMedia(req.userId, validatedData);
 
     return res.json({ success: true, data: result });
@@ -203,6 +277,27 @@ router.post('/send-media-upload', upload.single('file'), async (req: AuthRequest
     }
 
     const validatedData = whatsappSendMediaUploadSchema.parse(req.body);
+    const readiness = await getWhatsAppSendPreflight(
+      req.userId,
+      validatedData.conversationPhone || validatedData.toPhone,
+      validatedData.caption || '[media]'
+    );
+    if (!readiness.send_ready) {
+      return next(createAppError({
+        statusCode: 409,
+        code: readiness.reasonCode === 'OK' ? 'WA_CONNECTION_NOT_READY' : readiness.reasonCode,
+        message: readiness.reasonMessage,
+        recoverable: true,
+        nextAction: readiness.recommended_action.toUpperCase(),
+        details: {
+          send_ready: readiness.send_ready,
+          checks: readiness.checks,
+          blocking_reasons: readiness.blocking_reasons,
+          recommended_action: readiness.recommended_action,
+        },
+      }));
+    }
+
     const result = await sendWhatsAppUploadedMedia(req.userId, {
       ...validatedData,
       filename: validatedData.filename || req.file.originalname,
