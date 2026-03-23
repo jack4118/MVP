@@ -1679,6 +1679,12 @@ code {
   gap: 10px;
 }
 
+.whatsapp-status-pill-stack {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
 .whatsapp-insight-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px;

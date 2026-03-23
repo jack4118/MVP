@@ -104,6 +104,7 @@ const WhatsApp = () => {
   const [inboxReadiness, setInboxReadiness] = useState<WhatsAppSendPreflight | null>(null);
   const [inboxReadinessLoading, setInboxReadinessLoading] = useState(false);
   const [inboxReadinessError, setInboxReadinessError] = useState('');
+  const [workspaceReadiness, setWorkspaceReadiness] = useState<WhatsAppSendPreflight | null>(null);
 
   useEffect(() => {
     const saved = storage.getItem(WHATSAPP_WIZARD_STATE_KEY);
@@ -409,9 +410,10 @@ const WhatsApp = () => {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [conn, logResp] = await Promise.all([
+      const [conn, logResp, readinessResp] = await Promise.all([
         whatsappApi.getConnection(),
         whatsappApi.getLogs(30),
+        whatsappApi.getPreflight(),
       ]);
       if (conn.success) {
         const existingConnection = conn.data || null;
@@ -438,6 +440,9 @@ const WhatsApp = () => {
       }
       if (logResp.success && logResp.data) {
         setLogs(logResp.data);
+      }
+      if (readinessResp?.success && readinessResp?.data) {
+        setWorkspaceReadiness(readinessResp.data);
       }
     } catch (err) {
       setError(getApiErrorMessage(err, t.common.error));
@@ -1255,9 +1260,14 @@ const WhatsApp = () => {
                 <strong>{t.whatsapp.statusLabel}</strong>
                 <p>{connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}</p>
               </div>
-              <span className={`task-pill ${connection?.isActive ? '' : 'task-pill-overdue'}`}>
-                {connection?.isActive ? t.whatsapp.connected : t.whatsapp.notConnected}
-              </span>
+              <div className="whatsapp-status-pill-stack">
+                <span className={`task-pill ${workspaceReadiness?.verified ? '' : 'task-pill-overdue'}`}>
+                  Verified: {workspaceReadiness?.verified ? 'Yes' : 'No'}
+                </span>
+                <span className={`task-pill ${workspaceReadiness?.send_ready ? '' : 'task-pill-overdue'}`}>
+                  Send-ready: {workspaceReadiness?.send_ready ? 'Yes' : 'Action required'}
+                </span>
+              </div>
             </div>
             <div className="simple-list-item">
               <div>
