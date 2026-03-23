@@ -15,6 +15,14 @@ import { createDefaultState, loadWorkflowState, saveWorkflowState } from './stat
 import { formatApprovalMessage, formatStatusMessage } from './statusFormatter';
 import { extractTelegramCommand, sendTelegramMessage } from './telegramClient';
 import {
+  getAgentMaxRuntimeMinutes,
+  getAgentMaxRuntimeMs,
+  getLeaseTtlMs,
+  getMaxAttempts,
+  isAutoRetryAllowed,
+  isManualRepeatOnlyAgent,
+} from './executionPolicy';
+import {
   canExecuteApprovedTarget,
   canProposeNextStage,
   determineProposedNext,
@@ -23,10 +31,11 @@ import {
   updateLegacyProjection,
 } from './transitionEngine';
 import { AgentExecutionResult, AgentName } from './types';
-import { ApprovalTarget, RunnableAction, WorkflowState } from './workflowModel';
+import { ApprovalTarget, ExecutionFailureReason, RunnableAction, WorkflowState } from './workflowModel';
 
 const APPROVE_PREFIX = '/approve';
 const WA_TOKEN_SET_PREFIX = '/wa_token set';
+const REPEAT_RUN_PREFIX = '/repeat-run';
 
 const toIsoNow = (): string => new Date().toISOString();
 
@@ -47,6 +56,76 @@ const sanitizeSummary = (items: string[]): string[] =>
     .map((line) => cleanText(String(line || '')))
     .filter(Boolean)
     .slice(0, 10);
+
+const parseIsoMs = (value: string | undefined | null): number => {
+  if (!value) {
+    return 0;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseRepeatRunAgent = (command: string): AgentName | null => {
+  const parts = command.trim().split(/\s+/);
+  if (parts.length !== 2) {
+    return null;
+  }
+  const parsed = normalizeAgentName(parts[1]);
+  if (!parsed || parsed === 'agent0') {
+    return null;
+  }
+  return parsed;
+};
+
+const buildExecutionIssueMessage = (
+  agent: AgentName,
+  issue: 'timeout' | 'stale' | 'interrupted',
+  attempts: number,
+  maxAttempts: number
+): string => {
+  return [
+    'EzReply Execution Issue',
+    '',
+    'Agent:',
+    agent,
+    '',
+    'Issue:',
+    issue,
+    '',
+    'Attempts:',
+    `${attempts}/${maxAttempts}`,
+    '',
+    'Next:',
+    `- /repeat-run ${agent}`,
+    '- /status',
+    '- /cancel',
+  ].join('\n');
+};
+
+const maybeSendExecutionIssueAlert = async (
+  agent: AgentName,
+  reason: ExecutionFailureReason,
+  attempts: number,
+  maxAttempts: number
+): Promise<void> => {
+  const issue: 'timeout' | 'stale' | 'interrupted' =
+    reason === 'execution_timeout' ? 'timeout' : reason === 'lease_expired' ? 'stale' : 'interrupted';
+  await sendTelegramMessage(buildExecutionIssueMessage(agent, issue, attempts, maxAttempts));
+};
+
+const maybeSendAutoRetryInfoAlert = async (agent: AgentName, attempts: number, maxAttempts: number): Promise<void> => {
+  await sendTelegramMessage(
+    [
+      'EzReply Auto-Retry',
+      '',
+      `Agent: ${agent}`,
+      `Attempts: ${attempts}/${maxAttempts}`,
+      'Action: automatic retry queued.',
+      '',
+      'Use /status for details.',
+    ].join('\n')
+  );
+};
 
 const parseAgent = (value: string, field: string): AgentName => {
   const agent = normalizeAgentName(value);
@@ -80,6 +159,131 @@ const getApproveTarget = (text: string): string | null => {
     return null;
   }
   return parts[1];
+};
+
+const removeLease = (state: WorkflowState, agent: AgentName): void => {
+  delete state.leases[agent];
+};
+
+const claimLeaseForAgent = (state: WorkflowState, agent: AgentName, leaseOwner: string): void => {
+  const now = Date.now();
+  const attemptNumber = (state.attempts[agent] || 0) || 1;
+  const nowIso = new Date(now).toISOString();
+  state.leases[agent] = {
+    agentName: agent,
+    leaseOwner: cleanText(leaseOwner || 'unknown'),
+    startedAt: nowIso,
+    heartbeatAt: nowIso,
+    leaseExpiresAt: new Date(now + getLeaseTtlMs()).toISOString(),
+    attemptNumber,
+  };
+};
+
+const heartbeatLeaseForAgent = (state: WorkflowState, agent: AgentName, leaseOwner?: string): void => {
+  const lease = state.leases[agent];
+  if (!lease) {
+    throw new Error(`No active lease for ${agent}`);
+  }
+  const now = Date.now();
+  lease.heartbeatAt = new Date(now).toISOString();
+  lease.leaseExpiresAt = new Date(now + getLeaseTtlMs()).toISOString();
+  if (leaseOwner) {
+    lease.leaseOwner = cleanText(leaseOwner);
+  }
+};
+
+const prepareRunningLease = (state: WorkflowState, agent: AgentName): void => {
+  state.attempts[agent] = (state.attempts[agent] || 0) + 1;
+  claimLeaseForAgent(state, agent, 'pending_claim');
+  state.retryableAgents = state.retryableAgents.filter((item) => item !== agent);
+  state.staleAgents = state.staleAgents.filter((item) => item !== agent);
+  state.failedAgents = state.failedAgents.filter((item) => item !== agent);
+  if (state.status === 'blocked') {
+    state.status = 'running';
+    state.lastError = null;
+  }
+};
+
+const markRetryExhausted = (state: WorkflowState, agent: AgentName, attempts: number, maxAttempts: number): void => {
+  state.lastExecutionFailureReason[agent] = 'retry_exhausted';
+  state.failedAgents = unique([...state.failedAgents, agent]);
+  state.blockedAgents = unique([...state.blockedAgents, agent]);
+  state.retryableAgents = state.retryableAgents.filter((item) => item !== agent);
+  state.status = 'blocked';
+  state.lastError = `${agent} retry exhausted (${attempts}/${maxAttempts}). Manual intervention required.`;
+};
+
+const handleExecutionFailureState = async (
+  state: WorkflowState,
+  agent: AgentName,
+  reason: ExecutionFailureReason,
+  detail?: string
+): Promise<void> => {
+  const maxAttempts = getMaxAttempts();
+  const attempts = state.attempts[agent] || 0;
+  state.runningAgents = state.runningAgents.filter((item) => item !== agent);
+  state.currentRunningAgent = state.runningAgents[0] || null;
+  removeLease(state, agent);
+  state.lastExecutionFailureReason[agent] = reason;
+  state.context.reports[agent] = sanitizeSummary([detail || reason, `attempt ${attempts}/${maxAttempts}`]);
+
+  if (reason === 'lease_expired') {
+    state.staleAgents = unique([...state.staleAgents, agent]);
+  }
+
+  if (!isAutoRetryAllowed(agent)) {
+    state.retryableAgents = state.retryableAgents.filter((item) => item !== agent);
+    if (attempts >= maxAttempts) {
+      markRetryExhausted(state, agent, attempts, maxAttempts);
+    } else {
+      state.failedAgents = unique([...state.failedAgents, agent]);
+      state.blockedAgents = unique([...state.blockedAgents, agent]);
+      state.status = 'blocked';
+      state.lastError = `${agent} failed with ${reason}. Use /repeat-run ${agent} (${attempts}/${maxAttempts}).`;
+    }
+    await maybeSendExecutionIssueAlert(agent, reason, attempts, maxAttempts);
+    return;
+  }
+
+  if (attempts < maxAttempts) {
+    state.retryableAgents = unique([...state.retryableAgents, agent]);
+    state.failedAgents = unique([...state.failedAgents, agent]);
+    state.blockedAgents = state.blockedAgents.filter((item) => item !== agent);
+    state.status = state.status === 'blocked' ? 'running' : state.status;
+    await maybeSendExecutionIssueAlert(agent, reason, attempts, maxAttempts);
+    await maybeSendAutoRetryInfoAlert(agent, attempts + 1, maxAttempts);
+    return;
+  }
+
+  markRetryExhausted(state, agent, attempts, maxAttempts);
+  await maybeSendExecutionIssueAlert(agent, reason, attempts, maxAttempts);
+};
+
+const maybeHandleExpiredRunningExecutions = async (state: WorkflowState): Promise<void> => {
+  if (state.runningAgents.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  const running = [...state.runningAgents];
+  for (const agent of running) {
+    const lease = state.leases[agent];
+    if (!lease) {
+      await handleExecutionFailureState(state, agent, 'lease_expired', 'missing execution lease');
+      continue;
+    }
+
+    const startedAtMs = parseIsoMs(lease.startedAt);
+    const leaseExpiresAtMs = parseIsoMs(lease.leaseExpiresAt);
+    if (startedAtMs > 0 && now - startedAtMs > getAgentMaxRuntimeMs(agent)) {
+      await handleExecutionFailureState(state, agent, 'execution_timeout', 'agent execution exceeded max runtime');
+      continue;
+    }
+
+    if (leaseExpiresAtMs > 0 && now > leaseExpiresAtMs) {
+      await handleExecutionFailureState(state, agent, 'lease_expired', 'heartbeat lease expired');
+    }
+  }
 };
 
 const extractDeployStatus = (result: Pick<AgentExecutionResult, 'status' | 'summary' | 'rawOutput'>): {
@@ -186,6 +390,10 @@ const submitAgentResultInternal = async (
   state.agentOutputs[params.agent] = normalized;
   state.runningAgents = state.runningAgents.filter((agent) => agent !== params.agent);
   state.currentRunningAgent = state.runningAgents[0] || null;
+  removeLease(state, params.agent);
+  state.retryableAgents = state.retryableAgents.filter((agent) => agent !== params.agent);
+  state.staleAgents = state.staleAgents.filter((agent) => agent !== params.agent);
+  state.blockedAgents = state.blockedAgents.filter((agent) => agent !== params.agent);
   state.lastCompletedAgent = params.agent;
   state.completedAgents = unique([...state.completedAgents, params.agent]);
   state.pendingAgents = EXECUTION_AGENT_ORDER.filter((agent) => !state.completedAgents.includes(agent));
@@ -216,6 +424,7 @@ export const initializeOrchestrator = async (): Promise<void> => {
 
 export const getWorkflowStatus = async (): Promise<WorkflowState> => {
   const state = await loadWorkflowState();
+  await maybeHandleExpiredRunningExecutions(state);
   evaluateState(state);
   await syncAndSave(state);
   return state;
@@ -266,12 +475,15 @@ export const stopAutoRun = async (params: { actorAgent: string }): Promise<Workf
   state.proposedNext = null;
   state.runningAgents = [];
   state.currentRunningAgent = null;
+  state.retryableAgents = [];
+  state.leases = {};
   await syncAndSave(state);
   return state;
 };
 
 export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; action: RunnableAction }> => {
   const state = await loadWorkflowState();
+  await maybeHandleExpiredRunningExecutions(state);
   evaluateState(state);
 
   if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'blocked') {
@@ -287,6 +499,19 @@ export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; a
   if (state.approvalStatus === 'pending') {
     await syncAndSave(state);
     return { state, action: { type: 'idle', agents: [], reason: 'waiting for telegram approval' } };
+  }
+
+  if (state.retryableAgents.length > 0) {
+    const agent = state.retryableAgents[0];
+    if (state.currentStage !== 'completed' && isAgentLegalForStage(agent, state.currentStage)) {
+      state.runningAgents = [agent];
+      state.currentRunningAgent = agent;
+      state.status = 'running';
+      prepareRunningLease(state, agent);
+      await syncAndSave(state);
+      return { state, action: { type: 'run_agent', agents: [agent], reason: `${agent} auto-retry` } };
+    }
+    state.retryableAgents = state.retryableAgents.filter((item) => item !== agent);
   }
 
   if (state.approvalStatus === 'approved' && state.pendingApproval) {
@@ -312,6 +537,7 @@ export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; a
     state.pendingApproval = null;
     state.proposedNext = null;
     state.status = 'running';
+    action.agents.forEach((agent) => prepareRunningLease(state, agent));
     await syncAndSave(state);
     return { state, action };
   }
@@ -334,6 +560,7 @@ export const buildAgentPrompt = async (params: { state: WorkflowState; agent: Ag
     `Forbidden Actions: ${definition.forbiddenActions.join('; ')}`,
     `Required Inputs: ${definition.requiredInputs.join('; ')}`,
     `Expected Outputs: ${definition.expectedOutputs.join('; ')}`,
+    `Max Runtime Minutes: ${getAgentMaxRuntimeMinutes(params.agent)}`,
     `Staging URL: ${runContext.stagingUrl || 'n/a'}`,
     `Constraints: ${runContext.constraints.join(' | ')}`,
     'Output JSON only with fields: status (PASS|FAIL|OK), summary (string[]), artifacts (string[]), classification (optional).',
@@ -346,6 +573,88 @@ export const submitAgentResult = async (params: {
 }): Promise<WorkflowState> => {
   const state = await loadWorkflowState();
   await submitAgentResultInternal(state, params);
+  await syncAndSave(state);
+  return state;
+};
+
+export const claimExecutionLease = async (params: { agent: AgentName; leaseOwner: string }): Promise<WorkflowState> => {
+  const state = await loadWorkflowState();
+  await maybeHandleExpiredRunningExecutions(state);
+  if (!state.runningAgents.includes(params.agent)) {
+    throw new Error(`${params.agent} is not running`);
+  }
+  if (!state.leases[params.agent]) {
+    prepareRunningLease(state, params.agent);
+  }
+  claimLeaseForAgent(state, params.agent, params.leaseOwner);
+  await syncAndSave(state);
+  return state;
+};
+
+export const heartbeatExecutionLease = async (params: { agent: AgentName; leaseOwner?: string }): Promise<WorkflowState> => {
+  const state = await loadWorkflowState();
+  if (!state.runningAgents.includes(params.agent)) {
+    throw new Error(`${params.agent} is not running`);
+  }
+  heartbeatLeaseForAgent(state, params.agent, params.leaseOwner);
+  await syncAndSave(state);
+  return state;
+};
+
+export const reportExecutionFailure = async (params: {
+  agent: AgentName;
+  reason: Exclude<ExecutionFailureReason, 'retry_exhausted'>;
+  detail?: string;
+}): Promise<WorkflowState> => {
+  const state = await loadWorkflowState();
+  if (!state.runningAgents.includes(params.agent) && !state.leases[params.agent]) {
+    await syncAndSave(state);
+    return state;
+  }
+  await handleExecutionFailureState(state, params.agent, params.reason, params.detail);
+  await syncAndSave(state);
+  return state;
+};
+
+export const requestManualRepeatRun = async (params: { agent: AgentName; requestedBy: string }): Promise<WorkflowState> => {
+  const state = await loadWorkflowState();
+  if (state.runningAgents.length > 0) {
+    throw new Error('Cannot repeat-run while another agent is running.');
+  }
+  if (state.status === 'cancelled' || state.status === 'completed') {
+    throw new Error(`Cannot repeat-run while workflow is ${state.status}.`);
+  }
+  if (state.currentStage === 'completed') {
+    throw new Error('Cannot repeat-run at completed stage.');
+  }
+  if (!isAgentLegalForStage(params.agent, state.currentStage)) {
+    throw new Error(`${params.agent} cannot run in current stage ${state.currentStage}`);
+  }
+  const allowedManual = isManualRepeatOnlyAgent(params.agent) || isAutoRetryAllowed(params.agent);
+  if (!allowedManual) {
+    throw new Error(`${params.agent} is not configured for repeat-run.`);
+  }
+  const target = `agent:${params.agent}` as ApprovalTarget;
+
+  state.pendingApproval = {
+    target,
+    reason: `Manual repeat-run requested by ${params.requestedBy}`,
+    stage: state.currentStage,
+    requestedAt: toIsoNow(),
+  };
+  state.proposedNext = {
+    target,
+    reason: 'Manual repeat-run requested by operator',
+    stage: state.currentStage,
+    requiredAgents: [params.agent],
+  };
+  state.approvalStatus = 'approved';
+  state.status = 'running';
+  state.retryableAgents = state.retryableAgents.filter((agent) => agent !== params.agent);
+  state.blockedAgents = state.blockedAgents.filter((agent) => agent !== params.agent);
+  if (state.lastExecutionFailureReason[params.agent] === 'retry_exhausted') {
+    state.lastError = null;
+  }
   await syncAndSave(state);
   return state;
 };
@@ -445,6 +754,7 @@ export const claimApprovedNextAgent = async (params: {
   state.pendingApproval = null;
   state.proposedNext = null;
   state.status = 'running';
+  prepareRunningLease(state, agent);
 
   await syncAndSave(state);
 
@@ -567,6 +877,23 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
     return { handled: true, command, response };
   }
 
+  if (normalized.startsWith(REPEAT_RUN_PREFIX)) {
+    const repeatAgent = parseRepeatRunAgent(normalized);
+    if (!repeatAgent) {
+      response = 'Invalid repeat-run command. Use: /repeat-run <agent>';
+      await sendTelegramMessage(response);
+      return { handled: true, command, response };
+    }
+    try {
+      await requestManualRepeatRun({ agent: repeatAgent, requestedBy: `telegram:${chatId}` });
+      response = `Repeat-run scheduled for ${repeatAgent}.`;
+    } catch (error: any) {
+      response = error.message || `Failed to repeat-run ${repeatAgent}.`;
+    }
+    await sendTelegramMessage(response);
+    return { handled: true, command, response };
+  }
+
   if (normalized === '/cancel') {
     cancelWorkflow(state);
     state.lastApprovalCommand = '/cancel';
@@ -618,7 +945,8 @@ export const handleTelegramWebhookUpdate = async (body: any): Promise<{
     return { handled: true, command, response };
   }
 
-  response = 'Unknown command. Use /approve <target>, /reject, /status, /repeat, /cancel, /wa_token status, /wa_token set, /wa_token confirm, /wa_token cancel.';
+  response =
+    'Unknown command. Use /approve <target>, /reject, /status, /repeat, /repeat-run <agent>, /cancel, /wa_token status, /wa_token set, /wa_token confirm, /wa_token cancel.';
   await sendTelegramMessage(response);
   return { handled: true, command, response };
 };

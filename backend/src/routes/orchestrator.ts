@@ -2,10 +2,14 @@ import express, { NextFunction, Request, Response } from 'express';
 import {
   buildAgentPrompt,
   claimApprovedNextAgent,
+  claimExecutionLease,
   getAgentRegistry,
   getNextRunnableAction,
   getWorkflowStatus,
+  heartbeatExecutionLease,
   proposeNextAgentForApproval,
+  reportExecutionFailure,
+  requestManualRepeatRun,
   resetWorkflow,
   startAutoRun,
   stopAutoRun,
@@ -277,6 +281,146 @@ router.post('/auto/submit', async (req: Request, res: Response, next: NextFuncti
             statusCode: 400,
             code: 'ORCHESTRATOR_AUTO_SUBMIT_FAILED',
             message: error.message || 'Failed to submit agent result',
+          })
+    );
+  }
+});
+
+router.post('/auto/lease/claim', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { agent, leaseOwner } = req.body as { agent?: string; leaseOwner?: string };
+    if (!agent || !leaseOwner) {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_LEASE_CLAIM_INVALID_REQUEST',
+        message: 'agent and leaseOwner are required',
+      });
+    }
+
+    const normalizedAgent = normalizeAgentName(agent);
+    if (!normalizedAgent || normalizedAgent === 'agent0') {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_LEASE_CLAIM_INVALID_AGENT',
+        message: 'Invalid agent',
+      });
+    }
+    const state = await claimExecutionLease({ agent: normalizedAgent, leaseOwner });
+    return res.json({ success: true, data: state });
+  } catch (error: any) {
+    return next(
+      error.statusCode
+        ? error
+        : createAppError({
+            statusCode: 409,
+            code: 'ORCHESTRATOR_LEASE_CLAIM_FAILED',
+            message: error.message || 'Failed to claim lease',
+          })
+    );
+  }
+});
+
+router.post('/auto/lease/heartbeat', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { agent, leaseOwner } = req.body as { agent?: string; leaseOwner?: string };
+    if (!agent) {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_LEASE_HEARTBEAT_INVALID_REQUEST',
+        message: 'agent is required',
+      });
+    }
+    const normalizedAgent = normalizeAgentName(agent);
+    if (!normalizedAgent || normalizedAgent === 'agent0') {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_LEASE_HEARTBEAT_INVALID_AGENT',
+        message: 'Invalid agent',
+      });
+    }
+    const state = await heartbeatExecutionLease({ agent: normalizedAgent, leaseOwner });
+    return res.json({ success: true, data: state });
+  } catch (error: any) {
+    return next(
+      error.statusCode
+        ? error
+        : createAppError({
+            statusCode: 409,
+            code: 'ORCHESTRATOR_LEASE_HEARTBEAT_FAILED',
+            message: error.message || 'Failed to heartbeat lease',
+          })
+    );
+  }
+});
+
+router.post('/auto/failure', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { agent, reason, detail } = req.body as {
+      agent?: string;
+      reason?: 'execution_timeout' | 'lease_expired' | 'worker_interrupted';
+      detail?: string;
+    };
+    if (!agent || !reason) {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_FAILURE_INVALID_REQUEST',
+        message: 'agent and reason are required',
+      });
+    }
+    const normalizedAgent = normalizeAgentName(agent);
+    if (!normalizedAgent || normalizedAgent === 'agent0') {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_FAILURE_INVALID_AGENT',
+        message: 'Invalid agent',
+      });
+    }
+    const state = await reportExecutionFailure({ agent: normalizedAgent, reason, detail });
+    return res.json({ success: true, data: state });
+  } catch (error: any) {
+    return next(
+      error.statusCode
+        ? error
+        : createAppError({
+            statusCode: 409,
+            code: 'ORCHESTRATOR_FAILURE_REPORT_FAILED',
+            message: error.message || 'Failed to report execution failure',
+          })
+    );
+  }
+});
+
+router.post('/auto/repeat-run', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { agent, requestedBy } = req.body as { agent?: string; requestedBy?: string };
+    if (!agent) {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_REPEAT_RUN_INVALID_REQUEST',
+        message: 'agent is required',
+      });
+    }
+    const normalizedAgent = normalizeAgentName(agent);
+    if (!normalizedAgent || normalizedAgent === 'agent0') {
+      throw createAppError({
+        statusCode: 400,
+        code: 'ORCHESTRATOR_REPEAT_RUN_INVALID_AGENT',
+        message: 'Invalid agent',
+      });
+    }
+    const state = await requestManualRepeatRun({
+      agent: normalizedAgent,
+      requestedBy: requestedBy || 'api',
+    });
+    return res.json({ success: true, data: state });
+  } catch (error: any) {
+    return next(
+      error.statusCode
+        ? error
+        : createAppError({
+            statusCode: 409,
+            code: 'ORCHESTRATOR_REPEAT_RUN_FAILED',
+            message: error.message || 'Failed to schedule repeat-run',
           })
     );
   }

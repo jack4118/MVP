@@ -2,16 +2,18 @@ import { mkdir, readFile, rename, writeFile } from 'fs/promises';
 import path from 'path';
 import { AgentName } from './types';
 import { WorkflowState } from './workflowModel';
+import { allExecutionAgents } from './executionPolicy';
 
-const STATE_PATH = process.env.EZR_WORKFLOW_STATE_PATH
-  ? path.resolve(process.env.EZR_WORKFLOW_STATE_PATH)
-  : path.resolve(process.cwd(), 'data', 'ezr-workflow-state.json');
+const resolveStatePath = (): string =>
+  process.env.EZR_WORKFLOW_STATE_PATH
+    ? path.resolve(process.env.EZR_WORKFLOW_STATE_PATH)
+    : path.resolve(process.cwd(), 'data', 'ezr-workflow-state.json');
 
 const nowIso = (): string => new Date().toISOString();
 
-const ALL_EXEC_AGENTS: AgentName[] = ['agent1', 'agent2', 'agent3', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent12'];
+const ALL_EXEC_AGENTS: AgentName[] = allExecutionAgents();
 
-export const WORKFLOW_SCHEMA_VERSION = 2;
+export const WORKFLOW_SCHEMA_VERSION = 3;
 
 const unique = <T>(items: T[]): T[] => Array.from(new Set(items));
 
@@ -43,6 +45,8 @@ export const createDefaultState = (): WorkflowState => {
     runningAgents: [],
     failedAgents: [],
     blockedAgents: [],
+    staleAgents: [],
+    retryableAgents: [],
     proposedNext: null,
     pendingApproval: null,
     approvalStatus: 'idle',
@@ -63,6 +67,9 @@ export const createDefaultState = (): WorkflowState => {
       },
     },
     agentOutputs: {},
+    attempts: {},
+    leases: {},
+    lastExecutionFailureReason: {},
     currentIssue: null,
     currentLoopStage: 'stage_public_qa',
     lastCompletedAgent: null,
@@ -91,11 +98,11 @@ export const createDefaultState = (): WorkflowState => {
 };
 
 const ensureStateDir = async (): Promise<void> => {
-  const dir = path.dirname(STATE_PATH);
+  const dir = path.dirname(resolveStatePath());
   await mkdir(dir, { recursive: true });
 };
 
-export const getStatePath = (): string => STATE_PATH;
+export const getStatePath = (): string => resolveStatePath();
 
 const migrateLegacyState = (parsed: Record<string, unknown>): WorkflowState => {
   const base = createDefaultState();
@@ -116,6 +123,8 @@ const migrateLegacyState = (parsed: Record<string, unknown>): WorkflowState => {
     runningAgents: [],
     failedAgents: Array.isArray(parsed.failedAgents) ? unique(parsed.failedAgents as AgentName[]) : [],
     blockedAgents: unique(blockedAgents),
+    staleAgents: Array.isArray(parsed.staleAgents) ? unique(parsed.staleAgents as AgentName[]) : [],
+    retryableAgents: Array.isArray(parsed.retryableAgents) ? unique(parsed.retryableAgents as AgentName[]) : [],
     proposedNext:
       parsed.proposedNext && typeof parsed.proposedNext === 'object'
         ? (parsed.proposedNext as WorkflowState['proposedNext'])
@@ -135,6 +144,18 @@ const migrateLegacyState = (parsed: Record<string, unknown>): WorkflowState => {
     agentOutputs:
       parsed.agentOutputs && typeof parsed.agentOutputs === 'object'
         ? (parsed.agentOutputs as WorkflowState['agentOutputs'])
+        : {},
+    attempts:
+      parsed.attempts && typeof parsed.attempts === 'object'
+        ? (parsed.attempts as WorkflowState['attempts'])
+        : {},
+    leases:
+      parsed.leases && typeof parsed.leases === 'object'
+        ? (parsed.leases as WorkflowState['leases'])
+        : {},
+    lastExecutionFailureReason:
+      parsed.lastExecutionFailureReason && typeof parsed.lastExecutionFailureReason === 'object'
+        ? (parsed.lastExecutionFailureReason as WorkflowState['lastExecutionFailureReason'])
         : {},
     currentIssue: issueId || null,
     currentLoopStage: currentStage,
@@ -170,6 +191,8 @@ export const normalizeWorkflowState = (state: WorkflowState): WorkflowState => {
     runningAgents: unique(state.runningAgents || []),
     failedAgents: unique(state.failedAgents || []),
     blockedAgents: unique(state.blockedAgents || []),
+    staleAgents: unique(state.staleAgents || []),
+    retryableAgents: unique(state.retryableAgents || []),
     loopCount: Math.max(1, Number(state.loopCount || 1)),
     transitionLog: Array.isArray(state.transitionLog) ? state.transitionLog.slice(-500) : [],
     timestamps: {
@@ -177,6 +200,9 @@ export const normalizeWorkflowState = (state: WorkflowState): WorkflowState => {
       ...(state.timestamps || {}),
       updatedAt: nowIso(),
     },
+    attempts: { ...(state.attempts || {}) },
+    leases: { ...(state.leases || {}) },
+    lastExecutionFailureReason: { ...(state.lastExecutionFailureReason || {}) },
   };
 
   if (normalized.approvalStatus === 'pending' && !normalized.pendingApproval) {
@@ -195,7 +221,7 @@ export const loadWorkflowState = async (): Promise<WorkflowState> => {
   await ensureStateDir();
 
   try {
-    const raw = await readFile(STATE_PATH, 'utf8');
+    const raw = await readFile(resolveStatePath(), 'utf8');
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
     if (Number(parsed.schemaVersion || 1) >= WORKFLOW_SCHEMA_VERSION) {
@@ -216,7 +242,8 @@ export const loadWorkflowState = async (): Promise<WorkflowState> => {
 export const saveWorkflowState = async (state: WorkflowState): Promise<void> => {
   await ensureStateDir();
   const normalized = normalizeWorkflowState(state);
-  const tempPath = `${STATE_PATH}.tmp`;
+  const statePath = resolveStatePath();
+  const tempPath = `${statePath}.tmp`;
   await writeFile(tempPath, JSON.stringify(normalized, null, 2), 'utf8');
-  await rename(tempPath, STATE_PATH);
+  await rename(tempPath, statePath);
 };

@@ -4,6 +4,9 @@ const csvOrNone = (items: string[]): string => (items.length ? items.join(', ') 
 
 export const formatStatusMessage = (state: WorkflowState): string => {
   const proposed = state.proposedNext ? state.proposedNext.target : 'none';
+  const attempts = Object.entries(state.attempts || {})
+    .map(([agent, count]) => `${agent}:${count}`)
+    .join(', ');
 
   return [
     'EzReply Status',
@@ -15,6 +18,9 @@ export const formatStatusMessage = (state: WorkflowState): string => {
     `ProposedNext: ${proposed}`,
     `Completed: ${csvOrNone(state.completedAgents)}`,
     `Running: ${csvOrNone(state.runningAgents)}`,
+    `Retryable: ${csvOrNone(state.retryableAgents)}`,
+    `Stale: ${csvOrNone(state.staleAgents)}`,
+    `Attempts: ${attempts || 'none'}`,
     `Blocked: ${csvOrNone(state.blockedAgents)}`,
     `Loop: ${state.loopCount}`,
     `Error: ${state.lastError || 'none'}`,
@@ -47,6 +53,7 @@ export const formatApprovalMessage = (state: WorkflowState): string => {
     'Reply with:',
     `- /approve ${proposed}`,
     '- /reject',
+    '- /repeat-run <agent>',
     '- /status',
     '- /cancel',
   ].join('\n');
