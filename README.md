@@ -163,3 +163,87 @@ The frontend will run on `http://localhost:5173`
 - Deploy frontend (`frontend`) to Cloudflare Pages.
 - Deploy backend (`backend`) and PostgreSQL to Render.
 - Full step-by-step guide: [`DEPLOY.md`](/Users/cheelam/Sites/MVP/DEPLOY.md)
+
+## README Guideline (Recommended Team Standard)
+
+Use this as the default operational checklist for this repo.
+
+### 1. Branch + Commit Hygiene
+
+1. Make changes on feature branches when possible.
+2. Keep commits scoped (one purpose per commit).
+3. Never commit secrets (`.env`, API keys, tokens).
+4. Before pushing, run:
+```bash
+cd backend && npm run test:orchestrator && npm run build
+```
+
+### 2. Deploy Flow (Production)
+
+1. Push to `main`:
+```bash
+git push origin main
+```
+2. Render deploys backend using [`render.yaml`](/Users/cheelam/Sites/MVP/render.yaml).
+3. Cloudflare Pages deploys frontend from `frontend/`.
+4. Confirm frontend env:
+```env
+VITE_API_URL=https://<your-render-backend>.onrender.com
+```
+5. Confirm backend CORS env:
+```env
+FRONTEND_URL=https://<your-cloudflare-pages>.pages.dev
+```
+
+### 3. Required Backend Environment Variables
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `FRONTEND_URL`
+- `OPENAI_API_KEY`
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+- `INTERNAL_DISPATCH_SECRET`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_APPROVER_CHAT_ID`
+- `EZR_STAGING_URL`
+- `EZR_WHATSAPP_TEMPLATE_TOKEN`
+- `EZR_PHONE_NUMBER_ID`
+- `EZR_WABA_ID`
+- `EZR_TEST_PHONE`
+
+### 4. Orchestrator Stability Environment Variables (Optional)
+
+Defaults are safe; set only if you need tuning:
+
+- `EZR_AGENT_MAX_ATTEMPTS` (default `2`)
+- `EZR_AGENT_LEASE_TTL_SECONDS` (default `90`)
+- `EZR_AGENT_HEARTBEAT_INTERVAL_SECONDS` (default `45`)
+- `EZR_ORCHESTRATOR_WORKER_ID` (recommended in multi-worker setups)
+
+### 5. Post-Deploy Verification Checklist
+
+1. Backend health:
+```bash
+curl https://<your-render-backend>.onrender.com/health
+```
+2. Open frontend and verify login/register.
+3. Confirm API calls target Render URL (not localhost).
+4. Check orchestrator status endpoint:
+```bash
+curl https://<your-render-backend>.onrender.com/api/orchestrator/workflow/status
+```
+5. Verify state includes stability fields:
+- `attempts`
+- `leases`
+- `staleAgents`
+- `retryableAgents`
+- `lastExecutionFailureReason`
+
+### 6. Incident Recovery Commands (Telegram)
+
+- `/status`
+- `/repeat-run <agent>`
+- `/cancel`
+- `/approve <target>` / `/reject`
+
+Use `/repeat-run <agent>` when a non-auto-retryable agent needs manual rerun.
