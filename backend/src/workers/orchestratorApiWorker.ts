@@ -62,14 +62,30 @@ const runOne = async (agent: string, loopCount: number): Promise<void> => {
     .filter(Boolean)
     .slice(0, 6);
 
-  await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
-    agent,
-    status: result.status,
-    summary: safeSummary,
-    artifacts: safeArtifacts,
-    // Keep payload small to avoid upstream edge blocking on oversized bodies.
-    rawOutput: null,
-  });
+  try {
+    await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
+      agent,
+      status: result.status,
+      summary: safeSummary,
+      artifacts: safeArtifacts,
+      // Keep payload small to avoid upstream edge blocking on oversized bodies.
+      rawOutput: null,
+    });
+  } catch (error: any) {
+    const msg = String(error?.message || error);
+    if (!msg.includes(' 403 ')) {
+      throw error;
+    }
+
+    // Fallback for aggressive edge filtering: retry with minimal safe payload.
+    await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
+      agent,
+      status: result.status,
+      summary: [`${agent} ${result.status}`],
+      artifacts: [],
+      rawOutput: null,
+    });
+  }
 };
 
 const tick = async (): Promise<void> => {
