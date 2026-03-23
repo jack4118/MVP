@@ -30,6 +30,7 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'User-Agent': 'ezreply-orchestrator-worker/1.0',
     },
     body: JSON.stringify(body),
   });
@@ -52,11 +53,20 @@ const runOne = async (agent: string, loopCount: number): Promise<void> => {
     loopCount,
   });
 
+  const safeSummary = (result.summary || [])
+    .map((line) => String(line).replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180))
+    .filter(Boolean)
+    .slice(0, 6);
+  const safeArtifacts = (result.artifacts || [])
+    .map((line) => String(line).replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180))
+    .filter(Boolean)
+    .slice(0, 6);
+
   await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
     agent,
     status: result.status,
-    summary: result.summary,
-    artifacts: result.artifacts,
+    summary: safeSummary,
+    artifacts: safeArtifacts,
     // Keep payload small to avoid upstream edge blocking on oversized bodies.
     rawOutput: null,
   });
@@ -77,7 +87,10 @@ const tick = async (): Promise<void> => {
   }
 
   if (action.type === 'run_parallel') {
-    await Promise.all(action.agents.map((agent) => runOne(agent, loopCount)));
+    for (const agent of action.agents) {
+      await runOne(agent, loopCount);
+      await sleep(400);
+    }
   }
 };
 
