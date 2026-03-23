@@ -14,6 +14,7 @@ import dashboardRoutes from './routes/dashboard';
 import { startReminderWorker } from './services/reminderWorker';
 import orchestratorRoutes from './routes/orchestrator';
 import telegramRoutes from './routes/telegram';
+import { initializeOrchestrator } from './orchestration/orchestrationService';
 
 dotenv.config();
 
@@ -84,6 +85,9 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   startReminderWorker();
+  initializeOrchestrator().catch((error) => {
+    console.error('[Orchestrator] initialization failed', error);
+  });
 });
 
 export default app;

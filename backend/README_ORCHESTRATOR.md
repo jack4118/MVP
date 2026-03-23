@@ -51,10 +51,22 @@ Use `backend/.env.orchestration.example` as a template.
 - `POST /api/orchestrator/workflow/reset`
 - `POST /api/orchestrator/proposals`
 - `POST /api/orchestrator/next/claim`
+- `POST /api/orchestrator/auto/start`
+- `POST /api/orchestrator/auto/stop`
+- `GET /api/orchestrator/auto/status`
+- `GET /api/orchestrator/auto/next-action`
+- `POST /api/orchestrator/auto/submit`
 
 ### Telegram
 
 - `POST /api/telegram/webhook`
+
+Telegram token management commands:
+
+- `/wa_token status`
+- `/wa_token set <token> [exp=YYYY-MM-DD]`
+- `/wa_token confirm`
+- `/wa_token cancel`
 
 ## Typical Flow
 
@@ -101,6 +113,21 @@ The claim response includes:
 - run context with staging constraints
 - deploy targets for `agent9` (frontend Cloudflare, backend Render)
 - credential placeholders for testing agents (if applicable)
+
+## Worker
+
+Run independent worker process (required for auto mode):
+
+```bash
+npm run worker:orchestrator
+```
+
+Worker behavior:
+
+- Polls runnable orchestrator actions.
+- Runs agents through `codex exec ... --json`.
+- Submits normalized result payload.
+- Runs token-expiry check every 15 minutes.
 
 ## Telegram Webhook Setup
 

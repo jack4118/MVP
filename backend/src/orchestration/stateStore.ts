@@ -24,6 +24,13 @@ export const createDefaultState = (): WorkflowState => {
     completedAgents: [],
     pendingAgents: ALL_AGENT_NAMES.filter((agent) => agent !== 'agent0'),
     blockedAgents: [],
+    agentOutputs: {},
+    context: {},
+    autoMode: false,
+    nextAction: null,
+    checkpointPolicy: 'critical_only',
+    loopCount: 0,
+    autoRunStatus: 'idle',
     lastTelegramMessageId: null,
     lastApprovalCommand: null,
     lastError: null,
@@ -50,8 +57,22 @@ export const loadWorkflowState = async (): Promise<WorkflowState> => {
 
   try {
     const raw = await readFile(STATE_PATH, 'utf8');
-    const parsed = JSON.parse(raw) as WorkflowState;
-    return parsed;
+    const parsed = JSON.parse(raw) as Partial<WorkflowState>;
+    const base = createDefaultState();
+    return {
+      ...base,
+      ...parsed,
+      timestamps: {
+        ...base.timestamps,
+        ...(parsed.timestamps || {}),
+      },
+      agentOutputs: parsed.agentOutputs || base.agentOutputs,
+      context: parsed.context || base.context,
+      pendingAgents: parsed.pendingAgents || base.pendingAgents,
+      completedAgents: parsed.completedAgents || base.completedAgents,
+      blockedAgents: parsed.blockedAgents || base.blockedAgents,
+      proposedSummary: parsed.proposedSummary || base.proposedSummary,
+    };
   } catch (error: any) {
     if (error && error.code === 'ENOENT') {
       const initial = createDefaultState();

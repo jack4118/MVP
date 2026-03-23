@@ -44,6 +44,13 @@ export interface WorkflowState {
   completedAgents: AgentName[];
   pendingAgents: AgentName[];
   blockedAgents: AgentName[];
+  agentOutputs: Partial<Record<AgentName, AgentExecutionResult>>;
+  context: Record<string, unknown>;
+  autoMode: boolean;
+  nextAction: string | null;
+  checkpointPolicy: 'critical_only' | 'all_steps';
+  loopCount: number;
+  autoRunStatus: 'idle' | 'running' | 'awaiting_approval' | 'stopped' | 'done' | 'failed';
   lastTelegramMessageId: number | null;
   lastApprovalCommand: string | null;
   lastError: string | null;
@@ -78,4 +85,20 @@ export interface RunContext {
     testPhone: string | null;
   };
   constraints: string[];
+}
+
+export interface AgentExecutionResult {
+  agent: AgentName;
+  status: 'PASS' | 'FAIL' | 'OK';
+  summary: string[];
+  artifacts: string[];
+  loopCount: number;
+  rawOutput?: unknown;
+  completedAt: string;
+}
+
+export interface RunnableAction {
+  type: 'run_agent' | 'run_parallel' | 'idle';
+  agents: AgentName[];
+  reason: string;
 }

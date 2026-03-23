@@ -10,6 +10,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum OrchestratorCredentialStatus {
+  active
+  expiring
+  expired
+  disabled
+}
+
 model User {
   id                      String   @id @default(uuid())
   email                   String   @unique
@@ -247,4 +254,33 @@ model WhatsAppConversationState {
   @@index([userId, unreadCount])
   @@index([userId, lastMessageAt])
   @@map("whatsapp_conversation_states")
+}
+
+model OrchestratorCredential {
+  id             String                       @id @default(uuid())
+  key            String                       @unique
+  value          String
+  expiresAt      DateTime?                    @map("expires_at")
+  status         OrchestratorCredentialStatus @default(active)
+  lastNotifiedAt DateTime?                    @map("last_notified_at")
+  updatedBy      String?                      @map("updated_by")
+  updatedAt      DateTime                     @updatedAt @map("updated_at")
+  createdAt      DateTime                     @default(now()) @map("created_at")
+
+  @@index([key, status])
+  @@index([expiresAt])
+  @@map("orchestrator_credentials")
+}
+
+model OrchestratorPendingUpdate {
+  id                String   @id @default(uuid())
+  key               String
+  pendingValue      String   @map("pending_value")
+  requestedByChatId String   @map("requested_by_chat_id")
+  expiresAt         DateTime @map("expires_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([key, requestedByChatId])
+  @@index([expiresAt])
+  @@map("orchestrator_pending_updates")
 }

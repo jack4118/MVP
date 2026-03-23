@@ -17,6 +17,7 @@ import {
   verifyWhatsappConnection,
 } from '../services/whatsappService';
 import { createAppError } from '../utils/errors';
+import { isWhatsAppTokenExpiredError, markTemplateTokenExpiredAndNotify } from '../orchestration/credentialService';
 
 const router = express.Router();
 const upload = multer({
@@ -189,15 +190,8 @@ router.post('/send', async (req: AuthRequest, res: Response, next: NextFunction)
         },
       });
     }
-    if (
-      error instanceof Error &&
-      (
-        error.message.toLowerCase().includes('validating access token') ||
-        error.message.toLowerCase().includes('session has expired') ||
-        error.message.toLowerCase().includes('invalid oauth access token') ||
-        error.message.toLowerCase().includes('access token has expired')
-      )
-    ) {
+    if (isWhatsAppTokenExpiredError(error)) {
+      await markTemplateTokenExpiredAndNotify(error instanceof Error ? error.message : 'unknown token expiry');
       return res.status(401).json({
         success: false,
         error: {
@@ -262,6 +256,16 @@ router.post('/send-media', async (req: AuthRequest, res: Response, next: NextFun
     if (error instanceof Error && error.message === 'WhatsApp connection not found') {
       return res.status(404).json({ success: false, error: { message: 'Please connect WhatsApp first', code: 'WHATSAPP_NOT_CONNECTED' } });
     }
+    if (isWhatsAppTokenExpiredError(error)) {
+      await markTemplateTokenExpiredAndNotify(error instanceof Error ? error.message : 'unknown token expiry');
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'WhatsApp access token expired. Please reconnect in Setup and verify again.',
+          code: 'WHATSAPP_TOKEN_EXPIRED',
+        },
+      });
+    }
     next(error);
   }
 });
@@ -309,6 +313,16 @@ router.post('/send-media-upload', upload.single('file'), async (req: AuthRequest
   } catch (error) {
     if (error instanceof Error && error.message === 'WhatsApp connection not found') {
       return res.status(404).json({ success: false, error: { message: 'Please connect WhatsApp first', code: 'WHATSAPP_NOT_CONNECTED' } });
+    }
+    if (isWhatsAppTokenExpiredError(error)) {
+      await markTemplateTokenExpiredAndNotify(error instanceof Error ? error.message : 'unknown token expiry');
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'WhatsApp access token expired. Please reconnect in Setup and verify again.',
+          code: 'WHATSAPP_TOKEN_EXPIRED',
+        },
+      });
     }
     next(error);
   }

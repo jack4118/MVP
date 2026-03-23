@@ -1,4 +1,5 @@
 import { getAgentDefinition } from './agentRegistry';
+import { getTemplateTokenForInjection } from './credentialService';
 import { AgentName, RunContext } from './types';
 
 const CREDENTIAL_INJECTION_AGENTS: AgentName[] = ['agent5', 'agent12'];
@@ -6,7 +7,7 @@ const DEPLOYMENT_AGENT: AgentName = 'agent9';
 
 const requireStagingFor = (agent: AgentName): boolean => getAgentDefinition(agent).enforceStaging;
 
-export const buildRunContext = (agent: AgentName): RunContext => {
+export const buildRunContext = async (agent: AgentName): Promise<RunContext> => {
   const stagingUrl = process.env.EZR_STAGING_URL || null;
   const mustUseStaging = requireStagingFor(agent);
   const deployFrontendTarget = process.env.EZR_DEPLOY_FE_TARGET || 'cloudflare';
@@ -16,9 +17,13 @@ export const buildRunContext = (agent: AgentName): RunContext => {
     throw new Error(`EZR_STAGING_URL is required for ${agent}`);
   }
 
+  const templateToken = CREDENTIAL_INJECTION_AGENTS.includes(agent)
+    ? await getTemplateTokenForInjection()
+    : null;
+
   const placeholders = {
     whatsappTemplateToken: CREDENTIAL_INJECTION_AGENTS.includes(agent)
-      ? process.env.EZR_WHATSAPP_TEMPLATE_TOKEN || null
+      ? templateToken
       : null,
     phoneNumberId: CREDENTIAL_INJECTION_AGENTS.includes(agent)
       ? process.env.EZR_PHONE_NUMBER_ID || null
