@@ -108,7 +108,9 @@ export const runAgentViaCodex = async (params: {
 }): Promise<Pick<AgentExecutionResult, 'status' | 'summary' | 'artifacts' | 'rawOutput'>> => {
   const sandboxMode = process.env.EZR_CODEX_SANDBOX_MODE || 'danger-full-access';
   const approvalPolicy = process.env.EZR_CODEX_APPROVAL_POLICY || 'never';
-  const codexArgs = ['exec', '-', '--json', '-s', sandboxMode, '-a', approvalPolicy];
+  // `-a/--approval-policy` was removed from newer codex versions.
+  // Use config override which is supported in current CLI.
+  const codexArgs = ['exec', '-', '--json', '-s', sandboxMode, '-c', `approval_policy="${approvalPolicy}"`];
 
   try {
     const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
