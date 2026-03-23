@@ -94,9 +94,6 @@ const PublicHeader = () => {
             <Link to="/pricing" className="btn btn-secondary" onClick={closeMenu}>
               {t.landing.seePricing}
             </Link>
-            <Link to="/agent" className="btn btn-secondary" onClick={closeMenu}>
-              {t.agent.title}
-            </Link>
           </nav>
           <div className="landing-mobile-menu-tools">
             <LanguageToggle />

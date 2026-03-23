@@ -676,6 +676,7 @@ const REPLY_POLICY_BANNED: Record<Language, string[]> = {
     'just checking in',
     'this one',
     'let me know if any questions',
+    'follow up this',
   ],
   'zh-CN': [
     '再跟进一下',
@@ -687,6 +688,12 @@ const REPLY_POLICY_BANNED: Record<Language, string[]> = {
     'details',
     'continue later',
   ],
+};
+
+const REPLY_POLICY_VAGUE_TERMS: Record<Language, string[]> = {
+  en: ['details', 'option', 'options', 'follow up this'],
+  'zh-CN': ['细节', '选项', '这个跟进'],
+  ms: ['details', 'option', 'options', 'follow up ni'],
 };
 
 const REPLY_POLICY_SOFTENERS: Record<Language, string[]> = {
@@ -731,20 +738,24 @@ const countCtaSignals = (text: string, language: Language): number => {
   return Math.max(phraseHits, questionHits);
 };
 
-const hasContextAnchor = (text: string, language: Language): boolean => {
-  if (/"[^"]{2,}"/.test(text) || /“[^”]{2,}”/u.test(text) || /'[^']{2,}'/.test(text)) {
-    return true;
+const countContextAnchors = (text: string, language: Language): number => {
+  let count = 0;
+  count += (text.match(/"[^"]{2,}"/g) || []).length;
+  count += (text.match(/“[^”]{2,}”/gu) || []).length;
+  count += (text.match(/'[^']{2,}'/g) || []).length;
+  count += (text.match(/\b(?:today|tomorrow|yesterday|quote|meeting)\b/gi) || []).length;
+  count += (text.match(/\b\d{1,2}\s?(?:am|pm)\b/gi) || []).length;
+  count += (text.match(/\b\d{1,2}[:.]\d{2}\b/g) || []).length;
+
+  if (language === 'ms') {
+    count += (text.match(/\b(?:hari tu|esok|semalam|quotation|pukul)\b/gi) || []).length;
   }
-  if (/\b(?:today|tomorrow|yesterday|quote|meeting|3pm|4pm|5pm)\b/i.test(text)) {
-    return true;
+  if (language === 'zh-CN') {
+    count += (text.match(/(?:明天|昨天|报价|上次|今天)/gu) || []).length;
+    count += (text.match(/\d+点/gu) || []).length;
   }
-  if (language === 'ms' && /\b(?:hari tu|esok|semalam|quotation|pukul)\b/i.test(text)) {
-    return true;
-  }
-  if (language === 'zh-CN' && /(?:明天|昨天|报价|上次|点|今天)/u.test(text)) {
-    return true;
-  }
-  return /\d{1,2}\s?(?:am|pm)/i.test(text) || /\b\d{1,2}[:.]\d{2}\b/.test(text);
+
+  return count;
 };
 
 const sanitizePolicyBannedPhrases = (text: string, language: Language): string => {
@@ -767,7 +778,8 @@ const checkReplyPolicy = (text: string, language: Language): ReplyPolicyCheck =>
   const softenerCount = countSofteners(text, language);
   const ctaCount = countCtaSignals(text, language);
   const hasBanned = REPLY_POLICY_BANNED[language].some((phrase) => text.toLowerCase().includes(phrase.toLowerCase()));
-  const anchorPresent = hasContextAnchor(text, language);
+  const vagueFound = REPLY_POLICY_VAGUE_TERMS[language].some((term) => text.toLowerCase().includes(term.toLowerCase()));
+  const anchorCount = countContextAnchors(text, language);
 
   if (words > 30) {
     violations.push(`word_count>${words}`);
@@ -778,11 +790,17 @@ const checkReplyPolicy = (text: string, language: Language): ReplyPolicyCheck =>
   if (ctaCount > 1) {
     violations.push(`too_many_cta>${ctaCount}`);
   }
-  if (!anchorPresent) {
+  if (anchorCount === 0) {
     violations.push('missing_context_anchor');
+  }
+  if (anchorCount > 1) {
+    violations.push(`too_many_context_anchors>${anchorCount}`);
   }
   if (hasBanned) {
     violations.push('contains_banned_phrase');
+  }
+  if (vagueFound) {
+    violations.push('contains_vague_terms');
   }
 
   return {
@@ -798,8 +816,9 @@ const buildPolicyRewritePrompt = (text: string, language: Language, violations: 
       '- 最多 30 个词',
       '- 最多 1 个缓和词（例如“不急”）',
       '- 最多 1 个 CTA（只问一件事）',
-      '- 必须包含 1 个上下文锚点（例如上次报价、明天3点、hari tu）',
+      '- 必须包含且仅包含 1 个上下文锚点（例如上次报价、明天3点、hari tu）',
       '- 删除禁用短语',
+      '- 删除模糊词（如 details / option）',
       `当前问题：${violations.join(', ')}`,
       '',
       '原文：',
@@ -814,8 +833,9 @@ const buildPolicyRewritePrompt = (text: string, language: Language, violations: 
       '- Maksimum 30 perkataan',
       '- Maksimum 1 softener (contoh: tak urgent)',
       '- Maksimum 1 CTA (satu soalan/tindakan sahaja)',
-      '- Mesti ada 1 context anchor (contoh: quote hari tu, esok 3pm)',
+      '- Mesti ada tepat 1 context anchor (contoh: quote hari tu, esok 3pm)',
       '- Buang frasa dilarang',
+      '- Buang perkataan kabur (details, option)',
       `Isu semasa: ${violations.join(', ')}`,
       '',
       'Asal:',
@@ -829,8 +849,9 @@ const buildPolicyRewritePrompt = (text: string, language: Language, violations: 
     '- Max 30 words',
     '- Max 1 softener',
     '- Max 1 CTA (single ask only)',
-    '- Include 1 context anchor (example: quote from earlier, tomorrow 3pm, hari tu)',
+    '- Include exactly 1 context anchor (example: quote from earlier, tomorrow 3pm, hari tu)',
     '- Remove banned phrases',
+    '- Remove vague words (details, option, options)',
     `Current issues: ${violations.join(', ')}`,
     '',
     'Original:',
@@ -2240,10 +2261,10 @@ export const generateFollowUpText = async (
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
   const replyPolicyInstruction = isChinese
-    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须有1个上下文锚点；禁止使用黑名单短语。'
+    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须且仅能有1个上下文锚点；禁止黑名单短语和模糊词（如 details/option）。'
     : isMalay
-      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib 1 context anchor; dilarang frasa blacklist.'
-      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include 1 context anchor, and avoid banned phrases.';
+      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib tepat 1 context anchor; dilarang frasa blacklist dan perkataan kabur.'
+      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include exactly 1 context anchor, and avoid banned or vague phrases.';
   const sellerContext = [
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
@@ -2425,10 +2446,10 @@ export const generatePaymentText = async (
       ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
       : 'If objective conflicts with style preset, prioritize objective.';
   const replyPolicyInstruction = isChinese
-    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须有1个上下文锚点；禁止使用黑名单短语。'
+    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须且仅能有1个上下文锚点；禁止黑名单短语和模糊词（如 details/option）。'
     : isMalay
-      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib 1 context anchor; dilarang frasa blacklist.'
-      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include 1 context anchor, and avoid banned phrases.';
+      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib tepat 1 context anchor; dilarang frasa blacklist dan perkataan kabur.'
+      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include exactly 1 context anchor, and avoid banned or vague phrases.';
   const sellerContext = [
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
