@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { spawnSync } from 'child_process';
 import path from 'path';
 import { runAgentViaCodex } from '../orchestration/agentRunner';
