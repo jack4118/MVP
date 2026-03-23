@@ -57,7 +57,8 @@ const runOne = async (agent: string, loopCount: number): Promise<void> => {
     status: result.status,
     summary: result.summary,
     artifacts: result.artifacts,
-    rawOutput: result.rawOutput,
+    // Keep payload small to avoid upstream edge blocking on oversized bodies.
+    rawOutput: null,
   });
 };
 
