@@ -8,6 +8,16 @@ interface RunnerRawResult {
   [key: string]: unknown;
 }
 
+interface CodexJsonLine {
+  type?: string;
+  item?: {
+    type?: string;
+    text?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 const clamp = (value: string, maxLen: number): string => {
   const cleaned = value.replace(/\s+/g, ' ').trim();
   if (cleaned.length <= maxLen) {
@@ -16,22 +26,70 @@ const clamp = (value: string, maxLen: number): string => {
   return `${cleaned.slice(0, Math.max(0, maxLen - 3))}...`;
 };
 
+const tryParseJson = <T>(value: string): T | null => {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+};
+
 const parseRunnerOutput = (stdout: string): RunnerRawResult => {
   const trimmed = stdout.trim();
   if (!trimmed) {
     throw new Error('codex output empty');
   }
 
-  try {
-    return JSON.parse(trimmed) as RunnerRawResult;
-  } catch {
-    const firstBrace = trimmed.indexOf('{');
-    const lastBrace = trimmed.lastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) as RunnerRawResult;
-    }
-    throw new Error('codex output is not valid JSON');
+  // Fast path: direct JSON object.
+  const direct = tryParseJson<RunnerRawResult>(trimmed);
+  if (direct && typeof direct === 'object') {
+    return direct;
   }
+
+  // Codex --json is JSONL event stream. Ignore non-JSON warning lines.
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let lastEmbeddedText: string | null = null;
+  const parsedLines: CodexJsonLine[] = [];
+
+  for (const line of lines) {
+    const parsed = tryParseJson<CodexJsonLine>(line);
+    if (!parsed || typeof parsed !== 'object') {
+      continue;
+    }
+    parsedLines.push(parsed);
+    if (parsed.type === 'item.completed' && parsed.item?.type === 'agent_message' && typeof parsed.item.text === 'string') {
+      lastEmbeddedText = parsed.item.text;
+    }
+  }
+
+  if (lastEmbeddedText) {
+    const embedded = tryParseJson<RunnerRawResult>(lastEmbeddedText.trim());
+    if (embedded && typeof embedded === 'object') {
+      return embedded;
+    }
+    return {
+      status: 'OK',
+      summary: [clamp(lastEmbeddedText, 220)],
+      artifacts: [],
+    };
+  }
+
+  // Fallback: find any JSON object-like line with expected keys.
+  for (let i = parsedLines.length - 1; i >= 0; i -= 1) {
+    const candidate = parsedLines[i] as RunnerRawResult;
+    if (
+      candidate &&
+      (typeof candidate.status === 'string' || Array.isArray(candidate.summary) || Array.isArray(candidate.artifacts))
+    ) {
+      return candidate;
+    }
+  }
+
+  throw new Error('codex output is not parseable');
 };
 
 const normalizeStatus = (value?: string): 'PASS' | 'FAIL' | 'OK' => {

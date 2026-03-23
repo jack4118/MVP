@@ -119,52 +119,45 @@ const formatApprovalMessage = (state: WorkflowState): string => {
     : '- No summary provided';
 
   return ensureTelegramLimit([
-    'EzReply Agent Approval Needed',
+    'EzReply Approval Needed',
     '',
-    'Completed:',
-    completed,
+    `Done: ${completed}`,
+    `Next: ${proposed}`,
+    `Why: ${clampText(state.proposedReason || 'No reason provided', 260)}`,
     '',
-    'Result Summary:',
+    'Summary:',
     summary,
     '',
-    'Proposed Next Agent:',
-    proposed,
-    '',
-    'Why:',
-    state.proposedReason || 'No reason provided',
-    '',
-    'Reply with:',
-    `- /approve ${state.proposedNextAgent}`,
-    '- /reject',
-    '- /status',
-    '- /repeat',
-    '- /cancel',
+    'Reply:',
+    `/approve ${state.proposedNextAgent}`,
+    '/reject  /status  /repeat  /cancel',
   ].join('\n'));
 };
 
 const formatStatusMessage = (state: WorkflowState): string => {
-  const completed = state.completedAgents.length ? state.completedAgents.join(', ') : 'none';
-  const pending = state.pendingAgents.length ? state.pendingAgents.join(', ') : 'none';
+  const completed = state.completedAgents.length ? state.completedAgents.slice(0, 6).join(', ') : 'none';
+  const pending = state.pendingAgents.length ? state.pendingAgents.slice(0, 6).join(', ') : 'none';
   const blocked = state.blockedAgents.length ? state.blockedAgents.join(', ') : 'none';
   const lastCompleted = state.lastCompletedAgent || 'none';
   const proposed = state.proposedNextAgent || 'none';
+  const pendingSuffix = state.pendingAgents.length > 6 ? ` (+${state.pendingAgents.length - 6} more)` : '';
+  const completedSuffix = state.completedAgents.length > 6 ? ` (+${state.completedAgents.length - 6} more)` : '';
 
   return [
-    'EzReply Orchestrator Status',
+    'EzReply Status',
     '',
-    `Issue: ${state.currentIssue || 'not set'}`,
-    `Loop Stage: ${state.currentLoopStage}`,
-    `Approval Status: ${state.approvalStatus}`,
-    `Auto Mode: ${state.autoMode ? 'on' : 'off'}`,
-    `Auto Run Status: ${state.autoRunStatus}`,
-    `Next Action: ${state.nextAction || 'none'}`,
-    `Last Completed Agent: ${lastCompleted}`,
-    `Proposed Next Agent: ${proposed}`,
-    `Completed Agents: ${completed}`,
-    `Pending Agents: ${pending}`,
-    `Blocked Agents: ${blocked}`,
-    `Loop Count: ${state.loopCount}`,
-    `Last Error: ${state.lastError || 'none'}`,
+    `Issue: ${clampText(state.currentIssue || 'not set', 120)}`,
+    `Stage: ${state.currentLoopStage}`,
+    `Approval: ${state.approvalStatus}`,
+    `Auto: ${state.autoMode ? 'on' : 'off'} (${state.autoRunStatus})`,
+    `NextAction: ${state.nextAction || 'none'}`,
+    `LastDone: ${lastCompleted}`,
+    `Proposed: ${proposed}`,
+    `Completed: ${completed}${completedSuffix}`,
+    `Pending: ${pending}${pendingSuffix}`,
+    `Blocked: ${blocked}`,
+    `Loop: ${state.loopCount}`,
+    `Error: ${clampText(state.lastError || 'none', 180)}`,
   ].join('\n');
 };
 
