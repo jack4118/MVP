@@ -1674,6 +1674,11 @@ code {
   color: var(--text-secondary);
 }
 
+.whatsapp-send-blocker {
+  display: grid;
+  gap: 10px;
+}
+
 .whatsapp-insight-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px;

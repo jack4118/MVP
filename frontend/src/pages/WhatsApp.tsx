@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getApiErrorMessage, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem } from '../services/api';
+import { getApiErrorMessage, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import { useAuth } from '../hooks/useAuth';
@@ -10,6 +10,42 @@ type WhatsAppView = 'setup' | 'inbox' | 'contacts';
 const WHATSAPP_VIEW_KEY = 'whatsapp_active_view';
 const WHATSAPP_WIZARD_STATE_KEY = 'whatsapp_setup_wizard_v1';
 type SetupStep = 1 | 2 | 3 | 4;
+type SendReadinessUiState =
+  | 'READY_TO_SEND'
+  | 'BLOCKED_SETUP_REQUIRED'
+  | 'BLOCKED_TEMPLATE_REQUIRED'
+  | 'BLOCKED_CONNECTION'
+  | 'BLOCKED_PROVIDER'
+  | 'BLOCKED_PHONE'
+  | 'BLOCKED_MESSAGE'
+  | 'LOADING_READINESS'
+  | 'READINESS_ERROR_RETRYABLE';
+
+const mapSendReadinessState = (
+  readiness: WhatsAppSendPreflight | null,
+  loading: boolean,
+  hasError: boolean
+): SendReadinessUiState => {
+  if (loading) return 'LOADING_READINESS';
+  if (hasError) return 'READINESS_ERROR_RETRYABLE';
+  if (!readiness) return 'READINESS_ERROR_RETRYABLE';
+  if (readiness.send_ready) return 'READY_TO_SEND';
+
+  switch (readiness.reasonCode) {
+    case 'WA_SETUP_REQUIRED':
+      return 'BLOCKED_SETUP_REQUIRED';
+    case 'WHATSAPP_TEMPLATE_REQUIRED':
+      return 'BLOCKED_TEMPLATE_REQUIRED';
+    case 'WA_PROVIDER_NOT_READY':
+      return 'BLOCKED_PROVIDER';
+    case 'WA_PHONE_INVALID':
+      return 'BLOCKED_PHONE';
+    case 'WA_MESSAGE_INVALID':
+      return 'BLOCKED_MESSAGE';
+    default:
+      return 'BLOCKED_CONNECTION';
+  }
+};
 
 const WhatsApp = () => {
   const { t } = useLanguage();
@@ -65,6 +101,9 @@ const WhatsApp = () => {
     toPhone: '',
     content: t.whatsapp.defaultTestMessage,
   });
+  const [inboxReadiness, setInboxReadiness] = useState<WhatsAppSendPreflight | null>(null);
+  const [inboxReadinessLoading, setInboxReadinessLoading] = useState(false);
+  const [inboxReadinessError, setInboxReadinessError] = useState('');
 
   useEffect(() => {
     const saved = storage.getItem(WHATSAPP_WIZARD_STATE_KEY);
@@ -163,6 +202,31 @@ const WhatsApp = () => {
       setMobileThreadOpen(true);
     }
   }, [selectedPhone, isMobile]);
+
+  useEffect(() => {
+    if (activeView !== 'inbox' || !selectedPhone) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        setInboxReadinessLoading(true);
+        const response = await whatsappApi.getPreflight(selectedPhone, composerText.trim());
+        if (response.success && response.data) {
+          setInboxReadiness(response.data);
+          setInboxReadinessError('');
+          return;
+        }
+        setInboxReadinessError(response.error?.message || t.common.error);
+      } catch (err) {
+        setInboxReadinessError(getApiErrorMessage(err, t.common.error));
+      } finally {
+        setInboxReadinessLoading(false);
+      }
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [activeView, selectedPhone, composerText, t.common.error]);
 
   useEffect(() => {
     if (activeView !== 'inbox' || !selectedPhone || conversation.length === 0) {
@@ -852,6 +916,17 @@ const WhatsApp = () => {
   );
 
   const renderInboxView = () => (
+    (() => {
+      const readinessUiState = mapSendReadinessState(inboxReadiness, inboxReadinessLoading, Boolean(inboxReadinessError));
+      const sendBlocked = readinessUiState !== 'READY_TO_SEND';
+      const recoveryCta = readinessUiState === 'BLOCKED_TEMPLATE_REQUIRED'
+        ? { label: 'Back to draft', href: '/whatsapp?view=inbox' }
+        : { label: 'Complete WhatsApp Setup', href: '/whatsapp?view=setup#verify' };
+      const blockerMessage = inboxReadinessError
+        ? inboxReadinessError
+        : inboxReadiness?.reasonMessage || t.common.error;
+
+      return (
     <section className="card whatsapp-panel">
       <div className="section-heading">
         <h2>{t.whatsapp.chatView}</h2>
@@ -967,9 +1042,42 @@ const WhatsApp = () => {
               placeholder={t.whatsapp.composerPlaceholder}
               disabled={!selectedPhone || sending}
             />
-            <button className="btn btn-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim()}>
+            <button className="btn btn-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim() || sendBlocked}>
               {sending ? t.common.loading : t.whatsapp.sendMessage}
             </button>
+            {sendBlocked ? (
+              <div className="alert alert-error whatsapp-send-blocker">
+                <span>{blockerMessage}</span>
+                <div className="whatsapp-form-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setInboxReadinessError('');
+                      setInboxReadinessLoading(true);
+                      whatsappApi.getPreflight(selectedPhone, composerText.trim())
+                        .then((response) => {
+                          if (response.success && response.data) {
+                            setInboxReadiness(response.data);
+                            setInboxReadinessError('');
+                            return;
+                          }
+                          setInboxReadinessError(response.error?.message || t.common.error);
+                        })
+                        .catch((err) => {
+                          setInboxReadinessError(getApiErrorMessage(err, t.common.error));
+                        })
+                        .finally(() => setInboxReadinessLoading(false));
+                    }}
+                  >
+                    {inboxReadinessLoading ? t.common.loading : 'Refresh status'}
+                  </button>
+                  <a className="btn btn-secondary" href={recoveryCta.href}>
+                    {recoveryCta.label}
+                  </a>
+                </div>
+              </div>
+            ) : null}
             <div className="whatsapp-form-actions">
               <select
                 className="input whatsapp-page-size"
@@ -1020,6 +1128,8 @@ const WhatsApp = () => {
         </section>
       </div>
     </section>
+      );
+    })()
   );
 
   const renderContactsView = () => (
