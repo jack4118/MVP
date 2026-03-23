@@ -106,9 +106,13 @@ export const runAgentViaCodex = async (params: {
   loopCount: number;
   cwd?: string;
 }): Promise<Pick<AgentExecutionResult, 'status' | 'summary' | 'artifacts' | 'rawOutput'>> => {
+  const sandboxMode = process.env.EZR_CODEX_SANDBOX_MODE || 'danger-full-access';
+  const approvalPolicy = process.env.EZR_CODEX_APPROVAL_POLICY || 'never';
+  const codexArgs = ['exec', '-', '--json', '-s', sandboxMode, '-a', approvalPolicy];
+
   try {
     const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      const child = spawn('codex', ['exec', '-', '--json'], {
+      const child = spawn('codex', codexArgs, {
         env: process.env,
         cwd: params.cwd || process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
