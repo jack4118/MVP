@@ -355,13 +355,22 @@ export const startAutoRun = async (params: {
   state.loopCount = 1;
   state.approvalStatus = 'idle';
   state.proposedNextAgent = null;
+  state.proposedReason = null;
+  state.proposedSummary = [];
   state.approvedAgent = null;
   state.currentRunningAgent = null;
   state.completedAgents = [];
+  state.lastApprovalCommand = null;
+  state.lastError = null;
+  state.lastTelegramMessageId = null;
   state.pendingAgents = ['agent1', 'agent2', 'agent3', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent12'];
   state.blockedAgents = [];
   state.agentOutputs = {};
   state.context = {};
+  state.timestamps.lastProposalAt = null;
+  state.timestamps.lastApprovalAt = null;
+  state.timestamps.lastRejectionAt = null;
+  state.timestamps.lastWebhookFailureAt = null;
   setAutoStep(state, 'group12');
 
   await saveWorkflowState(state);
