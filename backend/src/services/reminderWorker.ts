@@ -1,7 +1,9 @@
 import cron from 'node-cron';
 import { dispatchDueReminders } from './reminderService';
+import { runCredentialExpiryCheck } from '../orchestration/orchestrationService';
 
 let task: cron.ScheduledTask | null = null;
+let orchestratorTokenCheckTask: cron.ScheduledTask | null = null;
 
 export const startReminderWorker = () => {
   const enabled = process.env.REMINDER_WORKER_ENABLED !== 'false';
@@ -25,6 +27,15 @@ export const startReminderWorker = () => {
     }
   });
 
+  // Every 15 minutes
+  orchestratorTokenCheckTask = cron.schedule('*/15 * * * *', async () => {
+    try {
+      await runCredentialExpiryCheck();
+    } catch (error) {
+      console.error('[ReminderWorker] credential expiry check failed', error);
+    }
+  });
+
   console.log('[ReminderWorker] started');
 };
 
@@ -32,5 +43,9 @@ export const stopReminderWorker = () => {
   if (task) {
     task.stop();
     task = null;
+  }
+  if (orchestratorTokenCheckTask) {
+    orchestratorTokenCheckTask.stop();
+    orchestratorTokenCheckTask = null;
   }
 };

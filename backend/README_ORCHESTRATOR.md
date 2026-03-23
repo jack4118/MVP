@@ -122,6 +122,12 @@ Run independent worker process (required for auto mode):
 npm run worker:orchestrator
 ```
 
+If your Render plan cannot run background workers, run API worker on a separate machine (local PC/VPS) with `codex` installed:
+
+```bash
+EZR_ORCHESTRATOR_API_BASE=https://mvp-backend-rqzt.onrender.com npm run worker:orchestrator:api
+```
+
 Worker behavior:
 
 - Polls runnable orchestrator actions.

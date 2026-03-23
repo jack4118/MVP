@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "worker:orchestrator": "tsx src/workers/orchestratorWorker.ts",
+    "worker:orchestrator:api": "tsx src/workers/orchestratorApiWorker.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
