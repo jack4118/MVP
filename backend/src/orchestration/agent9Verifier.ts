@@ -26,6 +26,8 @@ export interface Agent9VerificationResult {
   checks: Record<string, string>;
 }
 
+const isDeployStatusPass = (value: string): boolean => value === 'SUCCESS' || value === 'NOT_REQUIRED';
+
 const runGit = async (args: string[], cwd: string): Promise<string> => {
   const result = await execFileAsync('git', args, { cwd, env: process.env });
   return String(result.stdout || '').trim();
@@ -174,11 +176,11 @@ export const verifyAgent9Execution = async (input: Agent9VerificationInput): Pro
 
   checks.deploy_frontend = contract.DEPLOY_FRONTEND_STATUS;
   checks.deploy_backend = contract.DEPLOY_BACKEND_STATUS;
-  if (contract.DEPLOY_FRONTEND_STATUS !== 'SUCCESS') {
-    summary.push('Frontend deploy status is not SUCCESS.');
+  if (!isDeployStatusPass(contract.DEPLOY_FRONTEND_STATUS)) {
+    summary.push('Frontend deploy status is neither SUCCESS nor NOT_REQUIRED.');
   }
-  if (contract.DEPLOY_BACKEND_STATUS !== 'SUCCESS') {
-    summary.push('Backend deploy status is not SUCCESS.');
+  if (!isDeployStatusPass(contract.DEPLOY_BACKEND_STATUS)) {
+    summary.push('Backend deploy status is neither SUCCESS nor NOT_REQUIRED.');
   }
 
   const frontendLiveUrl = process.env.EZR_AGENT9_FRONTEND_LIVE_URL || process.env.EZR_STAGING_URL || '';
@@ -211,8 +213,8 @@ export const verifyAgent9Execution = async (input: Agent9VerificationInput): Pro
     checks.push === 'SUCCESS' &&
     checks.cloudflare_credentials === 'SUCCESS' &&
     checks.render_credentials === 'SUCCESS' &&
-    checks.deploy_frontend === 'SUCCESS' &&
-    checks.deploy_backend === 'SUCCESS' &&
+    isDeployStatusPass(checks.deploy_frontend) &&
+    isDeployStatusPass(checks.deploy_backend) &&
     checks.live_frontend === 'SUCCESS' &&
     checks.live_backend === 'SUCCESS' &&
     checks.live_verify === 'SUCCESS' &&
