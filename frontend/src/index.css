@@ -3002,7 +3002,7 @@ code {
     display: grid;
     gap: 16px;
     position: fixed;
-    top: 56px;
+    top: var(--landing-header-height, 56px);
     left: 0;
     right: 0;
     bottom: 0;
@@ -3032,7 +3032,7 @@ code {
   .landing-mobile-overlay {
     display: block;
     position: fixed;
-    inset: 56px 0 0;
+    inset: var(--landing-header-height, 56px) 0 0;
     z-index: 105;
     border: 0;
     background: rgba(12, 18, 31, 0.35);

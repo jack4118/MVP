@@ -1,5 +1,5 @@
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
 import AppLogo from './AppLogo';
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
@@ -10,6 +10,7 @@ const PublicHeader = () => {
   const { t } = useLanguage();
   const { user, isAuthenticated, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -31,6 +32,20 @@ const PublicHeader = () => {
     };
   }, [menuOpen]);
 
+  useEffect(() => {
+    const setHeaderHeight = () => {
+      const nextHeight = headerRef.current?.offsetHeight ?? 56;
+      document.documentElement.style.setProperty('--landing-header-height', `${nextHeight}px`);
+    };
+
+    setHeaderHeight();
+    window.addEventListener('resize', setHeaderHeight);
+    return () => {
+      window.removeEventListener('resize', setHeaderHeight);
+      document.documentElement.style.removeProperty('--landing-header-height');
+    };
+  }, []);
+
   const closeMenu = () => setMenuOpen(false);
 
   const handleWorkflowNavigate = () => {
@@ -44,63 +59,38 @@ const PublicHeader = () => {
   };
 
   return (
-    <header className="landing-header">
-      <Link to={isAuthenticated ? '/dashboard' : '/'} className="landing-logo-link" aria-label="EzReply">
-        <AppLogo />
-      </Link>
-      <div className="header-actions landing-mobile-actions">
-        <Link to={primaryCtaTarget} className="btn btn-primary landing-mobile-primary-cta">
-          {isAuthenticated ? t.publicHeader.openDashboard : t.common.startFreeTrial}
+    <Fragment>
+      <header ref={headerRef} className="landing-header">
+        <Link to={isAuthenticated ? '/dashboard' : '/'} className="landing-logo-link" aria-label="EzReply">
+          <AppLogo />
         </Link>
-        <button
-          type="button"
-          className="btn btn-secondary landing-mobile-menu-trigger"
-          aria-label={menuOpen ? t.common.close : 'Menu'}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((current) => !current)}
-        >
-          {menuOpen ? '×' : '☰'}
-        </button>
-      </div>
+        <div className="header-actions landing-mobile-actions">
+          <Link to={primaryCtaTarget} className="btn btn-primary landing-mobile-primary-cta">
+            {isAuthenticated ? t.publicHeader.openDashboard : t.common.startFreeTrial}
+          </Link>
+          <button
+            type="button"
+            className="btn btn-secondary landing-mobile-menu-trigger"
+            aria-label={menuOpen ? t.common.close : 'Menu'}
+            aria-controls="landing-mobile-menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((current) => !current)}
+          >
+            {menuOpen ? '×' : '☰'}
+          </button>
+        </div>
 
-      <div className="landing-desktop-actions">
-        <Link to={primaryCtaTarget} className="btn btn-primary">
-          {isAuthenticated ? t.publicHeader.openDashboard : t.common.startFreeTrial}
-        </Link>
-        <Link to="/pricing" className="btn btn-secondary">
-          {t.landing.seePricing}
-        </Link>
-        <LanguageToggle />
-        <ThemeToggle />
-        {isAuthenticated && user ? (
-          <>
-            <div className="auth-chip" title={user.email}>
-              <span>{t.publicHeader.signedInLabel}</span>
-              <strong>{user.email}</strong>
-            </div>
-            <button type="button" className="btn btn-secondary" onClick={logout}>
-              {t.auth.logout}
-            </button>
-          </>
-        ) : null}
-      </div>
-
-      {menuOpen ? (
-        <div className="landing-mobile-menu-sheet" role="dialog" aria-modal="true">
-          <nav className="landing-mobile-menu-links">
-            <button type="button" className="btn btn-secondary" onClick={handleWorkflowNavigate}>
-              {t.landing.heroSecondaryCta}
-            </button>
-            <Link to="/pricing" className="btn btn-secondary" onClick={closeMenu}>
-              {t.landing.seePricing}
-            </Link>
-          </nav>
-          <div className="landing-mobile-menu-tools">
-            <LanguageToggle />
-            <ThemeToggle />
-          </div>
+        <div className="landing-desktop-actions">
+          <Link to={primaryCtaTarget} className="btn btn-primary">
+            {isAuthenticated ? t.publicHeader.openDashboard : t.common.startFreeTrial}
+          </Link>
+          <Link to="/pricing" className="btn btn-secondary">
+            {t.landing.seePricing}
+          </Link>
+          <LanguageToggle />
+          <ThemeToggle />
           {isAuthenticated && user ? (
-            <div className="landing-mobile-menu-user">
+            <>
               <div className="auth-chip" title={user.email}>
                 <span>{t.publicHeader.signedInLabel}</span>
                 <strong>{user.email}</strong>
@@ -108,12 +98,42 @@ const PublicHeader = () => {
               <button type="button" className="btn btn-secondary" onClick={logout}>
                 {t.auth.logout}
               </button>
-            </div>
+            </>
           ) : null}
         </div>
+      </header>
+
+      {menuOpen ? (
+        <Fragment>
+          <div id="landing-mobile-menu" className="landing-mobile-menu-sheet" role="dialog" aria-modal="true">
+            <nav className="landing-mobile-menu-links">
+              <button type="button" className="btn btn-secondary" onClick={handleWorkflowNavigate}>
+                {t.landing.heroSecondaryCta}
+              </button>
+              <Link to="/pricing" className="btn btn-secondary" onClick={closeMenu}>
+                {t.landing.seePricing}
+              </Link>
+            </nav>
+            <div className="landing-mobile-menu-tools">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
+            {isAuthenticated && user ? (
+              <div className="landing-mobile-menu-user">
+                <div className="auth-chip" title={user.email}>
+                  <span>{t.publicHeader.signedInLabel}</span>
+                  <strong>{user.email}</strong>
+                </div>
+                <button type="button" className="btn btn-secondary" onClick={logout}>
+                  {t.auth.logout}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <button type="button" className="landing-mobile-overlay" aria-label={t.common.close} onClick={closeMenu}></button>
+        </Fragment>
       ) : null}
-      {menuOpen ? <button type="button" className="landing-mobile-overlay" aria-label={t.common.close} onClick={closeMenu}></button> : null}
-    </header>
+    </Fragment>
   );
 };
 
