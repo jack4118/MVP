@@ -56,8 +56,8 @@ services:
     env: node
     plan: starter
     rootDir: backend
-    buildCommand: npm ci --include=dev && npm run build && npm i -g @openai/codex@0.116.0
-    startCommand: sh -lc 'codex --version || echo "[preflight] codex binary not found in PATH"; [ -n "$OPENAI_API_KEY" ] || echo "[preflight] OPENAI_API_KEY is missing"; npm run worker:orchestrator:api'
+    buildCommand: npm ci --include=dev && npm run build && npm install --no-save @openai/codex@0.116.0
+    startCommand: sh -lc 'export PATH="/opt/render/project/src/backend/node_modules/.bin:$PATH"; CODEX_PATH="$(command -v codex || true)"; echo "[preflight] codex_path=${CODEX_PATH:-missing}"; if [ -n "$CODEX_PATH" ]; then codex --version || echo "[preflight] codex --version failed"; else echo "[preflight] codex unavailable in runtime PATH"; fi; [ -n "$OPENAI_API_KEY" ] || echo "[preflight] OPENAI_API_KEY is missing"; npm run worker:orchestrator:api'
     envVars:
       - key: NODE_ENV
         value: production
