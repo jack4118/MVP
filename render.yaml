@@ -57,7 +57,7 @@ services:
     plan: starter
     rootDir: backend
     buildCommand: npm ci --include=dev && npm run build && npm install --no-save @openai/codex@0.116.0
-    startCommand: npm run worker:orchestrator:api
+    startCommand: node dist/workers/orchestratorApiWorker.js
     envVars:
       - key: NODE_ENV
         value: production
