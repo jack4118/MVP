@@ -23,6 +23,7 @@ const POLL_MS = Number(process.env.EZR_ORCHESTRATOR_WORKER_POLL_MS || 15000);
 const LEASE_OWNER = process.env.EZR_ORCHESTRATOR_WORKER_ID || `api-worker:${process.pid}`;
 const WORKSPACE_ROOT = process.env.EZR_WORKSPACE_ROOT || path.resolve(process.cwd(), '..');
 const inFlightAgents = new Set<AgentName>();
+let codexAvailabilityOverrideForTests: boolean | null = null;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,6 +60,17 @@ const codexIsAvailable = (): boolean => {
   return result.status === 0;
 };
 
+const isCodexAvailable = (): boolean => {
+  if (codexAvailabilityOverrideForTests !== null) {
+    return codexAvailabilityOverrideForTests;
+  }
+  return codexIsAvailable();
+};
+
+export const setCodexAvailabilityOverrideForTests = (value: boolean | null): void => {
+  codexAvailabilityOverrideForTests = value;
+};
+
 class ExecutionTimeoutError extends Error {
   constructor(public readonly agent: AgentName) {
     super(`${agent} exceeded max runtime`);
@@ -89,11 +101,31 @@ const reportFailure = async (agent: AgentName, reason: 'execution_timeout' | 'wo
   });
 };
 
+const submitCodexUnavailableResult = async (agent: AgentName): Promise<void> => {
+  const detail = `codex binary is unavailable in PATH for worker ${LEASE_OWNER}`;
+  console.error(`[OrchestratorApiWorker] ${detail}; submitting controlled FAIL for ${agent}`);
+  await postJson(`${API_BASE}/api/orchestrator/auto/submit`, {
+    agent,
+    leaseOwner: LEASE_OWNER,
+    status: 'FAIL',
+    summary: [`${agent} execution failed`, 'codex runtime unavailable on worker'],
+    artifacts: ['runtime:codex_unavailable'],
+    rawOutput: {
+      error: detail,
+    },
+  });
+};
+
 const runOne = async (agent: AgentName, loopCount: number): Promise<void> => {
   await postJson(`${API_BASE}/api/orchestrator/auto/lease/claim`, {
     agent,
     leaseOwner: LEASE_OWNER,
   });
+
+  if (!isCodexAvailable()) {
+    await submitCodexUnavailableResult(agent);
+    return;
+  }
 
   const heartbeatTask = setInterval(async () => {
     try {
@@ -222,7 +254,7 @@ export const runAgentsInParallel = async (
   await Promise.all(agents.map((agent) => runner(agent)));
 };
 
-const tick = async (): Promise<void> => {
+export const tick = async (): Promise<void> => {
   const next = await getJson<NextActionResponse>(`${API_BASE}/api/orchestrator/auto/next-action`);
   const action = next.data?.action;
   const loopCount = next.data?.state?.loopCount || 0;
@@ -244,10 +276,20 @@ const tick = async (): Promise<void> => {
   }
 };
 
-const main = async () => {
-  if (!codexIsAvailable()) {
-    throw new Error('Local codex binary is not available. Install codex and ensure it is in PATH.');
+export const logWorkerStartup = (): { codexAvailable: boolean } => {
+  const codexAvailable = isCodexAvailable();
+  if (codexAvailable) {
+    console.log('[OrchestratorApiWorker] codex runtime: available');
+  } else {
+    console.error(
+      '[OrchestratorApiWorker] codex runtime: unavailable; worker will stay online and mark agent executions FAIL until codex becomes available'
+    );
   }
+  return { codexAvailable };
+};
+
+const main = async () => {
+  logWorkerStartup();
   console.log(`[OrchestratorApiWorker] started, api=${API_BASE}`);
   process.on('SIGTERM', () => {
     void shutdown('SIGTERM');
