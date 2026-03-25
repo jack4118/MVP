@@ -29,7 +29,7 @@ test('codex-unavailable execution path submits controlled failure', async () => 
   const originalFetch = global.fetch;
   const calls: FetchCall[] = [];
 
-  global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  global.fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method || 'GET';
     const body = init?.body ? JSON.parse(String(init.body)) : null;
@@ -74,7 +74,7 @@ test('tick path remains reachable for run_parallel when codex is unavailable', a
   const originalFetch = global.fetch;
   const calls: FetchCall[] = [];
 
-  global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  global.fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method || 'GET';
     const body = init?.body ? JSON.parse(String(init.body)) : null;
