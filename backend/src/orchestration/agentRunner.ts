@@ -132,6 +132,9 @@ export const runAgentViaCodex = async (params: {
   // `-a/--approval-policy` was removed from newer codex versions.
   // Use config override which is supported in current CLI.
   const codexArgs = ['exec', '-', '--json', '-s', sandboxMode, '-c', `approval_policy="${approvalPolicy}"`];
+  if (String(process.env.EZR_CODEX_FORCE_HTTP_RESPONSES || '').toLowerCase() === 'true') {
+    codexArgs.push('-c', 'model_providers.openai.supports_websockets=false');
+  }
 
   try {
     const runCodexOnce = async (): Promise<{ stdout: string; stderr: string }> =>

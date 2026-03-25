@@ -104,9 +104,73 @@ test('websocket 5xx final result fails cleanly after retry limit', async () => {
   assert.match((result.summary || []).join(' '), /retries exhausted/i);
 });
 
+test('includes supports_websockets=false when EZR_CODEX_FORCE_HTTP_RESPONSES=true', async () => {
+  process.env.EZR_CODEX_FORCE_HTTP_RESPONSES = 'true';
+
+  const captured: { command?: string; args?: string[] } = {};
+  setCodexSpawnOverrideForTests(((command: string, args: string[]) => {
+    captured.command = command;
+    captured.args = [...args];
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { write: () => {}, end: () => {} };
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from(JSON.stringify({ status: 'PASS', summary: ['ok'], artifacts: [] })));
+      child.emit('close', 0);
+    });
+    return child;
+  }) as any);
+
+  const result = await runAgentViaCodex({ agent: 'agent1', prompt: 'x', loopCount: 1, cwd: process.cwd() });
+  assert.equal(result.status, 'PASS');
+  assert.equal(captured.command, 'codex');
+  assert.ok(captured.args?.includes('model_providers.openai.supports_websockets=false'));
+});
+
+test('keeps codex args unchanged when EZR_CODEX_FORCE_HTTP_RESPONSES is unset/false', async () => {
+  delete process.env.EZR_CODEX_FORCE_HTTP_RESPONSES;
+
+  const captured: { args?: string[] } = {};
+  setCodexSpawnOverrideForTests(((_command: string, args: string[]) => {
+    captured.args = [...args];
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { write: () => {}, end: () => {} };
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from(JSON.stringify({ status: 'PASS', summary: ['ok'], artifacts: [] })));
+      child.emit('close', 0);
+    });
+    return child;
+  }) as any);
+
+  const result = await runAgentViaCodex({ agent: 'agent2', prompt: 'x', loopCount: 1, cwd: process.cwd() });
+  assert.equal(result.status, 'PASS');
+  assert.equal(captured.args?.includes('model_providers.openai.supports_websockets=false'), false);
+
+  process.env.EZR_CODEX_FORCE_HTTP_RESPONSES = 'false';
+  const capturedFalse: { args?: string[] } = {};
+  setCodexSpawnOverrideForTests(((_command: string, args: string[]) => {
+    capturedFalse.args = [...args];
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { write: () => {}, end: () => {} };
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from(JSON.stringify({ status: 'PASS', summary: ['ok'], artifacts: [] })));
+      child.emit('close', 0);
+    });
+    return child;
+  }) as any);
+  const resultFalse = await runAgentViaCodex({ agent: 'agent2', prompt: 'x', loopCount: 1, cwd: process.cwd() });
+  assert.equal(resultFalse.status, 'PASS');
+  assert.equal(capturedFalse.args?.includes('model_providers.openai.supports_websockets=false'), false);
+});
+
 test.after(() => {
   delete process.env.EZR_CODEX_WS_MAX_RETRIES;
   delete process.env.EZR_CODEX_WS_RETRY_BACKOFF_MS;
+  delete process.env.EZR_CODEX_FORCE_HTTP_RESPONSES;
   setCodexSpawnOverrideForTests(null);
 });
-

@@ -71,5 +71,7 @@ services:
         value: "45"
       - key: EZR_AGENT_LEASE_TTL_SECONDS
         value: "90"
+      - key: EZR_CODEX_FORCE_HTTP_RESPONSES
+        value: "true"
       - key: OPENAI_API_KEY
         sync: false
