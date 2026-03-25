@@ -14,6 +14,7 @@ const nowIso = (): string => new Date().toISOString();
 const ALL_EXEC_AGENTS: AgentName[] = allExecutionAgents();
 
 export const WORKFLOW_SCHEMA_VERSION = 3;
+let saveQueue: Promise<void> = Promise.resolve();
 
 const unique = <T>(items: T[]): T[] => Array.from(new Set(items));
 const randomApprovalId = (): string => `appr_${Math.random().toString(36).slice(2, 10)}`;
@@ -259,10 +260,16 @@ export const loadWorkflowState = async (): Promise<WorkflowState> => {
 };
 
 export const saveWorkflowState = async (state: WorkflowState): Promise<void> => {
-  await ensureStateDir();
-  const normalized = normalizeWorkflowState(state);
-  const statePath = resolveStatePath();
-  const tempPath = `${statePath}.tmp`;
-  await writeFile(tempPath, JSON.stringify(normalized, null, 2), 'utf8');
-  await rename(tempPath, statePath);
+  const runSave = async (): Promise<void> => {
+    await ensureStateDir();
+    const normalized = normalizeWorkflowState(state);
+    const statePath = resolveStatePath();
+    const tempPath = `${statePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 10)}.tmp`;
+    await writeFile(tempPath, JSON.stringify(normalized, null, 2), 'utf8');
+    await rename(tempPath, statePath);
+  };
+
+  const queuedSave = saveQueue.then(runSave, runSave);
+  saveQueue = queuedSave.catch(() => undefined);
+  await queuedSave;
 };
