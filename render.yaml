@@ -56,8 +56,8 @@ services:
     env: node
     plan: starter
     rootDir: backend
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm run worker:orchestrator:api
+    buildCommand: npm ci --include=dev && npm run build && npm i -g @openai/codex@0.116.0
+    startCommand: sh -lc 'codex --version || echo "[preflight] codex binary not found in PATH"; [ -n "$OPENAI_API_KEY" ] || echo "[preflight] OPENAI_API_KEY is missing"; npm run worker:orchestrator:api'
     envVars:
       - key: NODE_ENV
         value: production
@@ -71,3 +71,5 @@ services:
         value: "45"
       - key: EZR_AGENT_LEASE_TTL_SECONDS
         value: "90"
+      - key: OPENAI_API_KEY
+        sync: false
