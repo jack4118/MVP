@@ -125,7 +125,12 @@ test('includes supports_websockets=false when EZR_CODEX_FORCE_HTTP_RESPONSES=tru
   const result = await runAgentViaCodex({ agent: 'agent1', prompt: 'x', loopCount: 1, cwd: process.cwd() });
   assert.equal(result.status, 'PASS');
   assert.equal(captured.command, 'codex');
-  assert.ok(captured.args?.includes('model_providers.openai.supports_websockets=false'));
+  assert.ok(
+    captured.args?.includes(
+      'model_providers.openai_http={name="OpenAI HTTP",env_key="OPENAI_API_KEY",wire_api="responses",supports_websockets=false}'
+    )
+  );
+  assert.ok(captured.args?.includes('model_provider="openai_http"'));
 });
 
 test('keeps codex args unchanged when EZR_CODEX_FORCE_HTTP_RESPONSES is unset/false', async () => {
@@ -147,7 +152,13 @@ test('keeps codex args unchanged when EZR_CODEX_FORCE_HTTP_RESPONSES is unset/fa
 
   const result = await runAgentViaCodex({ agent: 'agent2', prompt: 'x', loopCount: 1, cwd: process.cwd() });
   assert.equal(result.status, 'PASS');
-  assert.equal(captured.args?.includes('model_providers.openai.supports_websockets=false'), false);
+  assert.equal(
+    captured.args?.includes(
+      'model_providers.openai_http={name="OpenAI HTTP",env_key="OPENAI_API_KEY",wire_api="responses",supports_websockets=false}'
+    ),
+    false
+  );
+  assert.equal(captured.args?.includes('model_provider="openai_http"'), false);
 
   process.env.EZR_CODEX_FORCE_HTTP_RESPONSES = 'false';
   const capturedFalse: { args?: string[] } = {};
@@ -165,7 +176,13 @@ test('keeps codex args unchanged when EZR_CODEX_FORCE_HTTP_RESPONSES is unset/fa
   }) as any);
   const resultFalse = await runAgentViaCodex({ agent: 'agent2', prompt: 'x', loopCount: 1, cwd: process.cwd() });
   assert.equal(resultFalse.status, 'PASS');
-  assert.equal(capturedFalse.args?.includes('model_providers.openai.supports_websockets=false'), false);
+  assert.equal(
+    capturedFalse.args?.includes(
+      'model_providers.openai_http={name="OpenAI HTTP",env_key="OPENAI_API_KEY",wire_api="responses",supports_websockets=false}'
+    ),
+    false
+  );
+  assert.equal(capturedFalse.args?.includes('model_provider="openai_http"'), false);
 });
 
 test.after(() => {

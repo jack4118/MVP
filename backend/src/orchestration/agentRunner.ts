@@ -133,7 +133,12 @@ export const runAgentViaCodex = async (params: {
   // Use config override which is supported in current CLI.
   const codexArgs = ['exec', '-', '--json', '-s', sandboxMode, '-c', `approval_policy="${approvalPolicy}"`];
   if (String(process.env.EZR_CODEX_FORCE_HTTP_RESPONSES || '').toLowerCase() === 'true') {
-    codexArgs.push('-c', 'model_providers.openai.supports_websockets=false');
+    codexArgs.push(
+      '-c',
+      'model_providers.openai_http={name="OpenAI HTTP",env_key="OPENAI_API_KEY",wire_api="responses",supports_websockets=false}',
+      '-c',
+      'model_provider="openai_http"'
+    );
   }
 
   try {
