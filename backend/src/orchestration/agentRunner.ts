@@ -18,6 +18,10 @@ interface CodexJsonLine {
   [key: string]: unknown;
 }
 
+type SpawnFn = typeof spawn;
+
+let codexSpawnOverrideForTests: SpawnFn | null = null;
+
 const clamp = (value: string, maxLen: number): string => {
   const cleaned = value.replace(/\s+/g, ' ').trim();
   if (cleaned.length <= maxLen) {
@@ -100,6 +104,21 @@ const normalizeStatus = (value?: string): 'PASS' | 'FAIL' | 'OK' => {
   return 'OK';
 };
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getCodexSpawn = (): SpawnFn => codexSpawnOverrideForTests || spawn;
+
+const isRetryableWebsocket5xx = (message: string): boolean => {
+  const lower = message.toLowerCase();
+  const hasWebsocket = lower.includes('websocket');
+  const hasHttp5xx = /http error:\s*5\d\d/i.test(message) || /\b5\d\d\b/.test(message);
+  return hasWebsocket && hasHttp5xx;
+};
+
+export const setCodexSpawnOverrideForTests = (override: SpawnFn | null): void => {
+  codexSpawnOverrideForTests = override;
+};
+
 export const runAgentViaCodex = async (params: {
   agent: AgentName;
   prompt: string;
@@ -108,39 +127,73 @@ export const runAgentViaCodex = async (params: {
 }): Promise<Pick<AgentExecutionResult, 'status' | 'summary' | 'artifacts' | 'rawOutput'>> => {
   const sandboxMode = process.env.EZR_CODEX_SANDBOX_MODE || 'danger-full-access';
   const approvalPolicy = process.env.EZR_CODEX_APPROVAL_POLICY || 'never';
+  const maxWebsocketRetries = Math.max(0, Number(process.env.EZR_CODEX_WS_MAX_RETRIES || 2));
+  const retryBackoffMs = Math.max(100, Number(process.env.EZR_CODEX_WS_RETRY_BACKOFF_MS || 700));
   // `-a/--approval-policy` was removed from newer codex versions.
   // Use config override which is supported in current CLI.
   const codexArgs = ['exec', '-', '--json', '-s', sandboxMode, '-c', `approval_policy="${approvalPolicy}"`];
 
   try {
-    const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      const child = spawn('codex', codexArgs, {
-        env: process.env,
-        cwd: params.cwd || process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'],
+    const runCodexOnce = async (): Promise<{ stdout: string; stderr: string }> =>
+      await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        const child = getCodexSpawn()('codex', codexArgs, {
+          env: process.env,
+          cwd: params.cwd || process.cwd(),
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let out = '';
+        let err = '';
+
+        child.stdout.on('data', (chunk) => {
+          out += chunk.toString();
+        });
+        child.stderr.on('data', (chunk) => {
+          err += chunk.toString();
+        });
+        child.on('error', reject);
+        child.on('close', (code) => {
+          if (code === 0) {
+            resolve({ stdout: out, stderr: err });
+            return;
+          }
+          reject(new Error(`codex exited with code ${code}: ${err || out}`));
+        });
+
+        child.stdin.write(params.prompt);
+        child.stdin.end();
       });
 
-      let out = '';
-      let err = '';
+    let attempt = 0;
+    let lastError: unknown = null;
+    let runOutput: { stdout: string; stderr: string } | null = null;
 
-      child.stdout.on('data', (chunk) => {
-        out += chunk.toString();
-      });
-      child.stderr.on('data', (chunk) => {
-        err += chunk.toString();
-      });
-      child.on('error', reject);
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve({ stdout: out, stderr: err });
-          return;
+    while (attempt <= maxWebsocketRetries) {
+      attempt += 1;
+      try {
+        runOutput = await runCodexOnce();
+        break;
+      } catch (error) {
+        lastError = error;
+        const message = String((error as any)?.message || error);
+        const retryable = isRetryableWebsocket5xx(message);
+        if (!retryable || attempt > maxWebsocketRetries) {
+          throw new Error(
+            `${message}${retryable ? ` | websocket_5xx_retries_exhausted:${attempt}/${maxWebsocketRetries + 1}` : ''}`
+          );
         }
-        reject(new Error(`codex exited with code ${code}: ${err || out}`));
-      });
+        console.warn(
+          `[AgentRunner] retrying codex websocket 5xx for ${params.agent}: attempt ${attempt}/${maxWebsocketRetries + 1}`
+        );
+        await sleep(retryBackoffMs * attempt);
+      }
+    }
 
-      child.stdin.write(params.prompt);
-      child.stdin.end();
-    });
+    if (!runOutput) {
+      throw new Error(String((lastError as any)?.message || lastError || 'codex execution failed'));
+    }
+
+    const { stdout, stderr } = runOutput;
 
     const parsed = parseRunnerOutput(stdout);
 
@@ -153,18 +206,30 @@ export const runAgentViaCodex = async (params: {
       rawOutput: {
         parsed,
         stderr: stderr || null,
+        retryAttempts: attempt,
       },
     };
   } catch (error: any) {
     const shortError = clamp(error?.message || 'unknown error', 220);
+    const retryAttemptsMatch = String(error?.message || '').match(/websocket_5xx_retries_exhausted:(\d+)\/(\d+)/);
+    const retryAttempts = retryAttemptsMatch ? Number(retryAttemptsMatch[1]) : 1;
+    const exhausted = Boolean(retryAttemptsMatch);
+    const summary = [`${params.agent} execution failed`, shortError];
+    if (exhausted) {
+      summary.push(`websocket transport retries exhausted after ${retryAttempts} attempts`);
+    }
     return {
       status: 'FAIL',
-      summary: [`${params.agent} execution failed`, shortError],
-      artifacts: [],
+      summary,
+      artifacts: exhausted
+        ? ['runtime:codex_websocket_5xx_retry_exhausted', `codex_retry_attempts:${retryAttempts}`]
+        : [`codex_retry_attempts:${retryAttempts}`],
       rawOutput: {
         error: error?.message || String(error),
         stderr: error?.stderr || null,
         stdout: error?.stdout || null,
+        retryAttempts,
+        retryableWebsocket5xx: exhausted || isRetryableWebsocket5xx(String(error?.message || '')),
       },
     };
   }
