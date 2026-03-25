@@ -82,39 +82,6 @@ const Dashboard = () => {
     [summary, t]
   );
 
-  const onboardingSteps = useMemo(
-    () => [
-      {
-        id: 'whatsapp',
-        label: t.dashboard.onboardingConnectLabel,
-        done: !!summary?.onboarding.hasConnectedWhatsApp,
-        hint: summary?.onboarding.connectedDisplayPhone
-          ? translate(t.dashboard.onboardingConnectedHint, { phone: summary.onboarding.connectedDisplayPhone })
-          : t.dashboard.onboardingConnectHint,
-        cta: '/whatsapp',
-      },
-      {
-        id: 'lead',
-        label: t.dashboard.onboardingLeadLabel,
-        done: !!summary?.onboarding.hasLeads,
-        hint: summary?.onboarding.hasLeads
-          ? translate(t.dashboard.onboardingLeadDoneHint, { count: summary.onboarding.totalLeads })
-          : t.dashboard.onboardingLeadHint,
-        cta: '/leads',
-      },
-      {
-        id: 'send',
-        label: t.dashboard.onboardingSendLabel,
-        done: !!summary?.onboarding.hasSentFollowUp,
-        hint: summary?.onboarding.hasSentFollowUp
-          ? translate(t.dashboard.onboardingSendDoneHint, { count: summary.onboarding.sentMessagesCount })
-          : t.dashboard.onboardingSendHint,
-        cta: '/leads',
-      },
-    ],
-    [summary, t]
-  );
-
   const actionLabels: Record<string, string> = {
     send_follow_up: t.dashboard.actionSendFollowUp,
     ask_budget: t.dashboard.actionAskBudget,
@@ -351,6 +318,158 @@ const Dashboard = () => {
     }
   };
 
+  const unreadItems = summary?.latestUnread || [];
+  const todayTasks = summary?.todayTasks || [];
+  const recentReplies = summary?.recentlyReplied || [];
+  const hasPanelError = !loading && !!error;
+  const unreadCount = summary?.unreadMessages || 0;
+  const overdueCount = summary?.overdueFollowUps || 0;
+  const hasConnectedWhatsApp = summary?.onboarding.hasConnectedWhatsApp || false;
+  const hasLeads = summary?.onboarding.hasLeads || false;
+  const hasUrgentAttention = unreadCount > 0 || overdueCount > 0;
+
+  const sortedUnreadItems = useMemo(
+    () =>
+      [...unreadItems].sort((a, b) => {
+        if (b.unreadCount !== a.unreadCount) {
+          return b.unreadCount - a.unreadCount;
+        }
+        return new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime();
+      }),
+    [unreadItems]
+  );
+
+  const sortedTodayTasks = useMemo(
+    () =>
+      [...todayTasks].sort((a, b) => {
+        if (a.isOverdue !== b.isOverdue) {
+          return a.isOverdue ? -1 : 1;
+        }
+        return new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime();
+      }),
+    [todayTasks]
+  );
+
+  const getTaskActionPriority = (task: DashboardSummary['todayTasks'][number], action: string) => {
+    if (task.type === 'payment') {
+      const paymentPriority: Record<string, number> = {
+        payment_reminder: 0,
+        send_follow_up: 1,
+        ask_budget: 2,
+        mark_won: 3,
+        snooze: 4,
+      };
+      return paymentPriority[action] ?? 99;
+    }
+
+    const followUpPriority: Record<string, number> = {
+      send_follow_up: task.isOverdue ? 0 : 1,
+      ask_budget: 2,
+      payment_reminder: 3,
+      mark_won: 4,
+      snooze: task.isOverdue ? 5 : 0,
+    };
+    return followUpPriority[action] ?? 99;
+  };
+
+  const nextActions = useMemo(() => {
+    if (!summary) return [];
+
+    const items: Array<{
+      id: string;
+      title: string;
+      body: string;
+      to?: string;
+      kind: 'info' | 'warning' | 'success' | 'danger';
+      ctaLabel?: string;
+      priority: number;
+      action?: 'sample-lead';
+    }> = [];
+
+    if (!summary.onboarding.hasConnectedWhatsApp) {
+      items.push({
+        id: 'connect-whatsapp',
+        title: t.dashboard.taskConnectWhatsappTitle,
+        body: t.dashboard.connectWhatsappBody,
+        to: '/whatsapp?view=setup',
+        kind: 'warning',
+        ctaLabel: t.dashboard.ctaOpenWhatsappSetup,
+        priority: 130,
+      });
+    }
+
+    if (summary.unreadMessages > 0) {
+      items.push({
+        id: 'inbox',
+        title: translate(t.dashboard.taskUnreadTitle, { count: summary.unreadMessages }),
+        body: t.dashboard.unreadBannerBody,
+        to: '/whatsapp?view=inbox',
+        kind: 'danger',
+        ctaLabel: t.dashboard.ctaReviewUnreadNow,
+        priority: 120,
+      });
+    }
+
+    if (summary.overdueFollowUps > 0) {
+      items.push({
+        id: 'overdue',
+        title: translate(t.dashboard.taskOverdueTitle, { count: summary.overdueFollowUps }),
+        body: translate(t.dashboard.overdueActionBody, { count: summary.overdueFollowUps }),
+        to: '/reminders',
+        kind: 'warning',
+        ctaLabel: t.dashboard.ctaResolveOverdueNow,
+        priority: 110,
+      });
+    }
+
+    if (summary.todayTasks.length > 0) {
+      items.push({
+        id: 'reminders',
+        title: t.dashboard.taskTodayQueueTitle,
+        body: t.dashboard.tasksActionBody,
+        to: '/reminders',
+        kind: 'info',
+        ctaLabel: t.dashboard.ctaReviewTasksNow,
+        priority: 90,
+      });
+    }
+
+    if (!summary.onboarding.hasLeads) {
+      items.push({
+        id: 'sample',
+        title: t.dashboard.taskAddLeadTitle,
+        body: t.dashboard.sampleLeadNotes,
+        kind: 'warning',
+        priority: 80,
+        action: 'sample-lead',
+      });
+    }
+
+    items.push({
+      id: 'whatsapp',
+      title: t.dashboard.taskReviewConversationsTitle,
+      body: t.dashboard.whatsappNavBody,
+      to: '/whatsapp',
+      kind: 'success',
+      ctaLabel: t.dashboard.ctaOpenWhatsappInbox,
+      priority: 30,
+    });
+
+    return items.sort((a, b) => b.priority - a.priority);
+  }, [summary, t]);
+
+  const priorityLabelByKind: Record<'info' | 'warning' | 'success' | 'danger', string> = {
+    danger: t.dashboard.priorityNow,
+    warning: t.dashboard.priorityNext,
+    info: t.dashboard.priorityLater,
+    success: t.dashboard.prioritySetup,
+  };
+
+  const topbarPrimaryAction = nextActions.find((item) => item.to);
+  const topbarSecondaryAction = nextActions.find((item) => item.to && item.id !== topbarPrimaryAction?.id);
+  const primaryActionId = topbarPrimaryAction?.id || '';
+  const taskPanelIsPrimary = primaryActionId === 'overdue' || primaryActionId === 'reminders';
+
   return (
     <div className="page-container">
       <AuthenticatedHeader
@@ -361,127 +480,167 @@ const Dashboard = () => {
 
       {error && <div className="alert alert-error">{error}</div>}
 
-      {!!summary?.unreadMessages && summary.latestUnread.length > 0 && (
-        <section className="dashboard-unread-banner">
-          <div>
-            <p className="eyebrow">{t.privateHeader.unreadLabel}</p>
-            <h2>{translate(t.dashboard.unreadBannerTitle, { count: summary.unreadMessages })}</h2>
-            <p>{t.dashboard.unreadBannerBody}</p>
-            <div className="dashboard-unread-banner-preview">
-              {summary.latestUnread.slice(0, 3).map((item) => (
-                <span key={item.phone} className="task-pill task-pill-overdue">
-                  {(item.lead?.name || item.phone)} · {item.unreadCount}
-                </span>
-              ))}
-            </div>
-          </div>
-          <Link to="/whatsapp?view=inbox" className="btn btn-primary">
-            {t.dashboard.unreadBannerAction}
-          </Link>
-        </section>
-      )}
+      <section className={`card dashboard-topbar ${hasUrgentAttention ? 'dashboard-topbar-locked' : ''}`}>
+        <div>
+          <p className="eyebrow">{t.dashboard.heroEyebrow}</p>
+          <h2>{topbarPrimaryAction?.title || t.dashboard.todayTasksSubtitle}</h2>
+          <p className="page-subtitle">{topbarPrimaryAction?.body || t.dashboard.heroFollowUpBody}</p>
+        </div>
+        <div className="dashboard-topbar-actions">
+          {topbarPrimaryAction?.to ? (
+            <Link to={topbarPrimaryAction.to} className="btn btn-primary dashboard-primary-lock">
+              {topbarPrimaryAction.ctaLabel || t.dashboard.openCta}
+            </Link>
+          ) : null}
+          {topbarSecondaryAction?.to ? (
+            <Link to={topbarSecondaryAction.to} className="btn btn-secondary dashboard-secondary-cta">
+              {topbarSecondaryAction.ctaLabel || t.dashboard.openCta}
+            </Link>
+          ) : (
+            <Link to="/reminders" className="btn btn-secondary dashboard-secondary-cta">
+              {t.reminders.title}
+            </Link>
+          )}
+        </div>
+      </section>
 
-      <section className="today-stats-grid">
+      <section className="today-stats-grid dashboard-kpi-grid">
         {stats.map((card) => (
           <article key={card.label} className="card stat-card">
             <span>{card.label}</span>
             <strong>{card.value}</strong>
-            {card.trend ? <small className={card.trend > 0 ? 'status-won' : 'status-lost'}>{card.trend > 0 ? '+' : ''}{card.trend} / 7d</small> : null}
+            {card.trend ? (
+              <small className={card.trend > 0 ? 'dashboard-trend-up' : 'dashboard-trend-down'}>
+                {card.trend > 0 ? '+' : ''}
+                {card.trend} / 7d
+              </small>
+            ) : (
+              <small className="dashboard-trend-neutral">—</small>
+            )}
           </article>
         ))}
       </section>
 
-      {summary?.calculationNote ? (
-        <section className="card">
-          <p className="page-subtitle">{summary.calculationNote}</p>
-        </section>
-      ) : null}
-
-      <section className="card hero-card">
-        <p className="eyebrow">{t.dashboard.heroEyebrow}</p>
-        <h2>{t.dashboard.heroFollowUpTitle}</h2>
-        <p>{t.dashboard.heroFollowUpBody}</p>
-      </section>
-
-      {!!summary?.unreadMessages && (
-        <section className="card dashboard-unread-card">
-          <div className="section-heading">
-            <h3>{t.dashboard.unreadSectionTitle}</h3>
-            <Link to="/whatsapp?view=inbox" className="btn btn-secondary">
-              {t.dashboard.openWhatsappCta}
-            </Link>
+      <section className={`card dashboard-panel ${hasUrgentAttention && primaryActionId !== 'inbox' ? 'dashboard-panel-muted' : ''}`}>
+        <div className="section-heading dashboard-panel-heading">
+          <h3>{t.dashboard.unreadSectionTitle}</h3>
+          <div className="dashboard-panel-actions">
+            <span className="status-chip status-chip-info">
+              {translate(t.dashboard.unreadBannerTitle, { count: summary?.unreadMessages || 0 })}
+            </span>
+              <Link to="/whatsapp?view=inbox" className="btn btn-secondary dashboard-secondary-cta">
+                {t.dashboard.openUnreadConversation}
+              </Link>
           </div>
-          <p className="page-subtitle">{t.dashboard.unreadSectionSubtitle}</p>
+        </div>
+        <p className="page-subtitle">{t.dashboard.unreadSectionSubtitle}</p>
+
+        {loading ? (
+          <div className="dashboard-panel-state">
+            <div className="spinner" aria-hidden="true" />
+            <p>{t.common.loading}</p>
+          </div>
+        ) : hasPanelError ? (
+          <div className="dashboard-panel-state dashboard-panel-state-error">
+            <p>{error || t.common.error}</p>
+            <button className="btn btn-secondary" onClick={loadSummary}>{t.reminders.refresh}</button>
+          </div>
+        ) : sortedUnreadItems.length === 0 ? (
+          <div className="dashboard-panel-state">
+            <p>
+              {!hasConnectedWhatsApp
+                ? t.dashboard.noUnreadNoConnection
+                : !hasLeads
+                  ? t.dashboard.noUnreadNoLeads
+                  : t.dashboard.noUnreadClear}
+            </p>
+            {!hasConnectedWhatsApp ? (
+              <Link to="/whatsapp?view=setup" className="btn btn-secondary">{t.dashboard.ctaOpenWhatsappSetup}</Link>
+            ) : !hasLeads ? (
+              <Link to="/leads" className="btn btn-secondary">{t.dashboard.ctaAddFirstLead}</Link>
+            ) : (
+              <Link to="/whatsapp?view=inbox" className="btn btn-secondary">{t.dashboard.ctaOpenWhatsappInbox}</Link>
+            )}
+          </div>
+        ) : (
           <div className="simple-list">
-            {summary.latestUnread.map((item) => (
-              <div key={item.phone} className="simple-list-item">
-                <div>
-                  <strong>{item.lead?.name || item.phone}</strong>
+            {sortedUnreadItems.map((item, index) => (
+              <div key={item.phone} className="simple-list-item dashboard-list-item">
+                <div className="dashboard-list-copy">
+                  <strong>{translate(t.dashboard.taskReplyLeadTitle, { name: item.lead?.name || item.phone })}</strong>
                   <p>{item.lastMessagePreview || t.dashboard.unreadPreviewFallback}</p>
                 </div>
-                <div className="dashboard-unread-actions">
-                  <span className="task-pill task-pill-overdue">{item.unreadCount}</span>
-                  <Link to={`/whatsapp?view=inbox&phone=${encodeURIComponent(item.phone)}`} className="btn btn-secondary">
-                    {t.dashboard.openUnreadConversation}
+                <div className="dashboard-list-actions">
+                  <span className="status-chip status-chip-danger">{item.unreadCount}</span>
+                  <Link
+                    to={`/whatsapp?view=inbox&phone=${encodeURIComponent(item.phone)}`}
+                    className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary dashboard-secondary-cta'}`}
+                  >
+                    {index === 0 ? t.dashboard.ctaReviewUnreadNow : t.dashboard.openUnreadConversation}
                   </Link>
                 </div>
               </div>
             ))}
           </div>
-        </section>
-      )}
-
-      <section className="card">
-        <div className="section-heading">
-          <h3>{t.dashboard.onboardingTitle}</h3>
-          <span>{translate(t.dashboard.onboardingProgress, { count: onboardingSteps.filter((step) => step.done).length, total: 3 })}</span>
-        </div>
-        <div className="simple-list">
-          {onboardingSteps.map((step) => (
-            <div key={step.id} className="simple-list-item">
-              <div>
-                <strong>{step.done ? '✓' : '○'} {step.label}</strong>
-                <p>{step.hint}</p>
-              </div>
-              {!step.done && step.id === 'lead' ? (
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <button onClick={handleCreateSampleLead} className="btn btn-primary" disabled={creatingSampleLead}>
-                    {creatingSampleLead ? t.dashboard.creatingSampleLead : t.dashboard.addSampleLead}
-                  </button>
-                  <Link to={step.cta} className="btn btn-secondary">
-                    {t.dashboard.openCta}
-                  </Link>
-                </div>
-              ) : !step.done ? (
-                <Link to={step.cta} className="btn btn-secondary">
-                  {t.dashboard.openCta}
-                </Link>
-              ) : null}
-            </div>
-          ))}
-        </div>
+        )}
       </section>
 
-      <section className="today-dashboard-grid">
-        <article className="card">
-          <div className="section-heading">
-            <h3>{t.dashboard.todayFollowUpsTitle}</h3>
-            <button className="btn btn-secondary" onClick={loadSummary}>
-              {t.reminders.refresh}
-            </button>
+      <section className={`card dashboard-panel ${hasUrgentAttention && !taskPanelIsPrimary ? 'dashboard-panel-muted' : ''}`}>
+        <div className="section-heading dashboard-panel-heading">
+          <h3>{t.dashboard.todayTasksTitle}</h3>
+          <div className="dashboard-panel-actions">
+            <span className="status-chip status-chip-danger">
+              {t.dashboard.overdueFollowUpsLabel}: {summary?.overdueFollowUps || 0}
+            </span>
+            <span className="status-chip status-chip-info">
+              {t.dashboard.waitingPaymentLabel}: {summary?.waitingPaymentAmount ? `RM ${summary.waitingPaymentAmount}` : summary?.waitingPayment || 0}
+            </span>
+            <Link to="/reminders" className="btn btn-secondary dashboard-secondary-cta">{t.reminders.title}</Link>
           </div>
-          {loading ? (
+        </div>
+
+        {loading ? (
+          <div className="dashboard-panel-state">
+            <div className="spinner" aria-hidden="true" />
             <p>{t.dashboard.loadingTasks}</p>
-          ) : summary?.todayTasks.length ? (
-            <div className="today-task-list">
-              {summary.todayTasks.map((task) => (
+          </div>
+        ) : hasPanelError ? (
+          <div className="dashboard-panel-state dashboard-panel-state-error">
+            <p>{error || t.dashboard.loadFailed}</p>
+            <button className="btn btn-secondary" onClick={loadSummary}>{t.reminders.refresh}</button>
+          </div>
+        ) : sortedTodayTasks.length === 0 ? (
+          <div className="dashboard-panel-state">
+            <p>
+              {unreadCount > 0
+                ? t.dashboard.noTasksButUnread
+                : !hasLeads
+                  ? t.dashboard.noTasksNoLeads
+                  : t.dashboard.noTasksDue}
+            </p>
+            {unreadCount > 0 ? (
+              <Link to="/whatsapp?view=inbox" className="btn btn-secondary">{t.dashboard.ctaReviewUnreadNow}</Link>
+            ) : !hasLeads ? (
+              <Link to="/leads" className="btn btn-secondary">{t.dashboard.ctaAddFirstLead}</Link>
+            ) : (
+              <Link to="/reminders" className="btn btn-secondary">{t.reminders.createReminder}</Link>
+            )}
+          </div>
+        ) : (
+          <div className="today-task-list">
+            {sortedTodayTasks.map((task) => {
+              const prioritizedActions = [...task.suggestedActions].sort(
+                (a, b) => getTaskActionPriority(task, a) - getTaskActionPriority(task, b)
+              );
+
+              return (
                 <div key={task.id} className="today-task-card">
                   <div className="today-task-top">
                     <div>
-                      <strong>{task.lead.name}</strong>
+                      <strong>{translate(t.dashboard.taskFollowUpLeadTitle, { name: task.lead.name })}</strong>
                       <p>{task.lead.contact || t.dashboard.noWhatsappSaved}</p>
                     </div>
-                    <span className={`task-pill ${task.isOverdue ? 'task-pill-overdue' : ''}`}>
+                    <span className={`status-chip ${task.isOverdue ? 'status-chip-danger' : 'status-chip-warning'}`}>
                       {task.isOverdue ? t.dashboard.overduePill : new Date(task.triggerAt).toLocaleDateString()}
                     </span>
                   </div>
@@ -489,71 +648,108 @@ const Dashboard = () => {
                     {task.type === 'payment' ? t.dashboard.paymentFollowUpMeta : t.dashboard.customerFollowUpMeta} • {t.status[task.lead.status as keyof typeof t.status] || task.lead.status}
                   </p>
                   <div className="today-task-actions">
-                    {task.suggestedActions.map((action) => (
+                    {prioritizedActions.slice(0, 1).map((action) => (
                       <button
                         key={action}
-                        className={`btn ${action === 'mark_won' ? 'btn-secondary' : 'btn-primary'}`}
+                        className="btn btn-primary"
                         onClick={() => handleTaskAction(task, action)}
                       >
-                        {actionLabels[action] || action}
+                        {`${t.dashboard.recommendedAction}: ${actionLabels[action] || action}`}
                       </button>
                     ))}
                   </div>
+                  {prioritizedActions.length > 1 ? <p className="today-task-secondary-hint">{t.dashboard.secondaryActionsHint}</p> : null}
                 </div>
-              ))}
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="today-dashboard-grid dashboard-action-grid">
+        <article className={`card dashboard-panel ${hasUrgentAttention ? 'dashboard-panel-muted' : ''}`}>
+          <div className="section-heading dashboard-panel-heading">
+            <h3>{t.dashboard.todayFollowUpsTitle}</h3>
+            <Link to="/reminders" className="btn btn-secondary dashboard-secondary-cta">{t.reminders.title}</Link>
+          </div>
+          {loading ? (
+            <div className="dashboard-panel-state"><div className="spinner" aria-hidden="true" /><p>{t.common.loading}</p></div>
+          ) : hasPanelError ? (
+            <div className="dashboard-panel-state dashboard-panel-state-error"><p>{error || t.common.error}</p></div>
+          ) : recentReplies.length === 0 ? (
+            <div className="dashboard-panel-state">
+              <p>{t.dashboard.noRecentRepliesActionBody}</p>
+              <Link to="/whatsapp?view=inbox" className="btn btn-secondary dashboard-secondary-cta">{t.dashboard.ctaOpenWhatsappInbox}</Link>
             </div>
           ) : (
-            <p>{t.dashboard.noTasksDue}</p>
-          )}
-        </article>
-
-        <article className="card">
-          <div className="section-heading">
-            <h3>{t.dashboard.recentlyRepliedTitle}</h3>
-            <Link to="/whatsapp" className="btn btn-secondary">
-              {t.dashboard.openWhatsappCta}
-            </Link>
-          </div>
-          {summary?.recentlyReplied.length ? (
             <div className="simple-list">
-              {summary.recentlyReplied.map((lead) => (
-                <div key={lead.id} className="simple-list-item">
-                  <div>
+              {recentReplies.map((lead) => (
+                <div key={lead.id} className="simple-list-item dashboard-list-item">
+                  <div className="dashboard-list-copy">
                     <strong>{lead.name}</strong>
                     <p>{lead.contact || t.dashboard.noContact}</p>
                   </div>
-                  <span>{lead.lastInboundAt ? new Date(lead.lastInboundAt).toLocaleString() : t.dashboard.justNow}</span>
+                  <span className="status-chip status-chip-success">
+                    {lead.lastInboundAt ? new Date(lead.lastInboundAt).toLocaleString() : t.dashboard.justNow}
+                  </span>
                 </div>
               ))}
             </div>
-          ) : (
-            <p>{t.dashboard.noRecentReplies}</p>
           )}
         </article>
-      </section>
 
-      <section className="dashboard-nav">
-        <Link to="/leads" className="nav-card">
-          <div className="nav-icon">👥</div>
-          <div>
-            <h3>{t.dashboard.leadsNavTitle}</h3>
-            <p>{t.dashboard.leadsNavBody}</p>
+        <article className={`card dashboard-panel ${hasUrgentAttention ? 'dashboard-panel-muted' : ''}`}>
+          <div className="section-heading dashboard-panel-heading">
+            <h3>{t.dashboard.quickActionTitle}</h3>
+            <Link to="/whatsapp?view=inbox" className="btn btn-secondary dashboard-secondary-cta">{t.dashboard.openWhatsappCta}</Link>
           </div>
-        </Link>
-        <Link to="/whatsapp" className="nav-card">
-          <div className="nav-icon">💬</div>
-          <div>
-            <h3>{t.dashboard.whatsappNavTitle}</h3>
-            <p>{t.dashboard.whatsappNavBody}</p>
-          </div>
-        </Link>
-        <Link to="/ai" className="nav-card">
-          <div className="nav-icon">🤖</div>
-          <div>
-            <h3>{t.dashboard.aiStudioNavTitle}</h3>
-            <p>{t.dashboard.aiStudioNavBody}</p>
-          </div>
-        </Link>
+          {loading ? (
+            <div className="dashboard-panel-state"><div className="spinner" aria-hidden="true" /><p>{t.common.loading}</p></div>
+          ) : hasPanelError ? (
+            <div className="dashboard-panel-state dashboard-panel-state-error"><p>{error || t.common.error}</p></div>
+          ) : nextActions.length === 0 ? (
+            <div className="dashboard-panel-state"><p>{t.dashboard.noTasksDue}</p></div>
+          ) : (
+            <div className="simple-list">
+              {nextActions.map((item, index) => (
+                <div key={item.id} className="simple-list-item dashboard-list-item">
+                  <div className="dashboard-list-copy">
+                    <strong>{translate(t.dashboard.stepTaskTitle, { step: index + 1, title: item.title })}</strong>
+                    <p>{item.body}</p>
+                  </div>
+                  <div className="dashboard-list-actions">
+                    <span
+                      className={`status-chip ${
+                        item.kind === 'danger'
+                          ? 'status-chip-danger'
+                          : item.kind === 'success'
+                            ? 'status-chip-success'
+                            : item.kind === 'warning'
+                              ? 'status-chip-warning'
+                              : 'status-chip-info'
+                      }`}
+                    >
+                      {priorityLabelByKind[item.kind]}
+                    </span>
+                    {item.action === 'sample-lead' ? (
+                      <button
+                        onClick={handleCreateSampleLead}
+                        className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary dashboard-secondary-cta'}`}
+                        disabled={creatingSampleLead}
+                      >
+                        {creatingSampleLead ? t.dashboard.creatingSampleLead : t.dashboard.addSampleLead}
+                      </button>
+                    ) : item.to ? (
+                      <Link to={item.to} className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary dashboard-secondary-cta'}`}>
+                        {item.ctaLabel || t.dashboard.openCta}
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
       </section>
 
       {showQuickActionModal && activeTask && (

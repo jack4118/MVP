@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { remindersApi, Reminder, ReminderDispatchLog, leadsApi, Lead } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 
 const Reminders = () => {
+  const navigate = useNavigate();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -12,8 +14,6 @@ const Reminders = () => {
   const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
   const [dispatchLogs, setDispatchLogs] = useState<ReminderDispatchLog[]>([]);
   const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'all' | 'sent' | 'failed' | 'requires_template' | 'skipped'>('all');
-  const [view, setView] = useState<'today' | 'upcoming' | 'all'>('today');
-  const [status, setStatus] = useState<'all' | 'pending' | 'done'>('pending');
   const [days, setDays] = useState(30);
   const [formData, setFormData] = useState({
     leadId: '',
@@ -39,12 +39,12 @@ const Reminders = () => {
     }
   };
 
-  const loadReminders = async (nextView = view, nextStatus = status, nextDays = days) => {
+  const loadReminders = async (nextDays = days) => {
     try {
       setLoading(true);
       const response = await remindersApi.getReminders({
-        view: nextView,
-        status: nextStatus,
+        view: 'all',
+        status: 'pending',
         days: nextDays,
       });
       if (response.success && response.data) {
@@ -98,13 +98,14 @@ const Reminders = () => {
     }
   };
 
+  const getStatusLabel = (statusKey: string) => t.status[statusKey as keyof typeof t.status] || statusKey;
+
   const handleMarkDone = async (reminder: Reminder) => {
     try {
-      if (reminder.isDone) {
-        await remindersApi.updateReminder(reminder.id, { isDone: false });
-      } else {
-        await remindersApi.markDone(reminder.id);
-      }
+      setError('');
+      setSuccess('');
+      await remindersApi.markDone(reminder.id);
+      setSuccess(t.reminders.taskClearedSuccess.replace('{name}', reminder.lead.name));
       await loadReminders();
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
@@ -120,11 +121,92 @@ const Reminders = () => {
     }
   };
 
-  const getStatusLabel = (statusKey: string) => t.status[statusKey as keyof typeof t.status] || statusKey;
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(startOfToday);
+  endOfToday.setDate(endOfToday.getDate() + 1);
+
+  const pendingReminders = reminders
+    .filter((reminder) => !reminder.isDone)
+    .sort((a, b) => new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime());
+
+  const overdueReminders = pendingReminders.filter((reminder) => new Date(reminder.triggerAt).getTime() < now.getTime());
+  const todayReminders = pendingReminders.filter((reminder) => {
+    const trigger = new Date(reminder.triggerAt).getTime();
+    return trigger >= now.getTime() && trigger < endOfToday.getTime();
+  });
+  const upcomingReminders = pendingReminders.filter((reminder) => new Date(reminder.triggerAt).getTime() >= endOfToday.getTime());
+
+  const nextTask = overdueReminders[0] || todayReminders[0] || upcomingReminders[0] || null;
+
+  const buildInboxTaskLink = (reminder: Reminder) => {
+    const params = new URLSearchParams({
+      view: 'inbox',
+      phone: reminder.lead.contact || '',
+      reminderId: reminder.id,
+      leadId: reminder.lead.id,
+      source: 'reminders',
+    });
+    return `/whatsapp?${params.toString()}`;
+  };
+
+  const renderReminderTask = (reminder: Reminder, priority: 'overdue' | 'today' | 'upcoming') => (
+    <div
+      key={reminder.id}
+      className={`card reminder-card ${priority === 'overdue' ? 'reminder-card-overdue' : 'reminder-card-pending'}`}
+    >
+      <div className="reminder-header">
+        <div>
+          <h3>{t.reminders.taskTitle.replace('{name}', reminder.lead.name)}</h3>
+          <div className="reminder-badges">
+            <span className="badge badge-type">{reminder.type}</span>
+            <span className="badge badge-status">{getStatusLabel(reminder.lead.status)}</span>
+            <span className={`badge badge-status ${priority === 'overdue' ? 'badge-status-overdue' : ''}`}>
+              {priority === 'overdue'
+                ? t.reminders.overdueSectionTitle
+                : priority === 'today'
+                  ? t.reminders.todaySectionTitle
+                  : t.reminders.upcomingSectionTitle}
+            </span>
+          </div>
+        </div>
+        <div className="reminder-actions-row">
+          <button onClick={() => handleMarkDone(reminder)} className="btn btn-primary">
+            {t.reminders.clearTask}
+          </button>
+          <details className="reminder-secondary-actions">
+            <summary>{t.reminders.moreActions}</summary>
+            <div className="reminder-secondary-actions-menu">
+              {reminder.lead.contact ? (
+                <Link to={`/whatsapp?view=inbox&phone=${encodeURIComponent(reminder.lead.contact)}`} className="btn btn-secondary">
+                  {t.reminders.openInInbox}
+                </Link>
+              ) : null}
+              <button onClick={() => handleDelete(reminder.id)} className="btn btn-secondary">
+                {t.reminders.deleteAction}
+              </button>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div className="reminder-details">
+        <div className="detail-item">
+          <span className="detail-label">{t.reminders.contact}:</span>
+          <span>{reminder.lead.contact || t.reminders.notAvailable}</span>
+        </div>
+        <div className="detail-item">
+          <span className="detail-label">{t.reminders.triggerTime}:</span>
+          <span>{new Date(reminder.triggerAt).toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-container">
-      <AuthenticatedHeader title={t.reminders.title} subtitle={t.reminders.loadingReminders} />
+      <AuthenticatedHeader title={t.reminders.title} subtitle={t.reminders.actionFlowSubtitle} />
 
       {error && (
         <div className="alert alert-error">
@@ -187,40 +269,6 @@ const Reminders = () => {
       <div className="card reminders-filter-card">
         <div className="reminder-filter-grid">
           <div>
-            <label className="form-label">{t.reminders.view}</label>
-            <select
-              className="input"
-              value={view}
-              onChange={(e) => {
-                const next = e.target.value as 'today' | 'upcoming' | 'all';
-                setView(next);
-                loadReminders(next, status, days);
-              }}
-            >
-              <option value="today">{t.reminders.today}</option>
-              <option value="upcoming">{t.reminders.upcoming}</option>
-              <option value="all">{t.reminders.all}</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="form-label">{t.reminders.statusFilter}</label>
-            <select
-              className="input"
-              value={status}
-              onChange={(e) => {
-                const next = e.target.value as 'all' | 'pending' | 'done';
-                setStatus(next);
-                loadReminders(view, next, days);
-              }}
-            >
-              <option value="pending">{t.reminders.pending}</option>
-              <option value="done">{t.reminders.done}</option>
-              <option value="all">{t.reminders.all}</option>
-            </select>
-          </div>
-
-          <div>
             <label className="form-label">{t.reminders.daysUpcoming}</label>
             <input
               className="input"
@@ -231,10 +279,20 @@ const Reminders = () => {
               onChange={(e) => {
                 const next = Math.max(1, Math.min(365, parseInt(e.target.value, 10) || 30));
                 setDays(next);
-                loadReminders(view, status, next);
+                loadReminders(next);
               }}
             />
           </div>
+
+          {nextTask?.lead.contact ? (
+            <Link to={`/whatsapp?view=inbox&phone=${encodeURIComponent(nextTask.lead.contact)}`} className="btn btn-primary">
+              {t.reminders.processNextTask}
+            </Link>
+          ) : (
+            <button className="btn btn-primary" disabled>
+              {t.reminders.processNextTask}
+            </button>
+          )}
 
           <button className="btn btn-secondary" onClick={() => { loadReminders(); loadDispatchLogs(); }}>
             {t.reminders.refresh}
@@ -247,49 +305,64 @@ const Reminders = () => {
           <div className="spinner"></div>
           <p>{t.reminders.loadingReminders}</p>
         </div>
-      ) : reminders.length === 0 ? (
+      ) : pendingReminders.length === 0 ? (
         <div className="card empty-state">
           <div className="empty-icon">✅</div>
-          <h3>{t.reminders.noReminders}</h3>
-          <p>{t.reminders.noRemindersMessage}</p>
+          <h3>{t.reminders.emptyQueueTitle}</h3>
+          <p>{t.reminders.emptyQueueBody}</p>
         </div>
       ) : (
         <div className="reminders-grid">
-          {reminders.map((reminder) => (
-            <div
-              key={reminder.id}
-              className={`card reminder-card ${reminder.isDone ? 'reminder-card-done' : 'reminder-card-pending'}`}
-            >
-              <div className="reminder-header">
-                <div>
-                  <h3>{reminder.lead.name}</h3>
-                  <div className="reminder-badges">
-                    <span className="badge badge-type">{reminder.type}</span>
-                    <span className="badge badge-status">{getStatusLabel(reminder.lead.status)}</span>
-                    <span className="badge badge-status">{reminder.isDone ? t.reminders.done : t.reminders.pending}</span>
-                  </div>
-                </div>
-                <div className="reminder-actions-row">
-                  <button onClick={() => handleMarkDone(reminder)} className="btn btn-success">
-                    {reminder.isDone ? `↺ ${t.reminders.reopen}` : `✓ ${t.reminders.markDone}`}
-                  </button>
-                  <button onClick={() => handleDelete(reminder.id)} className="btn btn-danger">
-                    {t.reminders.deleteAction}
-                  </button>
-                </div>
-              </div>
-              <div className="reminder-details">
-                <div className="detail-item">
-                  <span className="detail-label">{t.reminders.contact}:</span>
-                  <span>{reminder.lead.contact || t.reminders.notAvailable}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="detail-label">{t.reminders.triggerTime}:</span>
-                  <span>{new Date(reminder.triggerAt).toLocaleString()}</span>
-                </div>
-              </div>
+          <section className="card reminders-section reminders-section-overdue">
+            <div className="section-heading">
+              <h2>{t.reminders.overdueSectionTitle}</h2>
+              <span className="status-chip status-chip-danger">{overdueReminders.length}</span>
             </div>
-          ))}
+            <p className="page-subtitle">{t.reminders.overdueSectionBody}</p>
+            {overdueReminders.length === 0 ? (
+              <div className="dashboard-panel-state">
+                <p>{t.reminders.noOverdue}</p>
+              </div>
+            ) : (
+              <div className="reminders-section-list">
+                {overdueReminders.map((reminder) => renderReminderTask(reminder, 'overdue'))}
+              </div>
+            )}
+          </section>
+
+          <section className={`card reminders-section ${overdueReminders.length > 0 ? 'reminders-section-muted' : ''}`}>
+            <div className="section-heading">
+              <h2>{t.reminders.todaySectionTitle}</h2>
+              <span className="status-chip status-chip-warning">{todayReminders.length}</span>
+            </div>
+            <p className="page-subtitle">{t.reminders.todaySectionBody}</p>
+            {todayReminders.length === 0 ? (
+              <div className="dashboard-panel-state">
+                <p>{t.reminders.noTodayTasks}</p>
+              </div>
+            ) : (
+              <div className="reminders-section-list">
+                {todayReminders.map((reminder) => renderReminderTask(reminder, 'today'))}
+              </div>
+            )}
+          </section>
+
+          <section className={`card reminders-section ${overdueReminders.length > 0 ? 'reminders-section-muted' : ''}`}>
+            <div className="section-heading">
+              <h2>{t.reminders.upcomingSectionTitle}</h2>
+              <span className="status-chip status-chip-info">{upcomingReminders.length}</span>
+            </div>
+            <p className="page-subtitle">{t.reminders.upcomingSectionBody}</p>
+            {upcomingReminders.length === 0 ? (
+              <div className="dashboard-panel-state">
+                <p>{t.reminders.noUpcomingTasks}</p>
+              </div>
+            ) : (
+              <div className="reminders-section-list">
+                {upcomingReminders.map((reminder) => renderReminderTask(reminder, 'upcoming'))}
+              </div>
+            )}
+          </section>
         </div>
       )}
 

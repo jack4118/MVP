@@ -87,6 +87,7 @@ const WhatsApp = () => {
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [isMediaDragActive, setIsMediaDragActive] = useState(false);
   const [sendingMedia, setSendingMedia] = useState(false);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const [formData, setFormData] = useState({
     businessAccountId: '',
@@ -285,6 +286,17 @@ const WhatsApp = () => {
     [contacts]
   );
 
+  const prioritizedContacts = useMemo(
+    () =>
+      [...contacts].sort((a, b) => {
+        if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+        if (b.unreadCount > 0 && a.unreadCount === 0) return 1;
+        if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount;
+        return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+      }),
+    [contacts]
+  );
+
   const latestUnreadContact = useMemo(() => {
     if (!unreadContacts.length) {
       return null;
@@ -395,6 +407,9 @@ const WhatsApp = () => {
     if (isMobile) {
       setMobileThreadOpen(true);
     }
+    requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus();
+    });
   };
 
   const openUnreadConversation = () => {
@@ -459,13 +474,20 @@ const WhatsApp = () => {
         const payload: any = response.data;
 
         const pickPreferredPhone = (items: WhatsAppContactSummary[]) => {
+          const sorted = [...items].sort((a, b) => {
+            if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+            if (b.unreadCount > 0 && a.unreadCount === 0) return 1;
+            if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount;
+            return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+          });
+
           if (selectedPhone && items.some((item) => item.phone === selectedPhone)) {
             return selectedPhone;
           }
 
-          const firstUnread = items.find((item) => item.unreadCount > 0);
+          const firstUnread = sorted.find((item) => item.unreadCount > 0);
 
-          return firstUnread?.phone || items[0]?.phone || '';
+          return firstUnread?.phone || sorted[0]?.phone || '';
         };
 
         if (Array.isArray(payload)) {
@@ -536,6 +558,36 @@ const WhatsApp = () => {
       setLoadingConversation(false);
     }
   };
+
+  useEffect(() => {
+    if (activeView !== 'inbox' || !selectedPhone) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      composerTextareaRef.current?.focus();
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [activeView, selectedPhone]);
+
+  useEffect(() => {
+    if (activeView !== 'inbox' || selectedByUser || unreadContacts.length === 0) {
+      return;
+    }
+
+    if (!selectedPhone || !unreadContacts.some((contact) => contact.phone === selectedPhone)) {
+      const firstUnreadByPriority = [...unreadContacts].sort((a, b) => {
+        if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount;
+        return new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime();
+      })[0];
+
+      if (firstUnreadByPriority?.phone) {
+        setSelectedPhone(firstUnreadByPriority.phone);
+        setTestData((prev) => ({ ...prev, toPhone: firstUnreadByPriority.phone }));
+      }
+    }
+  }, [activeView, unreadContacts, selectedByUser, selectedPhone]);
 
   const handleSave = async () => {
     try {
@@ -925,11 +977,13 @@ const WhatsApp = () => {
       const readinessUiState = mapSendReadinessState(inboxReadiness, inboxReadinessLoading, Boolean(inboxReadinessError));
       const sendBlocked = readinessUiState !== 'READY_TO_SEND';
       const recoveryCta = readinessUiState === 'BLOCKED_TEMPLATE_REQUIRED'
-        ? { label: 'Back to draft', href: '/whatsapp?view=inbox' }
-        : { label: 'Complete WhatsApp Setup', href: '/whatsapp?view=setup#verify' };
+        ? { label: t.whatsapp.recoveryBackToInbox, href: '/whatsapp?view=inbox' }
+        : { label: t.whatsapp.recoveryCompleteSetup, href: '/whatsapp?view=setup#verify' };
       const blockerMessage = inboxReadinessError
         ? inboxReadinessError
         : inboxReadiness?.reasonMessage || t.common.error;
+      const selectedContactHasUnread = prioritizedContacts.find((contact) => contact.phone === selectedPhone)?.unreadCount || 0;
+      const firstUnreadContact = prioritizedContacts.find((contact) => contact.unreadCount > 0);
 
       return (
     <section className="card whatsapp-panel">
@@ -940,18 +994,31 @@ const WhatsApp = () => {
       <div className="whatsapp-chat-layout">
         <aside className={`whatsapp-contact-pane ${isMobile && mobileThreadOpen ? 'whatsapp-mobile-hidden' : ''}`}>
           <div className="whatsapp-pane-header">
-            <strong>{t.whatsapp.contacts}</strong>
+            <div>
+              <strong>{t.whatsapp.step1Title}</strong>
+              <p>{t.whatsapp.step1Body}</p>
+            </div>
           </div>
+          {firstUnreadContact && selectedPhone !== firstUnreadContact.phone ? (
+            <div className="whatsapp-priority-banner">
+              <p>{t.whatsapp.unreadPriorityHint}</p>
+              <button type="button" className="btn btn-primary" onClick={() => handleSelectContact(firstUnreadContact.phone)}>
+                {t.whatsapp.openFirstUnread}
+              </button>
+            </div>
+          ) : null}
           <div className="whatsapp-contact-list">
-            {contacts.length === 0 ? (
+            {loadingContacts ? (
+              <div className="whatsapp-empty-state">{t.whatsapp.loadingContacts}</div>
+            ) : prioritizedContacts.length === 0 ? (
               <div className="whatsapp-empty-state">{t.whatsapp.noContacts}</div>
             ) : (
-              contacts.map((contact) => (
+              prioritizedContacts.map((contact) => (
                 <button
                   key={`chat-${contact.phone}`}
                   type="button"
                   onClick={() => handleSelectContact(contact.phone)}
-                  className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''}`}
+                  className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''} ${contact.unreadCount > 0 ? 'whatsapp-contact-button-unread' : ''}`}
                 >
                   <div className="whatsapp-contact-title-row">
                     <strong>{contact.lead?.name || contact.phone}</strong>
@@ -994,19 +1061,23 @@ const WhatsApp = () => {
               {isMobile && mobileThreadOpen ? (
                 <button className="btn btn-secondary" onClick={() => setMobileThreadOpen(false)}>{t.common.back}</button>
               ) : null}
-              <strong>{selectedContact?.lead?.name || selectedPhone || t.whatsapp.selectContact}</strong>
-              <p>{selectedContact?.phone || t.whatsapp.selectContact}</p>
+              <strong>{t.whatsapp.step2Title}</strong>
+              <p>
+                {selectedPhone
+                  ? `${selectedContact?.lead?.name || selectedPhone}${selectedContactHasUnread > 0 ? ` • ${selectedContactHasUnread} ${t.whatsapp.unreadMessagesLabel.toLowerCase()}` : ''}`
+                  : t.whatsapp.step2Body
+                }
+              </p>
             </div>
-            <button className="btn btn-secondary" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
+            <button className="btn btn-secondary whatsapp-secondary-action" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
               {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
-            </button>
-            <button className="btn btn-secondary" onClick={scrollConversationToLatest} disabled={!selectedPhone || conversation.length === 0}>
-              {t.whatsapp.jumpToLatest}
             </button>
           </div>
           <div className="whatsapp-chat-body" ref={conversationBodyRef}>
             {!selectedPhone ? (
               <div className="whatsapp-empty-state">{t.whatsapp.selectContact}</div>
+            ) : loadingConversation ? (
+              <div className="whatsapp-empty-state">{t.whatsapp.loadingConversation}</div>
             ) : conversation.length === 0 ? (
               <div className="whatsapp-empty-state">{t.whatsapp.noMessages}</div>
             ) : (
@@ -1039,7 +1110,12 @@ const WhatsApp = () => {
             )}
           </div>
           <div className="whatsapp-form-actions whatsapp-inbox-composer">
+            <div className="whatsapp-reply-heading">
+              <strong>{t.whatsapp.step3Title}</strong>
+              <p>{t.whatsapp.step3Body}</p>
+            </div>
             <textarea
+              ref={composerTextareaRef}
               className="input"
               rows={3}
               value={composerText}
@@ -1047,8 +1123,8 @@ const WhatsApp = () => {
               placeholder={t.whatsapp.composerPlaceholder}
               disabled={!selectedPhone || sending}
             />
-            <button className="btn btn-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim() || sendBlocked}>
-              {sending ? t.common.loading : t.whatsapp.sendMessage}
+            <button className="btn btn-primary whatsapp-reply-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim() || sendBlocked}>
+              {sending ? t.common.loading : t.whatsapp.replyNow}
             </button>
             {sendBlocked ? (
               <div className="alert alert-error whatsapp-send-blocker">
@@ -1075,7 +1151,7 @@ const WhatsApp = () => {
                         .finally(() => setInboxReadinessLoading(false));
                     }}
                   >
-                    {inboxReadinessLoading ? t.common.loading : 'Refresh status'}
+                    {inboxReadinessLoading ? t.common.loading : t.whatsapp.refreshSendStatus}
                   </button>
                   <a className="btn btn-secondary" href={recoveryCta.href}>
                     {recoveryCta.label}
@@ -1083,7 +1159,9 @@ const WhatsApp = () => {
                 </div>
               </div>
             ) : null}
-            <div className="whatsapp-form-actions">
+            <details className="whatsapp-secondary-actions">
+              <summary>{t.whatsapp.secondaryActionsSummary}</summary>
+              <div className="whatsapp-form-actions">
               <select
                 className="input whatsapp-page-size"
                 value={mediaType}
@@ -1128,7 +1206,8 @@ const WhatsApp = () => {
               <button className="btn btn-secondary" onClick={handleSendMediaFromInbox} disabled={!selectedPhone || sendingMedia || (!mediaFile && !mediaUrl.trim())}>
                 {sendingMedia ? t.common.loading : t.whatsapp.sendMedia}
               </button>
-            </div>
+              </div>
+            </details>
           </div>
         </section>
       </div>

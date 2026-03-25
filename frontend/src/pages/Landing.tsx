@@ -11,11 +11,10 @@ const Landing = () => {
   const workflowRef = useRef<HTMLElement | null>(null);
   const [workflowHighlight, setWorkflowHighlight] = useState(false);
 
-  const featureCards = [
-    { title: t.landing.featureLeadTitle, body: t.landing.featureLeadBody },
-    { title: t.landing.featureReminderTitle, body: t.landing.featureReminderBody },
-    { title: t.landing.featureAiTitle, body: t.landing.featureAiBody },
-    { title: t.landing.featureWhatsappTitle, body: t.landing.featureWhatsappBody },
+  const faqItems = [
+    { question: t.landing.faqApiQuestion, answer: t.landing.faqApiAnswer },
+    { question: t.landing.faqCrmQuestion, answer: t.landing.faqCrmAnswer },
+    { question: t.landing.faqAutoQuestion, answer: t.landing.faqAutoAnswer },
   ];
 
   const socialProofLabels = [
@@ -23,12 +22,6 @@ const Landing = () => {
     t.landing.socialChipInsurance,
     t.landing.socialChipCars,
     t.landing.socialChipFreelancers,
-  ];
-
-  const faqItems = [
-    { question: t.landing.faqApiQuestion, answer: t.landing.faqApiAnswer },
-    { question: t.landing.faqCrmQuestion, answer: t.landing.faqCrmAnswer },
-    { question: t.landing.faqAutoQuestion, answer: t.landing.faqAutoAnswer },
   ];
 
   const painPoints = [
@@ -40,9 +33,7 @@ const Landing = () => {
 
   const scrollToWorkflow = () => {
     const node = workflowRef.current;
-    if (!node) {
-      return;
-    }
+    if (!node) return;
 
     const header = document.querySelector('.landing-header') as HTMLElement | null;
     const offset = header ? header.offsetHeight + 12 : 12;
@@ -63,14 +54,11 @@ const Landing = () => {
     };
 
     window.addEventListener('ezreply-scroll-workflow', onScrollRequest);
-
     if (window.location.hash === '#how-it-works' || window.location.hash === '#workflow') {
       window.setTimeout(() => scrollToWorkflow(), 0);
     }
 
-    return () => {
-      window.removeEventListener('ezreply-scroll-workflow', onScrollRequest);
-    };
+    return () => window.removeEventListener('ezreply-scroll-workflow', onScrollRequest);
   }, []);
 
   return (
@@ -135,25 +123,25 @@ const Landing = () => {
         </section>
 
         <section className="card landing-problem landing-problem-panel">
-          <div>
-            <p className="eyebrow">{t.landing.problemEyebrow}</p>
-            <h2>{t.landing.problemTitle}</h2>
-            <p className="landing-problem-body">{t.landing.problemBody}</p>
-          </div>
-          <div className="landing-problem-list">
-            {painPoints.map((item) => (
-              <div key={item} className="landing-problem-item">
-                <span>•</span>
-                <p>{item}</p>
-              </div>
-            ))}
-          </div>
           <div className="landing-problem-image-wrap">
             <div className="landing-problem-visual" aria-label={t.landing.problemImageAlt}>
               <div className="landing-problem-chat-bubble">{t.landing.problemQuote1}</div>
               <div className="landing-problem-chat-bubble">{t.landing.problemQuote2}</div>
               <div className="landing-problem-chat-bubble">{t.landing.problemQuote3}</div>
               <strong>{t.landing.problemPunchline}</strong>
+            </div>
+          </div>
+          <div>
+            <p className="eyebrow">{t.landing.problemEyebrow}</p>
+            <h2>{t.landing.problemTitle}</h2>
+            <p className="landing-problem-body">{t.landing.problemBody}</p>
+            <div className="landing-problem-list">
+              {painPoints.map((item) => (
+                <div key={item} className="landing-problem-item">
+                  <span>•</span>
+                  <p>{item}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -164,37 +152,23 @@ const Landing = () => {
           className={`card landing-workflow landing-workflow-panel ${workflowHighlight ? 'landing-workflow-highlight' : ''}`}
           tabIndex={-1}
         >
-          <p className="eyebrow">{t.landing.workflowEyebrow}</p>
           <h2>{t.landing.workflowTitle}</h2>
           <div className="landing-workflow-line">{t.landing.workflowLine}</div>
           <p className="landing-workflow-body">{t.landing.workflowBody}</p>
           <div className="landing-step-grid">
             <article className="landing-step-card">
-              <strong>01</strong>
               <h3>{t.landing.solutionStep1}</h3>
             </article>
             <article className="landing-step-card">
-              <strong>02</strong>
               <h3>{t.landing.solutionStep2}</h3>
             </article>
             <article className="landing-step-card">
-              <strong>03</strong>
               <h3>{t.landing.solutionStep3}</h3>
             </article>
             <article className="landing-step-card">
-              <strong>04</strong>
               <h3>{t.landing.solutionStep4}</h3>
             </article>
           </div>
-        </section>
-
-        <section className="landing-feature-grid">
-          {featureCards.map((feature) => (
-            <article key={feature.title} className="card landing-feature-card">
-              <h3>{feature.title}</h3>
-              <p>{feature.body}</p>
-            </article>
-          ))}
         </section>
 
         <section className="card landing-brand-panel">
@@ -215,11 +189,10 @@ const Landing = () => {
           </div>
         </section>
 
-        <section className="card landing-pricing-bridge">
+        <section className="card landing-pricing-bridge" id="pricing">
           <div className="section-heading">
             <p className="eyebrow">{t.landing.pricingEyebrow}</p>
             <h2>{t.landing.pricingTitle}</h2>
-            <p>{t.landing.pricingBody}</p>
           </div>
           <div className="landing-pricing-preview">
             <div className="landing-pricing-preview-card">
@@ -279,7 +252,6 @@ const Landing = () => {
             <strong>{t.footer.tagline}</strong>
             <p>{t.footer.description}</p>
           </div>
-
           <div>
             <h4>{t.landing.footerProductTitle}</h4>
             <nav className="landing-footer-list">
@@ -289,7 +261,6 @@ const Landing = () => {
               <Link to="/reminders">{t.privateHeader.reminders}</Link>
             </nav>
           </div>
-
           <div>
             <h4>{t.landing.footerCompanyTitle}</h4>
             <nav className="landing-footer-list">
@@ -298,7 +269,6 @@ const Landing = () => {
               <Link to="/login">{t.auth.login}</Link>
             </nav>
           </div>
-
           <div>
             <h4>{t.landing.footerSupportTitle}</h4>
             <nav className="landing-footer-list">

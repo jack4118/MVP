@@ -8,6 +8,7 @@ const openai = new OpenAI({
 type Language = 'en' | 'zh-CN' | 'ms';
 type OutputFormat = 'chat' | 'email' | 'whatsapp';
 type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
+type TurnType = 'first_turn' | 'ongoing_reply' | 'follow_up' | 'clarification' | 'topic_shift' | 'conversation_restart';
 
 type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
 type PaymentTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
@@ -58,6 +59,20 @@ interface DraftConfig {
 interface GreetingPolicyContext {
   hasOutboundGreetingInLast24h: boolean;
   hasInboundReplyInLast24h: boolean;
+  hasHistory: boolean;
+  allowGreeting: boolean;
+  turnType: TurnType;
+  minutesSinceLastMessage: number | null;
+  lastInboundSnippet: string | null;
+  lastOutboundSnippet: string | null;
+  activeTopicAnchor: string | null;
+  supportsLightCodeSwitch: boolean;
+}
+
+interface ChatLogLite {
+  direction: 'inbound' | 'outbound';
+  content: string | null;
+  createdAt: Date;
 }
 
 export interface GenerationDebugInfo {
@@ -335,6 +350,72 @@ const getMalaysiaVoiceInstruction = (language: Language): string => {
     return 'Regional voice: guna gaya Malaysia (BM harian) seperti “boleh”, “nanti”, “sekejap”, “ya”, “terima kasih”. Boleh campur sedikit gaya pasar secara sopan; elakkan gaya terlalu baku.';
   }
   return 'Regional voice: use Malaysian conversational English naturally (for example: "can", "ya", "let me know", "settle", "appreciate", optional light "lah"). Avoid US/UK formal corporate tone.';
+};
+
+const getConversationContinuitySystemPrompt = (): string => {
+  return [
+    'You are a conversational assistant for natural, ongoing chat in a Malaysian multilingual context.',
+    'Treat the chat as continuous by default.',
+    'For non-first turns, do not greet again, do not re-introduce, and do not reset context.',
+    'Anchor each reply to the latest user message and recent active topic.',
+    'Prefer direct continuation over helpdesk-style acknowledgements.',
+    'Keep replies concise unless detail is explicitly requested.',
+    'Match user language naturally (English, Chinese, Bahasa Melayu); use only light code-switching when prior messages already mix languages.',
+    'Avoid scripted openers such as: "Hello, nice to meet you", "How may I assist you today", "Thank you for your message".',
+  ].join('\n');
+};
+
+const getTurnPolicyInstruction = (language: Language, context: GreetingPolicyContext): string => {
+  const turnLine = `Turn type: ${context.turnType}.`;
+  const starterLine = context.allowGreeting
+    ? 'Greeting allowed only if it feels natural and very brief.'
+    : 'Greeting is not allowed in this turn. Continue directly from the current topic.';
+  const anchor = context.activeTopicAnchor
+    ? `Use this as the first context anchor: "${context.activeTopicAnchor}".`
+    : language === 'zh-CN'
+      ? '必须在首句提到上条消息中的具体事项作为上下文锚点。'
+      : language === 'ms'
+        ? 'Ayat pertama mesti ada anchor konteks yang spesifik daripada mesej terbaru.'
+        : 'First sentence must include one concrete context anchor from the latest message.';
+  const style = context.supportsLightCodeSwitch
+    ? language === 'zh-CN'
+      ? '用户近期有混合语言习惯，可轻微中英/中马来夹写，但不要刻意。'
+      : language === 'ms'
+        ? 'Pengguna campur bahasa secara natural; boleh code-switch ringan sahaja.'
+        : 'User naturally mixes languages; light code-switch is allowed when organic.'
+    : language === 'zh-CN'
+      ? '保持当前主语言，不要强行切换语言。'
+      : language === 'ms'
+        ? 'Kekalkan bahasa utama semasa, jangan paksa campur bahasa.'
+        : 'Keep the dominant language; do not force code-switching.';
+
+  if (language === 'zh-CN') {
+    return [
+      `续聊规则：${turnLine}`,
+      starterLine,
+      anchor,
+      style,
+      '默认简短回复（1-4句），避免客服腔和重复客套。',
+    ].join(' ');
+  }
+
+  if (language === 'ms') {
+    return [
+      `Polisi kesinambungan: ${turnLine}`,
+      starterLine,
+      anchor,
+      style,
+      'Balasan default mesti ringkas (1-4 ayat), natural, bukan skrip helpdesk.',
+    ].join(' ');
+  }
+
+  return [
+    `Continuity policy: ${turnLine}`,
+    starterLine,
+    anchor,
+    style,
+    'Default to concise chat replies (1-4 sentences) and avoid customer-service script language.',
+  ].join(' ');
 };
 
 const createFollowUpFallback = (data: FollowUpData, daysPassed: number, isChinese: boolean, preset: FollowUpStylePreset): string => {
@@ -1543,7 +1624,165 @@ const hasConcreteReplyAsk = (text: string, language: Language) => {
   return /\bcan\b|\bcould\b|\blet me know\b|\breply\b|\btoday\b|\btomorrow\b|\bthis week\b|\bnext week\b|\bwhat time\b|\bdate\b/.test(lower);
 };
 
-const greetingLineRegex = /^(?:\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|selamat (?:pagi|petang|malam)|你好|您好|嗨|哈喽|早上好|早安|午安|晚上好)[^,\n，。!?！？]*[,\n，。!?！？]?)+\s*/i;
+const RESTART_SILENCE_MINUTES = Number(process.env.AI_CONVERSATION_RESTART_MINUTES || 12 * 60);
+
+const greetingLineRegex = /^(?:\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|salam|salam sejahtera|selamat (?:pagi|petang|malam)|你好|您好|嗨|哈喽|早上好|早安|午安|晚上好)[^,\n，。!?！？]*[,\n，。!?！？]?)+\s*/i;
+
+const hardBanOpeners = [
+  /^\s*(?:hi|hello|hey|greetings|good (?:morning|afternoon|evening))\b/i,
+  /^\s*(?:nice to meet you|pleasure to meet you)\b/i,
+  /^\s*how (?:can|may) i (?:help|assist)(?: you)?(?: today)?\b/i,
+  /^\s*thank you for (?:your message|reaching out|sharing)\b/i,
+  /^\s*(?:salam|assalamualaikum|salam sejahtera|selamat (?:pagi|petang|malam))\b/i,
+  /^\s*(?:你好|您好|很高兴认识你|哈喽|嗨)\b/u,
+];
+
+const softBanGenericStarters = [
+  /^\s*(?:sure|okay|ok|alright|understood|noted)\b[,.! ]*$/i,
+  /^\s*(?:got it|makes sense|i see|faham|saya faham|明白|我明白|了解了|收到)\b[,.!。！？ ]*$/iu,
+  /^\s*(?:sure|okay|ok|understood|noted)[,.! ]+(?:i can help|let me help|i understand(?: your concern)?)/i,
+  /^\s*(?:absolutely|certainly)[,.! ]+(?:let me help|i can help|i will assist)/i,
+  /^\s*(?:terima kasih|thanks|thank you|谢谢|感謝)[,.! ]*$/i,
+];
+
+const starterStopWords = new Set([
+  'the', 'this', 'that', 'for', 'with', 'from', 'have', 'been', 'your', 'you', 'and', 'but', 'yang', 'untuk', 'dengan',
+  'saya', 'kami', 'kita', 'boleh', 'lah', 'ya', 'ni', 'itu', 'ini', 'ok', 'okay', 'sure', 'noted', 'understood',
+]);
+
+const splitIntoSentences = (text: string): string[] => {
+  const chunks = text
+    .split(/(?<=[.!?。！？])\s+|\n+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return chunks;
+};
+
+const extractFirstSentence = (text: string): { first: string; rest: string } => {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { first: '', rest: '' };
+  }
+
+  const match = trimmed.match(/^([\s\S]*?[.!?。！？])(\s+[\s\S]*)$/u);
+  if (match) {
+    return {
+      first: (match[1] || '').trim(),
+      rest: (match[2] || '').trimStart(),
+    };
+  }
+
+  const lines = trimmed.split('\n');
+  if (lines.length > 1) {
+    const [first, ...rest] = lines;
+    return {
+      first: (first || '').trim(),
+      rest: rest.join('\n').trim(),
+    };
+  }
+
+  return { first: trimmed, rest: '' };
+};
+
+const tokenizeAnchorTerms = (text: string): string[] => {
+  const latin = (text.match(/[A-Za-z0-9]{3,}/g) || [])
+    .map((token) => token.toLowerCase())
+    .filter((token) => !starterStopWords.has(token));
+  const cjk = (text.match(/[\u4e00-\u9fff]{2,}/gu) || []).map((token) => token.trim());
+  return Array.from(new Set([...cjk, ...latin])).slice(0, 8);
+};
+
+const hasContextAnchorInFirstSentence = (firstSentence: string, context: GreetingPolicyContext, objective: string): boolean => {
+  const first = firstSentence.toLowerCase();
+  const candidateText = [
+    context.activeTopicAnchor || '',
+    context.lastInboundSnippet || '',
+    context.lastOutboundSnippet || '',
+    objective || '',
+  ].join(' ');
+  const anchors = tokenizeAnchorTerms(candidateText);
+  if (anchors.length === 0) {
+    return true;
+  }
+
+  return anchors.some((token) => first.includes(token.toLowerCase()));
+};
+
+const looksLikeGenericStarter = (firstSentence: string): boolean => {
+  if (!firstSentence.trim()) {
+    return true;
+  }
+  return softBanGenericStarters.some((regex) => regex.test(firstSentence.trim()));
+};
+
+const matchesHardBanOpener = (firstSentence: string): boolean => {
+  return hardBanOpeners.some((regex) => regex.test(firstSentence.trim()));
+};
+
+const buildContextAnchoredFirstSentence = (
+  language: Language,
+  context: GreetingPolicyContext,
+  objective: string
+): string => {
+  const anchor = (context.activeTopicAnchor || context.lastInboundSnippet || context.lastOutboundSnippet || objective || '').trim();
+  const anchorShort = trimSnippet(anchor, 72).replace(/["“”]/g, '').trim();
+  const safeAnchor = anchorShort || (
+    language === 'zh-CN'
+      ? '你刚才提到的内容'
+      : language === 'ms'
+        ? 'point tadi'
+        : 'your last message'
+  );
+
+  if (language === 'zh-CN') {
+    return `关于${safeAnchor}，这边先确认一下。`;
+  }
+
+  if (language === 'ms') {
+    return `Untuk ${safeAnchor}, saya nak confirm satu perkara dulu.`;
+  }
+
+  return `On ${safeAnchor}, quick confirm before we proceed.`;
+};
+
+const enforceConciseResponse = (text: string, outputFormat: OutputFormat): string => {
+  if (outputFormat === 'email') {
+    return text.trim();
+  }
+
+  const sentences = splitIntoSentences(text);
+  if (sentences.length <= 4) {
+    return text.trim();
+  }
+
+  return sentences.slice(0, 4).join(' ').trim();
+};
+
+const applyConversationalGuardrails = (
+  draft: string,
+  language: Language,
+  outputFormat: OutputFormat,
+  context: GreetingPolicyContext,
+  objective: string
+): string => {
+  let current = draft.trim();
+  const { first, rest } = extractFirstSentence(current);
+  if (!first) {
+    return current;
+  }
+
+  const requireNoGreeting = !context.allowGreeting;
+  const hasHardBan = requireNoGreeting && matchesHardBanOpener(first);
+  const missingAnchor = requireNoGreeting && !hasContextAnchorInFirstSentence(first, context, objective);
+  const genericStarter = requireNoGreeting && looksLikeGenericStarter(first) && missingAnchor;
+
+  if (hasHardBan || missingAnchor || genericStarter) {
+    const rewrittenFirst = buildContextAnchoredFirstSentence(language, context, objective);
+    current = rest ? `${rewrittenFirst} ${rest}` : rewrittenFirst;
+  }
+
+  return enforceConciseResponse(current, outputFormat);
+};
 
 const startsWithGreeting = (text: string) => {
   if (!text) {
@@ -1568,7 +1807,7 @@ const enforceGreetingPolicy = (draft: string, context: GreetingPolicyContext): s
     return draft;
   }
 
-  if (context.hasOutboundGreetingInLast24h || context.hasInboundReplyInLast24h) {
+  if (!context.allowGreeting || context.hasOutboundGreetingInLast24h || context.hasInboundReplyInLast24h) {
     return stripLeadingGreeting(draft);
   }
 
@@ -1576,7 +1815,7 @@ const enforceGreetingPolicy = (draft: string, context: GreetingPolicyContext): s
 };
 
 const getGreetingPolicyInstruction = (language: Language, context: GreetingPolicyContext): string => {
-  const noNewGreeting = context.hasOutboundGreetingInLast24h || context.hasInboundReplyInLast24h;
+  const noNewGreeting = !context.allowGreeting || context.hasOutboundGreetingInLast24h || context.hasInboundReplyInLast24h;
 
   if (language === 'zh-CN') {
     return noNewGreeting
@@ -2107,13 +2346,74 @@ const getConversationCutoffContext = async (userId: string, leadId: string, lang
   return { cutoffSummary, transcript, memory };
 };
 
+const detectLightCodeSwitchSignal = (text: string): boolean => {
+  const hasHan = /[\u4e00-\u9fff]/u.test(text);
+  const hasLatin = /[A-Za-z]/.test(text);
+  const hasMalayMarkers = /\b(?:boleh|tak|lah|nanti|kejap|sekejap|ya|je|saja|confirm|balas)\b/i.test(text);
+  return (hasHan && hasLatin) || (hasMalayMarkers && hasLatin);
+};
+
+const buildGreetingPolicyContextFromLogs = (
+  logs: ChatLogLite[],
+  nowMs: number = Date.now()
+): GreetingPolicyContext => {
+  const since = new Date(nowMs - 24 * 60 * 60 * 1000);
+  const recentLogs = logs.filter((log) => log.createdAt >= since);
+  const hasOutboundGreetingInLast24h = logs.some(
+    (log) => log.createdAt >= since && log.direction === 'outbound' && startsWithGreeting(log.content || '')
+  );
+  const hasInboundReplyInLast24h = recentLogs.some((log) => log.direction === 'inbound');
+  const hasHistory = logs.length > 0;
+  const lastMessage = logs[0] || null;
+  const minutesSinceLastMessage = lastMessage
+    ? Math.max(0, Math.floor((nowMs - new Date(lastMessage.createdAt).getTime()) / (1000 * 60)))
+    : null;
+  const isLongSilence = minutesSinceLastMessage !== null && minutesSinceLastMessage >= RESTART_SILENCE_MINUTES;
+  const lastInbound = logs.find((log) => log.direction === 'inbound') || null;
+  const lastOutbound = logs.find((log) => log.direction === 'outbound') || null;
+
+  let turnType: TurnType = 'ongoing_reply';
+  if (!hasHistory) {
+    turnType = 'first_turn';
+  } else if (isLongSilence) {
+    turnType = 'conversation_restart';
+  } else if (lastMessage?.direction === 'inbound') {
+    turnType = 'follow_up';
+  } else {
+    turnType = 'ongoing_reply';
+  }
+
+  const allowGreeting = turnType === 'first_turn' || turnType === 'conversation_restart';
+  const lastInboundSnippet = lastInbound?.content ? trimSnippet(lastInbound.content, 120) : null;
+  const lastOutboundSnippet = lastOutbound?.content ? trimSnippet(lastOutbound.content, 120) : null;
+  const activeTopicAnchor = lastInboundSnippet || lastOutboundSnippet || null;
+  const recentTranscript = logs
+    .slice(0, 12)
+    .map((log) => log.content || '')
+    .filter(Boolean)
+    .join('\n');
+  const supportsLightCodeSwitch = detectLightCodeSwitchSignal(recentTranscript);
+
+  return {
+    hasOutboundGreetingInLast24h,
+    hasInboundReplyInLast24h,
+    hasHistory,
+    allowGreeting,
+    turnType,
+    minutesSinceLastMessage,
+    lastInboundSnippet,
+    lastOutboundSnippet,
+    activeTopicAnchor,
+    supportsLightCodeSwitch,
+  };
+};
+
 const getGreetingPolicyContext = async (userId: string, leadId: string): Promise<GreetingPolicyContext> => {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const nowMs = Date.now();
   const logs = await prisma.whatsAppMessageLog.findMany({
     where: {
       userId,
       leadId,
-      createdAt: { gte: since },
       direction: { in: ['inbound', 'outbound'] },
     },
     orderBy: { createdAt: 'desc' },
@@ -2122,19 +2422,16 @@ const getGreetingPolicyContext = async (userId: string, leadId: string): Promise
       content: true,
       createdAt: true,
     },
-    take: 40,
+    take: 80,
   });
-
-  const hasOutboundGreetingInLast24h = logs.some(
-    (log) => log.direction === 'outbound' && startsWithGreeting(log.content || '')
+  return buildGreetingPolicyContextFromLogs(
+    logs.map((log) => ({
+      direction: log.direction as 'inbound' | 'outbound',
+      content: log.content,
+      createdAt: log.createdAt,
+    })),
+    nowMs
   );
-
-  const hasInboundReplyInLast24h = logs.some((log) => log.direction === 'inbound');
-
-  return {
-    hasOutboundGreetingInLast24h,
-    hasInboundReplyInLast24h,
-  };
 };
 
 const buildVariantPrompt = (
@@ -2232,7 +2529,7 @@ export const generateFollowUpText = async (
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
-  const systemPrompt = getAdvisorPersona(language);
+  const systemPrompt = `${getAdvisorPersona(language)}\n\n${getConversationContinuitySystemPrompt()}`;
 
   const userPrompt = isChinese
     ? `用中文写一封跟进消息。\n\n上下文：\n- 客户姓名：${data.leadName}\n- 目标：${data.objective}\n- 距离上次回复天数：${daysPassed}\n- 语气：${mappedTone === 'soft' ? '温和' : mappedTone === 'professional' ? '专业' : '坚定'}\n- 模板风格：${selectedPreset}\n\n风格要求：\n${getFollowUpPresetFragment(selectedPreset, true)}\n\n规则：\n- 简短自然\n- 不要施压\n- 结尾用简单问题\n- 必须使用客户姓名` 
@@ -2246,6 +2543,7 @@ export const generateFollowUpText = async (
   const toneInstruction = getToneInstruction(language, tone, 'follow_up');
   const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
   const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
+  const turnPolicyInstruction = getTurnPolicyInstruction(language, greetingPolicy);
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
@@ -2269,7 +2567,7 @@ export const generateFollowUpText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'follow_up', variantCount);
 
   try {
@@ -2306,11 +2604,13 @@ export const generateFollowUpText = async (
           greetingPolicy
         );
         next = await enforceReplyPolicy(systemPrompt, next, language);
-        return enforceGreetingPolicy(next, greetingPolicy);
+        next = enforceGreetingPolicy(next, greetingPolicy);
+        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, data.objective);
       })
     );
     let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
     generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
+    generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, data.objective);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2366,7 +2666,8 @@ export const generateFollowUpText = async (
       data.leadName,
       isChinese ? '跟进确认' : isMalay ? 'Susulan Ringkas' : 'Quick Follow-up'
     ), greetingPolicy);
-    const fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
+    let fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
+    fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, data.objective);
 
     await prisma.aiLog.create({
       data: {
@@ -2417,7 +2718,7 @@ export const generatePaymentText = async (
     daysOverdue = Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
   }
 
-  const systemPrompt = getAdvisorPersona(language);
+  const systemPrompt = `${getAdvisorPersona(language)}\n\n${getConversationContinuitySystemPrompt()}`;
 
   const userPrompt = isChinese
     ? `用中文写一封付款提醒。\n\n上下文：\n- 客户姓名：${data.leadName}\n- 目标：${data.objective}\n- 项目已完成\n- 付款待处理\n- 逾期天数：${daysOverdue}\n- 语气：${mappedTone === 'professional' ? '专业' : '坚定'}\n${amount ? `- 金额：${amount.toFixed(2)}` : ''}\n- 模板风格：${selectedPreset}\n\n风格要求：\n${getPaymentPresetFragment(selectedPreset, true)}\n\n规则：\n- 保持尊重\n- 清晰友好\n- 使用客户姓名`
@@ -2431,6 +2732,7 @@ export const generatePaymentText = async (
   const toneInstruction = getToneInstruction(language, tone, 'payment');
   const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
   const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
+  const turnPolicyInstruction = getTurnPolicyInstruction(language, greetingPolicy);
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
@@ -2454,7 +2756,7 @@ export const generatePaymentText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'payment', variantCount);
 
   try {
@@ -2491,11 +2793,13 @@ export const generatePaymentText = async (
           greetingPolicy
         );
         next = await enforceReplyPolicy(systemPrompt, next, language);
-        return enforceGreetingPolicy(next, greetingPolicy);
+        next = enforceGreetingPolicy(next, greetingPolicy);
+        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, data.objective);
       })
     );
     let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
     generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
+    generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, data.objective);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2551,7 +2855,8 @@ export const generatePaymentText = async (
       data.leadName,
       isChinese ? '付款提醒' : isMalay ? 'Peringatan Bayaran' : 'Payment Reminder'
     ), greetingPolicy);
-    const fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
+    let fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
+    fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, data.objective);
 
     await prisma.aiLog.create({
       data: {
@@ -2596,4 +2901,14 @@ export const getAiHistory = async (
     orderBy: { createdAt: 'desc' },
     take: limit,
   });
+};
+
+export const __test__ = {
+  RESTART_SILENCE_MINUTES,
+  startsWithGreeting,
+  enforceGreetingPolicy,
+  applyConversationalGuardrails,
+  detectLightCodeSwitchSignal,
+  buildGreetingPolicyContextFromLogs,
+  getTurnPolicyInstruction,
 };

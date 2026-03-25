@@ -175,3 +175,16 @@ Get chat ID (approver must message bot first):
 - Telegram send failure => workflow state becomes `blocked_webhook` and remains blocked.
 - Invalid `/approve` command => explicit valid options are returned.
 - Proposed agent mismatch with registry => rejected.
+
+## Staging Validation Runbook
+
+- Runbook: `docs/orchestrator-staging-validation.md`
+- Report template: `docs/orchestrator-staging-report-template.md`
+- Log snapshot helper: `scripts/orchestrator-log-review.sh`
+
+Quick start:
+
+```bash
+export ORCH_BASE=\"https://<backend-host>\"
+./scripts/orchestrator-log-review.sh
+```

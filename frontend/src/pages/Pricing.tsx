@@ -1,129 +1,177 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import PublicHeader from '../components/PublicHeader';
-import PublicFooter from '../components/PublicFooter';
-import { UsageInfo, usageApi } from '../services/api';
+import { useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
-import { storage } from '../utils/storage';
 import { useAuth } from '../hooks/useAuth';
+import LanguageToggle from '../components/LanguageToggle';
+import ThemeToggle from '../components/ThemeToggle';
+import '../styles/landing-v2.css';
 
 const Pricing = () => {
   const { t } = useLanguage();
   const { isAuthenticated } = useAuth();
-  const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
-
-  useEffect(() => {
-    if (storage.getToken()) {
-      loadUsage();
-    }
-  }, []);
-
-  const loadUsage = async () => {
-    try {
-      const response = await usageApi.getUsage();
-      if (response.success && response.data) {
-        setUsageInfo(response.data);
-      }
-    } catch (_err) {
-      // Optional surface
-    }
-  };
-
-  const currentPlan = usageInfo?.plan === 'pro' ? 'pro' : 'starter';
-
-  const plans = [
-    {
-      id: 'starter',
-      name: t.pricing.starterPlan,
-      price: 'RM29',
-      description: t.pricing.starterDescription,
-      bestFor: t.pricing.bestForStarter,
-      features: t.pricing.starterFeatures,
-      highlight: false,
-      muted: false,
-    },
-    {
-      id: 'pro',
-      name: t.pricing.proPlan,
-      price: 'RM49',
-      description: t.pricing.proDescription,
-      bestFor: t.pricing.bestForPro,
-      features: t.pricing.proFeatures,
-      highlight: true,
-      muted: false,
-    },
-    {
-      id: 'business',
-      name: t.pricing.businessPlan,
-      price: 'RM79',
-      description: t.pricing.businessDescription,
-      bestFor: t.pricing.bestForBusiness,
-      features: t.pricing.businessFeatures,
-      highlight: false,
-      muted: true,
-    },
-  ];
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const trialTarget = isAuthenticated ? '/dashboard' : '/login';
+  const demoTarget = isAuthenticated ? '/whatsapp' : '/login?redirect=/whatsapp';
 
   return (
-    <div className="landing-shell">
-      <PublicHeader />
-      <main className="landing-main">
-        <section className="pricing-hero card">
-          <p className="eyebrow">{t.pricing.heroTitle}</p>
-          <h1>{t.pricing.publicHeroTitle}</h1>
-          <p>{t.pricing.publicHeroBody}</p>
-          <p className="page-subtitle">{t.pricing.publicHeroFootnote}</p>
-        </section>
-
-        <section className="pricing-grid">
-          {plans.map((plan) => (
-            <article
-              key={plan.id}
-              className={`pricing-card ${plan.highlight ? 'pricing-card-highlight' : ''} ${plan.muted ? 'pricing-card-muted' : ''}`}
-            >
-              <div className="pricing-card-top">
-                <div>
-                  <h3>{plan.name}</h3>
-                  <p>{plan.description}</p>
-                </div>
-                {plan.highlight && <span className="plan-pill">{t.pricing.recommended}</span>}
-                {plan.id === currentPlan && <span className="plan-pill plan-pill-current">{t.pricing.currentPlan}</span>}
-                {plan.id === 'business' && <span className="plan-pill plan-pill-muted">{t.pricing.comingSoon}</span>}
-              </div>
-              <div className="pricing-price">
-                <strong>{plan.price}</strong>
-                <span>{t.pricing.monthlySuffix}</span>
-              </div>
-              <div className="pricing-best-for">
-                <span>{t.pricing.bestForLabel}</span>
-                <strong>{plan.bestFor}</strong>
-              </div>
-              <ul className="pricing-feature-list">
-                {plan.features.map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-              {plan.id === 'business' ? (
-                <button className="btn btn-secondary" disabled>
-                  {t.pricing.unavailable}
-                </button>
-              ) : (
-                <Link to={isAuthenticated ? '/dashboard' : '/login'} className={`btn ${plan.highlight ? 'btn-primary' : 'btn-secondary'}`}>
-                  {plan.id === 'pro' ? t.pricing.upgradeNow : t.common.startFreeTrial}
-                </Link>
-              )}
-            </article>
-          ))}
-        </section>
-
-        <section className="card pricing-note-card">
-          <p>{t.pricing.businessNote}</p>
-          <Link to="/agent" className="btn btn-secondary">
-            {t.pricing.agentCta}
+    <div className="landing-v2">
+      <header className="landing-v2-header">
+        <div className="landing-v2-header-inner">
+          <Link to="/" className="landing-v2-brand" aria-label={t.landingV2.brandAriaLabel}>
+            <span className="landing-v2-brand-mark">E</span>
+            <span className="landing-v2-brand-text">{t.landingV2.brandName}</span>
           </Link>
+
+          <nav className="landing-v2-nav" aria-label={t.landingV2.navAriaLabel}>
+            <Link to="/#how-it-works">{t.landingV2.navHowItWorks}</Link>
+            <Link to="/#solutions">{t.landingV2.navSolutions}</Link>
+            <a href="#pricing-plans">{t.landingV2.navPricing}</a>
+            <Link to="/#success">{t.landingV2.navSuccess}</Link>
+          </nav>
+
+          <div className="landing-v2-header-controls">
+            <div className="landing-v2-toggle-row">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
+            <Link to="/login" className="landing-v2-link-btn">{t.landingV2.navLogin}</Link>
+            <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.navStartTrial}</Link>
+          </div>
+
+          <div className="landing-v2-mobile-actions">
+            <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.navStartTrial}</Link>
+            <button
+              type="button"
+              className="landing-v2-mobile-menu-btn"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="pricing-v2-mobile-menu"
+              aria-label={t.landingV2.navMenu}
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+            >
+              ☰
+            </button>
+          </div>
+        </div>
+      </header>
+      {mobileMenuOpen ? (
+        <>
+          <button
+            type="button"
+            className="landing-v2-mobile-backdrop"
+            aria-label={t.common.close}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div id="pricing-v2-mobile-menu" className="landing-v2-mobile-menu" role="dialog" aria-modal="true">
+            <div className="landing-v2-mobile-tools">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
+            <nav className="landing-v2-mobile-nav" aria-label={t.landingV2.navAriaLabel}>
+              <Link to="/#how-it-works" onClick={() => setMobileMenuOpen(false)}>{t.landingV2.navHowItWorks}</Link>
+              <Link to="/#solutions" onClick={() => setMobileMenuOpen(false)}>{t.landingV2.navSolutions}</Link>
+              <a href="#pricing-plans" onClick={() => setMobileMenuOpen(false)}>{t.landingV2.navPricing}</a>
+              <Link to="/#success" onClick={() => setMobileMenuOpen(false)}>{t.landingV2.navSuccess}</Link>
+              <Link to="/login" onClick={() => setMobileMenuOpen(false)}>{t.landingV2.navLogin}</Link>
+            </nav>
+          </div>
+        </>
+      ) : null}
+
+      <main className="landing-v2-main">
+        <section className="landing-v2-section landing-v2-pricing-hero">
+          <p className="landing-v2-eyebrow">{t.landingV2.pricingEyebrow}</p>
+          <h1 className="landing-v2-pricing-title">{t.landingV2.pricingPageTitle}</h1>
+          <p className="landing-v2-subcopy">{t.landingV2.pricingPageSubtitle}</p>
+        </section>
+
+        <section id="pricing-plans" className="landing-v2-section landing-v2-pricing">
+          <h2>{t.landingV2.pricingTitle}</h2>
+          <p className="landing-v2-subcopy">{t.landingV2.pricingSubtitle}</p>
+          <div className="landing-v2-pricing-grid">
+            <article className="landing-v2-pricing-card">
+              <h3>{t.landingV2.pricingStarterName}</h3>
+              <strong>{t.landingV2.pricingStarterPrice}</strong>
+              <span>{t.landingV2.pricingPerMonth}</span>
+              <p>{t.landingV2.pricingStarterBody}</p>
+              <ul className="landing-v2-pricing-list">
+                <li>{t.landingV2.pricingStarterFeature1}</li>
+                <li>{t.landingV2.pricingStarterFeature2}</li>
+                <li>{t.landingV2.pricingStarterFeature3}</li>
+              </ul>
+              <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-secondary">{t.landingV2.pricingTrialCta}</Link>
+            </article>
+
+            <article className="landing-v2-pricing-card landing-v2-pricing-card-highlight">
+              <p className="landing-v2-pricing-pill">{t.landingV2.pricingMostPopular}</p>
+              <h3>{t.landingV2.pricingGrowthName}</h3>
+              <strong>{t.landingV2.pricingGrowthPrice}</strong>
+              <span>{t.landingV2.pricingPerMonth}</span>
+              <p>{t.landingV2.pricingGrowthBody}</p>
+              <ul className="landing-v2-pricing-list">
+                <li>{t.landingV2.pricingGrowthFeature1}</li>
+                <li>{t.landingV2.pricingGrowthFeature2}</li>
+                <li>{t.landingV2.pricingGrowthFeature3}</li>
+              </ul>
+              <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-secondary">{t.landingV2.pricingTrialCta}</Link>
+            </article>
+
+            <article className="landing-v2-pricing-card">
+              <h3>{t.landingV2.pricingProName}</h3>
+              <strong>{t.landingV2.pricingProPrice}</strong>
+              <span>{t.landingV2.pricingPerMonth}</span>
+              <p>{t.landingV2.pricingProBody}</p>
+              <ul className="landing-v2-pricing-list">
+                <li>{t.landingV2.pricingProFeature1}</li>
+                <li>{t.landingV2.pricingProFeature2}</li>
+                <li>{t.landingV2.pricingProFeature3}</li>
+              </ul>
+              <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-secondary">{t.landingV2.pricingTrialCta}</Link>
+            </article>
+          </div>
+        </section>
+
+        <section className="landing-v2-final-cta">
+          <h2>{t.landingV2.pricingFinalTitle}</h2>
+          <p>{t.landingV2.pricingFinalSubtitle}</p>
+          <div className="landing-v2-hero-actions">
+            <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.finalPrimaryCta}</Link>
+            <Link to={demoTarget} className="landing-v2-btn landing-v2-btn-secondary">{t.landingV2.finalSecondaryCta}</Link>
+          </div>
         </section>
       </main>
-      <PublicFooter />
+
+      <footer className="landing-v2-footer">
+        <div className="landing-v2-footer-grid">
+          <div>
+            <h3>{t.landingV2.footerBrand}</h3>
+            <p>{t.landingV2.footerBrandBody}</p>
+          </div>
+          <div>
+            <h4>{t.landingV2.footerProductTitle}</h4>
+            <nav>
+              <Link to="/whatsapp">{t.landingV2.footerProductWhatsApp}</Link>
+              <Link to="/leads">{t.landingV2.footerProductLeads}</Link>
+              <Link to="/reminders">{t.landingV2.footerProductReminders}</Link>
+              <Link to="/ai">{t.landingV2.footerProductAi}</Link>
+            </nav>
+          </div>
+          <div>
+            <h4>{t.landingV2.footerCompanyTitle}</h4>
+            <nav>
+              <Link to="/pricing">{t.landingV2.footerCompanyPricing}</Link>
+              <Link to="/login">{t.landingV2.footerCompanyLogin}</Link>
+            </nav>
+          </div>
+          <div>
+            <h4>{t.landingV2.footerSupportTitle}</h4>
+            <nav>
+              <Link to="/pricing">{t.landingV2.footerSupportPricing}</Link>
+              <Link to={demoTarget}>{t.landingV2.footerSupportDemo}</Link>
+            </nav>
+          </div>
+        </div>
+        <p className="landing-v2-footer-note">{t.landingV2.footerNote}</p>
+      </footer>
     </div>
   );
 };
