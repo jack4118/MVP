@@ -14,11 +14,48 @@ const maskToken = (value: string): string => {
 
 const parseDateOrNull = (value?: string): Date | null => {
   if (!value) return null;
+  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+    const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+    if (Number.isNaN(endOfDay.getTime())) {
+      throw new Error('Invalid date format. Use YYYY-MM-DD');
+    }
+    return endOfDay;
+  }
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) {
     throw new Error('Invalid date format. Use YYYY-MM-DD');
   }
   return d;
+};
+
+const reconcileCredentialStatus = async (credential: {
+  key: string;
+  status: 'active' | 'expiring' | 'expired' | 'disabled';
+  expiresAt: Date | null;
+}): Promise<'active' | 'expiring' | 'expired' | 'disabled'> => {
+  if (credential.status === 'disabled') {
+    return credential.status;
+  }
+  if (!credential.expiresAt) {
+    return credential.status;
+  }
+  const now = Date.now();
+  const expiresAtMs = credential.expiresAt.getTime();
+  if (Number.isNaN(expiresAtMs)) {
+    return credential.status;
+  }
+  const nextStatus: 'active' | 'expiring' | 'expired' = expiresAtMs <= now ? 'expired' : 'active';
+  if (nextStatus !== credential.status) {
+    await prisma.orchestratorCredential.update({
+      where: { key: credential.key },
+      data: { status: nextStatus },
+    });
+  }
+  return nextStatus;
 };
 
 export const bootstrapTemplateTokenFromEnv = async (): Promise<void> => {
@@ -50,7 +87,12 @@ export const getTemplateTokenForInjection = async (): Promise<string | null> => 
     where: { key: TEMPLATE_TOKEN_KEY },
   });
 
-  if (!credential || credential.status === 'disabled') {
+  if (!credential) {
+    return null;
+  }
+
+  const effectiveStatus = await reconcileCredentialStatus(credential);
+  if (effectiveStatus === 'disabled' || effectiveStatus === 'expired') {
     return null;
   }
 
@@ -62,15 +104,51 @@ export const getTemplateTokenStatus = async (): Promise<string> => {
   if (!credential) {
     return 'Template token not set in DB.';
   }
+  const effectiveStatus = await reconcileCredentialStatus(credential);
 
   return [
     'WhatsApp Template Token Status',
     `- key: ${credential.key}`,
-    `- status: ${credential.status}`,
+    `- status: ${effectiveStatus}`,
     `- token: ${maskToken(credential.value)}`,
     `- expiresAt: ${credential.expiresAt ? credential.expiresAt.toISOString() : 'not set'}`,
     `- updatedAt: ${credential.updatedAt.toISOString()}`,
   ].join('\n');
+};
+
+export const setTemplateTokenDirect = async (params: {
+  chatId: string;
+  token: string;
+  expiresOn?: string;
+}): Promise<{ masked: string; expiresAt: Date | null }> => {
+  const clean = params.token.trim();
+  if (!clean) {
+    throw new Error('Token is required');
+  }
+
+  const expiresAt = parseDateOrNull(params.expiresOn);
+  await prisma.orchestratorCredential.upsert({
+    where: { key: TEMPLATE_TOKEN_KEY },
+    update: {
+      value: clean,
+      expiresAt,
+      status: 'active',
+      updatedBy: `telegram:${params.chatId}`,
+      lastNotifiedAt: null,
+    },
+    create: {
+      key: TEMPLATE_TOKEN_KEY,
+      value: clean,
+      expiresAt,
+      status: 'active',
+      updatedBy: `telegram:${params.chatId}`,
+    },
+  });
+
+  return {
+    masked: maskToken(clean),
+    expiresAt,
+  };
 };
 
 export const setPendingTemplateTokenUpdate = async (params: {

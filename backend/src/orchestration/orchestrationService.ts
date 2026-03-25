@@ -9,7 +9,7 @@ import {
   getTemplateTokenStatus,
   notifyExpiringTemplateTokenIfNeeded,
   parseWaTokenSetCommand,
-  setPendingTemplateTokenUpdate,
+  setTemplateTokenDirect,
 } from './credentialService';
 import { createDefaultState, loadWorkflowState, saveWorkflowState } from './stateStore';
 import { formatCompactApprovalCard, formatCompactStatusCard } from './statusFormatter';
@@ -75,6 +75,20 @@ const parseIsoMs = (value: string | undefined | null): number => {
   }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const completedThisLoop = (state: WorkflowState, agent: AgentName): boolean => {
+  const output = state.agentOutputs[agent];
+  return Boolean(output && output.loopCount === state.loopCount);
+};
+
+const deterministicTargetAgents = (state: WorkflowState): AgentName[] => {
+  const next = determineProposedNext(state);
+  if (!next) {
+    return [];
+  }
+  const action = runnableActionForTarget(state, next.target);
+  return action.agents;
 };
 
 const parseRepeatRunAgent = (command: string): AgentName | null => {
@@ -698,9 +712,22 @@ export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; a
     return { state, action: { type: 'idle', agents: [], reason: 'waiting for telegram approval' } };
   }
 
-  const approvedAgentsAwaitingClaim = EXECUTION_AGENT_ORDER.filter(
-    (agent) => state.executionLifecycle[agent]?.state === 'approved'
-  );
+  const deterministicAgents = new Set(deterministicTargetAgents(state));
+  const approvedAgentsAwaitingClaim = EXECUTION_AGENT_ORDER.filter((agent) => {
+    if (state.executionLifecycle[agent]?.state !== 'approved') {
+      return false;
+    }
+    if (!isAgentLegalForStage(agent, state.currentStage)) {
+      return false;
+    }
+    if (!deterministicAgents.has(agent)) {
+      return false;
+    }
+    if (completedThisLoop(state, agent)) {
+      return false;
+    }
+    return true;
+  });
   if (approvedAgentsAwaitingClaim.length > 0 && state.runningAgents.length === 0) {
     const action: RunnableAction =
       approvedAgentsAwaitingClaim.length === 1
@@ -765,9 +792,61 @@ export const getNextRunnableAction = async (): Promise<{ state: WorkflowState; a
   return { state, action: { type: 'idle', agents: [], reason: 'no approved execution target' } };
 };
 
+const expectedHandoffAgents = (state: WorkflowState, agent: AgentName): AgentName[] => {
+  if (agent === 'agent3') {
+    return ['agent1', 'agent2'];
+  }
+  if (agent === 'agent6' || agent === 'agent7' || agent === 'agent8') {
+    return ['agent3'];
+  }
+  if (agent === 'agent9') {
+    if (state.context.flags.fixDesignMode === 'single_agent_recovery' && state.context.flags.recoveryAgent) {
+      return [state.context.flags.recoveryAgent];
+    }
+    return ['agent6', 'agent7', 'agent8'];
+  }
+  if (agent === 'agent12') {
+    return ['agent9'];
+  }
+  return [];
+};
+
+const buildHandoffContext = (
+  state: WorkflowState,
+  agent: AgentName
+): {
+  expected: AgentName[];
+  received: AgentName[];
+  missing: AgentName[];
+  summaries: Partial<Record<AgentName, string[]>>;
+  artifacts: Partial<Record<AgentName, string[]>>;
+} | null => {
+  const expected = expectedHandoffAgents(state, agent);
+  if (expected.length === 0) {
+    return null;
+  }
+
+  const received = expected.filter((name) => completedThisLoop(state, name));
+  const missing = expected.filter((name) => !received.includes(name));
+  const summaries: Partial<Record<AgentName, string[]>> = {};
+  const artifacts: Partial<Record<AgentName, string[]>> = {};
+
+  expected.forEach((name) => {
+    const output = state.agentOutputs[name];
+    if (!output || output.loopCount !== state.loopCount) {
+      return;
+    }
+    summaries[name] = output.summary || [];
+    artifacts[name] = output.artifacts || [];
+  });
+
+  return { expected, received, missing, summaries, artifacts };
+};
+
 export const buildAgentPrompt = async (params: { state: WorkflowState; agent: AgentName }): Promise<string> => {
   const definition = getAgentDefinition(params.agent);
   const runContext = await buildRunContext(params.agent);
+  const handoff = buildHandoffContext(params.state, params.agent);
 
   const base = [
     `You are ${definition.displayName} (${params.agent}).`,
@@ -781,8 +860,20 @@ export const buildAgentPrompt = async (params: { state: WorkflowState; agent: Ag
     `Max Runtime Minutes: ${getAgentMaxRuntimeMinutes(params.agent)}`,
     `Staging URL: ${runContext.stagingUrl || 'n/a'}`,
     `Constraints: ${runContext.constraints.join(' | ')}`,
+    `Handoff Context: ${handoff ? JSON.stringify(handoff) : 'none'}`,
     'Output JSON only with fields: status (PASS|FAIL|OK), summary (string[]), artifacts (string[]), classification (optional).',
   ];
+
+  if (params.agent === 'agent9' && handoff) {
+    base.push(
+      `Agent9 upstream completeness: expected=${handoff.expected.length}, received=${handoff.received.length}, missing=${handoff.missing.length}.`
+    );
+    if (handoff.missing.length > 0) {
+      base.push(
+        `Missing required upstream inputs from: ${handoff.missing.join(', ')}. Fail fast with status FAIL and report incomplete upstream handoff.`
+      );
+    }
+  }
 
   if (params.agent === 'agent9') {
     base.push('Agent9 contract fields are mandatory and must be in the JSON root exactly:');
@@ -1219,17 +1310,16 @@ const handleTelegramTextCommand = async (params: {
   if (normalized.startsWith(WA_TOKEN_SET_PREFIX)) {
     try {
       const parsed = parseWaTokenSetCommand(command);
-      const pending = await setPendingTemplateTokenUpdate({
+      const saved = await setTemplateTokenDirect({
         chatId: params.chatId,
         token: parsed.token,
         expiresOn: parsed.expiresOn,
       });
 
       response = [
-        'Pending token update created (valid for 10 minutes).',
-        `Token: ${pending.masked}`,
-        `ExpiresAt: ${pending.expiresAt ? pending.expiresAt.toISOString() : 'not set'}`,
-        'Reply /wa_token confirm to save or /wa_token cancel to discard.',
+        'Template token updated successfully.',
+        `Token: ${saved.masked}`,
+        `ExpiresAt: ${saved.expiresAt ? saved.expiresAt.toISOString() : 'not set'}`,
       ].join('\n');
       await sendTelegramMessage(response);
       return { handled: true, command, response };
@@ -1289,8 +1379,9 @@ const handleTelegramTextCommand = async (params: {
   }
 
   if (normalized === '/status') {
-    await sendStatusCard(state);
-    response = formatCompactStatusCard(state);
+    const current = await getWorkflowStatus();
+    await sendStatusCard(current);
+    response = formatCompactStatusCard(current);
     return { handled: true, command, response };
   }
 

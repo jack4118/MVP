@@ -215,6 +215,13 @@ const runOne = async (agent: AgentName, loopCount: number): Promise<void> => {
   }
 };
 
+export const runAgentsInParallel = async (
+  agents: AgentName[],
+  runner: (agent: AgentName) => Promise<void>
+): Promise<void> => {
+  await Promise.all(agents.map((agent) => runner(agent)));
+};
+
 const tick = async (): Promise<void> => {
   const next = await getJson<NextActionResponse>(`${API_BASE}/api/orchestrator/auto/next-action`);
   const action = next.data?.action;
@@ -230,10 +237,10 @@ const tick = async (): Promise<void> => {
   }
 
   if (action.type === 'run_parallel') {
-    for (const agent of action.agents) {
-      await runOne(agent as AgentName, loopCount);
-      await sleep(400);
-    }
+    await runAgentsInParallel(
+      action.agents as AgentName[],
+      async (agent) => await runOne(agent, loopCount)
+    );
   }
 };
 
@@ -270,7 +277,9 @@ const shutdown = async (signal: string): Promise<void> => {
   process.exit(0);
 };
 
-main().catch((error) => {
-  console.error('[OrchestratorApiWorker] fatal', error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('[OrchestratorApiWorker] fatal', error);
+    process.exit(1);
+  });
+}
