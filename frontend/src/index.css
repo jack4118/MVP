@@ -1409,6 +1409,9 @@ code {
 }
 
 .app-logo {
+  --brand-mark-bg: #2f62f2;
+  --brand-mark-fg: #ffffff;
+  --brand-wordmark: #0f1f44;
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -1438,11 +1441,11 @@ code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--primary);
-  color: var(--color-on-primary);
+  background: var(--brand-mark-bg);
+  color: var(--brand-mark-fg);
   font-size: 1.7rem;
   font-weight: 800;
-  box-shadow: 0 10px 28px rgba(var(--rgb-primary), 0.28);
+  box-shadow: 0 10px 24px rgba(47, 98, 242, 0.3);
 }
 
 .app-logo-compact .app-logo-mark {
@@ -1462,7 +1465,7 @@ code {
   padding: 0.02em 0.04em 0.22em 0;
   min-height: 1.28em;
   overflow: visible;
-  color: var(--primary);
+  color: var(--brand-wordmark);
   font-style: normal;
 }
 
@@ -2992,11 +2995,11 @@ code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--primary);
-  color: var(--color-on-primary);
+  background: #2f62f2;
+  color: #ffffff;
   font-size: 2.2rem;
   font-weight: 900;
-  box-shadow: 0 14px 28px rgba(var(--rgb-primary), 0.28);
+  box-shadow: 0 14px 28px rgba(47, 98, 242, 0.3);
 }
 
 .landing-brand-card p {

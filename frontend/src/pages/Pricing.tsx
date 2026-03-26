@@ -4,6 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 import LanguageToggle from '../components/LanguageToggle';
 import ThemeToggle from '../components/ThemeToggle';
+import AppLogo from '../components/AppLogo';
 import '../styles/landing-v2.css';
 
 const Pricing = () => {
@@ -18,8 +19,7 @@ const Pricing = () => {
       <header className="landing-v2-header">
         <div className="landing-v2-header-inner">
           <Link to="/" className="landing-v2-brand" aria-label={t.landingV2.brandAriaLabel}>
-            <span className="landing-v2-brand-mark">E</span>
-            <span className="landing-v2-brand-text">{t.landingV2.brandName}</span>
+            <AppLogo />
           </Link>
 
           <nav className="landing-v2-nav" aria-label={t.landingV2.navAriaLabel}>
