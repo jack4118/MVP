@@ -1497,9 +1497,65 @@ interface UserAiContext {
   displayName: string | null;
   companyName: string | null;
   industry: string | null;
+  nickname: string | null;
+  occupation: string | null;
+  aboutYou: string | null;
+  customInstructions: string | null;
+  memoryEnabled: boolean;
+  recordHistoryEnabled: boolean;
+  baseStyleTone: 'default' | 'professional' | 'friendly' | 'concise' | null;
+  characterWarmth: 'default' | 'low' | 'medium' | 'high' | null;
+  characterEnthusiasm: 'default' | 'low' | 'medium' | 'high' | null;
+  characterHeadersLists: 'default' | 'minimal' | 'structured' | null;
+  characterEmoji: 'default' | 'low' | 'medium' | 'high' | null;
+  defaultTone: FollowUpTone | PaymentTone | null;
+  defaultConversationMode: ConversationMode | null;
+  defaultEmojiDensity: EmojiPreference | null;
+  defaultOutputFormat: OutputFormat | null;
 }
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Kuala_Lumpur';
+
+const normalizeBaseStyleTone = (value?: string | null): UserAiContext['baseStyleTone'] => {
+  if (!value) return null;
+  if (value === 'default' || value === 'professional' || value === 'friendly' || value === 'concise') {
+    return value;
+  }
+  return null;
+};
+
+const normalizeCharacterLevel = (value?: string | null): 'default' | 'low' | 'medium' | 'high' | null => {
+  if (!value) return null;
+  if (value === 'default' || value === 'low' || value === 'medium' || value === 'high') {
+    return value;
+  }
+  return null;
+};
+
+const normalizeHeadersListsLevel = (value?: string | null): 'default' | 'minimal' | 'structured' | null => {
+  if (!value) return null;
+  if (value === 'default' || value === 'minimal' || value === 'structured') {
+    return value;
+  }
+  return null;
+};
+
+const deriveToneFromBaseStyle = (baseStyleTone: UserAiContext['baseStyleTone']): FollowUpTone | PaymentTone | null => {
+  if (!baseStyleTone || baseStyleTone === 'default') return null;
+  if (baseStyleTone === 'professional') return 'professional';
+  if (baseStyleTone === 'friendly') return 'friendly';
+  return 'assertive';
+};
+
+const deriveConversationModeFromHeaders = (headersLevel: UserAiContext['characterHeadersLists']): ConversationMode | null => {
+  if (!headersLevel || headersLevel === 'default') return null;
+  return headersLevel === 'structured' ? 'consultative' : 'direct';
+};
+
+const deriveEmojiFromCharacterEmoji = (value: UserAiContext['characterEmoji']): EmojiPreference | null => {
+  if (!value || value === 'default') return null;
+  return value;
+};
 
 const getUserAiContext = async (userId: string): Promise<UserAiContext> => {
   const user = await prisma.user.findUnique({
@@ -1508,13 +1564,53 @@ const getUserAiContext = async (userId: string): Promise<UserAiContext> => {
       displayName: true,
       companyName: true,
       industry: true,
+      nickname: true,
+      occupation: true,
+      aboutYou: true,
+      customInstructions: true,
+      memoryEnabled: true,
+      recordHistoryEnabled: true,
+      baseStyleTone: true,
+      characterWarmth: true,
+      characterEnthusiasm: true,
+      characterHeadersLists: true,
+      characterEmoji: true,
+      defaultTone: true,
+      defaultConversationMode: true,
+      defaultEmojiDensity: true,
+      defaultOutputFormat: true,
     },
   });
+
+  const baseStyleTone = normalizeBaseStyleTone(user?.baseStyleTone);
+  const characterHeadersLists = normalizeHeadersListsLevel(user?.characterHeadersLists);
+  const characterEmoji = normalizeCharacterLevel(user?.characterEmoji);
+  const defaultTone = normalizeTonePreference(user?.defaultTone) || deriveToneFromBaseStyle(baseStyleTone);
+  const defaultConversationMode =
+    normalizeConversationModePreference(user?.defaultConversationMode) || deriveConversationModeFromHeaders(characterHeadersLists);
+  const defaultEmojiDensity =
+    normalizeEmojiPreferenceValue(user?.defaultEmojiDensity) || deriveEmojiFromCharacterEmoji(characterEmoji);
+  const defaultOutputFormat = normalizeOutputFormatValue(user?.defaultOutputFormat);
 
   return {
     displayName: user?.displayName || null,
     companyName: user?.companyName || null,
     industry: user?.industry || null,
+    nickname: user?.nickname || null,
+    occupation: user?.occupation || null,
+    aboutYou: user?.aboutYou || null,
+    customInstructions: user?.customInstructions || null,
+    memoryEnabled: user?.memoryEnabled ?? true,
+    recordHistoryEnabled: user?.recordHistoryEnabled ?? true,
+    baseStyleTone,
+    characterWarmth: normalizeCharacterLevel(user?.characterWarmth),
+    characterEnthusiasm: normalizeCharacterLevel(user?.characterEnthusiasm),
+    characterHeadersLists,
+    characterEmoji,
+    defaultTone,
+    defaultConversationMode,
+    defaultEmojiDensity,
+    defaultOutputFormat,
   };
 };
 
@@ -1595,6 +1691,23 @@ const getIndustryInstruction = (industry: string | null | undefined, language: L
   }
 
   return `Industry context: this business operates in "${industry}". Make the message feel native to how customers in this industry usually talk, decide, and buy. Avoid generic sales copy.`;
+};
+
+const getPersonalizationInstruction = (context: UserAiContext, language: Language): string => {
+  const lines: string[] = [];
+  if (context.nickname) {
+    lines.push(language === 'zh-CN' ? `用户昵称：${context.nickname}` : language === 'ms' ? `Nama panggilan pengguna: ${context.nickname}` : `User nickname: ${context.nickname}`);
+  }
+  if (context.occupation) {
+    lines.push(language === 'zh-CN' ? `用户职业：${context.occupation}` : language === 'ms' ? `Pekerjaan pengguna: ${context.occupation}` : `User occupation: ${context.occupation}`);
+  }
+  if (context.aboutYou) {
+    lines.push(language === 'zh-CN' ? `用户补充背景：${context.aboutYou}` : language === 'ms' ? `Maklumat tambahan pengguna: ${context.aboutYou}` : `Additional user context: ${context.aboutYou}`);
+  }
+  if (context.customInstructions) {
+    lines.push(language === 'zh-CN' ? `自定义指令（必须遵守）：${context.customInstructions}` : language === 'ms' ? `Arahan tersuai (wajib ikut): ${context.customInstructions}` : `Custom instructions (must follow): ${context.customInstructions}`);
+  }
+  return lines.join('\n');
 };
 
 const containsWrongTimeGreeting = (text: string, language: Language, hour: number) => {
@@ -2514,18 +2627,34 @@ export const generateFollowUpText = async (
   data: FollowUpData
 ): Promise<AiGenerationBundle> => {
   const userContext = await getUserAiContext(userId);
-  const tone = data.tone || 'polite';
   const daysPassed = data.daysPassed || 0;
   const language = data.language || 'en';
-  const outputFormat = data.outputFormat || 'chat';
-  const mappedTone = mapFollowUpTone(tone);
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
   const selectedPreset: FollowUpStylePreset = presetsEnabled ? data.stylePreset || 'gentle_nudge' : 'gentle_nudge';
-  const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
+  const effectiveMemory = userContext.memoryEnabled ? memory : null;
+  const effectiveCutoffSummary = userContext.recordHistoryEnabled ? cutoffSummary : null;
+  const effectiveTranscript = userContext.recordHistoryEnabled ? transcript : '';
+  const tone = normalizeTonePreference(data.tone) || effectiveMemory?.tone || userContext.defaultTone || 'polite';
+  const conversationMode: ConversationMode =
+    normalizeConversationModePreference(data.conversationMode) ||
+    effectiveMemory?.conversationMode ||
+    userContext.defaultConversationMode ||
+    'standard';
+  const emojiPreference =
+    normalizeEmojiPreferenceValue(data.emojiDensity) ||
+    effectiveMemory?.emojiDensity ||
+    userContext.defaultEmojiDensity ||
+    detectEmojiPreference(data.objective);
+  const outputFormat =
+    normalizeOutputFormatValue(data.outputFormat) ||
+    effectiveMemory?.outputFormat ||
+    userContext.defaultOutputFormat ||
+    'chat';
+  const mappedTone = mapFollowUpTone(tone);
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
@@ -2537,7 +2666,6 @@ export const generateFollowUpText = async (
       ? `Tulis mesej follow-up dalam Bahasa Melayu.\n\nKonteks:\n- Nama pelanggan: ${data.leadName}\n- Objektif: ${data.objective}\n- Hari sejak respons terakhir: ${daysPassed}\n- Nada: ${mappedTone}\n- Gaya template: ${selectedPreset}\n\nPeraturan:\n- Ringkas dan natural\n- Tiada tekanan\n- Akhiri dengan soalan mudah dibalas\n- Wajib sebut nama pelanggan`
       : `Write a follow-up message in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Days since last reply: ${daysPassed}\n- Tone: ${mappedTone}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getFollowUpPresetFragment(selectedPreset, false)}\n\nRules:\n- Keep it short and natural\n- No pressure\n- End with an easy question\n- Must use the customer name`;
   const formatInstruction = getFormatInstruction(outputFormat, language);
-  const emojiPreference = data.emojiDensity || detectEmojiPreference(data.objective);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'follow_up');
   const toneInstruction = getToneInstruction(language, tone, 'follow_up');
@@ -2547,6 +2675,7 @@ export const generateFollowUpText = async (
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
+  const personalizationInstruction = getPersonalizationInstruction(userContext, language);
   const humanStyleBlock =
     isChinese && outputFormat === 'whatsapp'
       ? `\n\n${getChineseWhatsappHumanStyle('follow_up')}`
@@ -2567,8 +2696,8 @@ export const generateFollowUpText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
-  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'follow_up', variantCount);
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const bundlePrompt = buildVariantPrompt(promptWithFormat, effectiveCutoffSummary, effectiveTranscript, effectiveMemory, language, 'follow_up', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -2629,23 +2758,27 @@ export const generateFollowUpText = async (
     await prisma.lead.update({
       where: { id: leadId },
       data: {
-        memoryGoal: data.objective.trim(),
-        memorySummary: parsed.cutoffSummary || memory?.summary || cutoffSummary,
         aiTonePreference: tone,
         aiConversationMode: conversationMode,
         aiEmojiDensity: emojiPreference,
         aiOutputFormat: outputFormat,
-        memoryLanguage: language,
-        memoryUpdatedAt: new Date(),
+        ...(userContext.memoryEnabled
+          ? {
+              memoryGoal: data.objective.trim(),
+              memorySummary: parsed.cutoffSummary || effectiveMemory?.summary || effectiveCutoffSummary,
+              memoryLanguage: language,
+              memoryUpdatedAt: new Date(),
+            }
+          : {}),
       },
     });
 
     return {
       text: generatedText,
       variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
-      cutoffSummary: parsed.cutoffSummary || cutoffSummary,
-      memorySummary: memory?.summary || parsed.cutoffSummary || cutoffSummary,
-      memoryGoal: data.objective.trim(),
+      cutoffSummary: parsed.cutoffSummary || effectiveCutoffSummary,
+      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || parsed.cutoffSummary || effectiveCutoffSummary : null,
+      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
@@ -2682,9 +2815,9 @@ export const generateFollowUpText = async (
     return {
       text: fallbackText,
       variants: [fallbackText],
-      cutoffSummary,
-      memorySummary: memory?.summary || cutoffSummary,
-      memoryGoal: data.objective.trim(),
+      cutoffSummary: effectiveCutoffSummary,
+      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || effectiveCutoffSummary : null,
+      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
     };
   }
 };
@@ -2695,19 +2828,35 @@ export const generatePaymentText = async (
   data: PaymentData
 ): Promise<AiGenerationBundle> => {
   const userContext = await getUserAiContext(userId);
-  const tone = data.tone || 'polite';
   const amount = data.amount;
   const dueDate = data.dueDate;
   const language = data.language || 'en';
-  const outputFormat = data.outputFormat || 'chat';
-  const mappedTone = mapPaymentTone(tone);
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
   const selectedPreset: PaymentStylePreset = presetsEnabled ? data.stylePreset || 'friendly_reminder' : 'friendly_reminder';
-  const conversationMode: ConversationMode = data.conversationMode || 'standard';
   const objectiveItems = splitObjectives(data.objective);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
+  const effectiveMemory = userContext.memoryEnabled ? memory : null;
+  const effectiveCutoffSummary = userContext.recordHistoryEnabled ? cutoffSummary : null;
+  const effectiveTranscript = userContext.recordHistoryEnabled ? transcript : '';
+  const tone = normalizeTonePreference(data.tone) || effectiveMemory?.tone || userContext.defaultTone || 'polite';
+  const conversationMode: ConversationMode =
+    normalizeConversationModePreference(data.conversationMode) ||
+    effectiveMemory?.conversationMode ||
+    userContext.defaultConversationMode ||
+    'standard';
+  const emojiPreference =
+    normalizeEmojiPreferenceValue(data.emojiDensity) ||
+    effectiveMemory?.emojiDensity ||
+    userContext.defaultEmojiDensity ||
+    detectEmojiPreference(data.objective);
+  const outputFormat =
+    normalizeOutputFormatValue(data.outputFormat) ||
+    effectiveMemory?.outputFormat ||
+    userContext.defaultOutputFormat ||
+    'chat';
+  const mappedTone = mapPaymentTone(tone);
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
@@ -2726,7 +2875,6 @@ export const generatePaymentText = async (
       ? `Tulis mesej peringatan bayaran dalam Bahasa Melayu.\n\nKonteks:\n- Nama pelanggan: ${data.leadName}\n- Objektif: ${data.objective}\n- Projek telah siap\n- Bayaran masih belum diterima\n- Hari tertunggak: ${daysOverdue}\n- Nada: ${mappedTone}\n${amount ? `- Jumlah: ${amount.toFixed(2)}` : ''}\n- Gaya template: ${selectedPreset}\n\nPeraturan:\n- Hormat dan profesional\n- Jelas serta ringkas\n- Wajib sebut nama pelanggan`
       : `Write a payment reminder in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Project is completed\n- Payment is pending\n- Days overdue: ${daysOverdue}\n- Tone: ${mappedTone}\n${amount ? `- Amount: $${amount.toFixed(2)}` : ''}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getPaymentPresetFragment(selectedPreset, false)}\n\nRules:\n- Be respectful\n- Keep it clear and friendly\n- Must use the customer name`;
   const formatInstruction = getFormatInstruction(outputFormat, language);
-  const emojiPreference = data.emojiDensity || detectEmojiPreference(data.objective);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'payment');
   const toneInstruction = getToneInstruction(language, tone, 'payment');
@@ -2736,6 +2884,7 @@ export const generatePaymentText = async (
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
   const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
+  const personalizationInstruction = getPersonalizationInstruction(userContext, language);
   const humanStyleBlock =
     isChinese && outputFormat === 'whatsapp'
       ? `\n\n${getChineseWhatsappHumanStyle('payment')}`
@@ -2756,8 +2905,8 @@ export const generatePaymentText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
-  const bundlePrompt = buildVariantPrompt(promptWithFormat, cutoffSummary, transcript, memory, language, 'payment', variantCount);
+  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const bundlePrompt = buildVariantPrompt(promptWithFormat, effectiveCutoffSummary, effectiveTranscript, effectiveMemory, language, 'payment', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -2818,23 +2967,27 @@ export const generatePaymentText = async (
     await prisma.lead.update({
       where: { id: leadId },
       data: {
-        memoryGoal: data.objective.trim(),
-        memorySummary: parsed.cutoffSummary || memory?.summary || cutoffSummary,
         aiTonePreference: tone,
         aiConversationMode: conversationMode,
         aiEmojiDensity: emojiPreference,
         aiOutputFormat: outputFormat,
-        memoryLanguage: language,
-        memoryUpdatedAt: new Date(),
+        ...(userContext.memoryEnabled
+          ? {
+              memoryGoal: data.objective.trim(),
+              memorySummary: parsed.cutoffSummary || effectiveMemory?.summary || effectiveCutoffSummary,
+              memoryLanguage: language,
+              memoryUpdatedAt: new Date(),
+            }
+          : {}),
       },
     });
 
     return {
       text: generatedText,
       variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
-      cutoffSummary: parsed.cutoffSummary || cutoffSummary,
-      memorySummary: memory?.summary || parsed.cutoffSummary || cutoffSummary,
-      memoryGoal: data.objective.trim(),
+      cutoffSummary: parsed.cutoffSummary || effectiveCutoffSummary,
+      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || parsed.cutoffSummary || effectiveCutoffSummary : null,
+      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
@@ -2871,9 +3024,9 @@ export const generatePaymentText = async (
     return {
       text: fallbackText,
       variants: [fallbackText],
-      cutoffSummary,
-      memorySummary: memory?.summary || cutoffSummary,
-      memoryGoal: data.objective.trim(),
+      cutoffSummary: effectiveCutoffSummary,
+      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || effectiveCutoffSummary : null,
+      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
     };
   }
 };

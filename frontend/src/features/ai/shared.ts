@@ -136,13 +136,32 @@ export const getDefaultConfigFromLeadMemory = (
 export const getDefaultConfigFromUserPreferences = (
   user: User | null | undefined,
   current: SharedAiConfig
-): Partial<SharedAiConfig> => ({
-  tone: user?.defaultTone || current.tone,
-  conversationMode: user?.defaultConversationMode || current.conversationMode,
-  emojiDensity: user?.defaultEmojiDensity || current.emojiDensity,
-  outputFormat: user?.defaultOutputFormat || current.outputFormat,
-  daysPassed: user?.defaultFollowUpDays ?? current.daysPassed,
-});
+): Partial<SharedAiConfig> => {
+  const mappedTone =
+    user?.defaultTone ||
+    (user?.baseStyleTone === 'professional'
+      ? 'professional'
+      : user?.baseStyleTone === 'friendly'
+        ? 'friendly'
+        : user?.baseStyleTone === 'concise'
+          ? 'assertive'
+          : current.tone);
+  const mappedEmojiDensity =
+    user?.defaultEmojiDensity ||
+    (user?.characterEmoji === 'high'
+      ? 'high'
+      : user?.characterEmoji === 'low'
+        ? 'low'
+        : 'medium');
+
+  return {
+    tone: mappedTone,
+    conversationMode: user?.defaultConversationMode || current.conversationMode,
+    emojiDensity: mappedEmojiDensity,
+    outputFormat: user?.defaultOutputFormat || current.outputFormat,
+    daysPassed: user?.defaultFollowUpDays ?? current.daysPassed,
+  };
+};
 
 export const getPurposeOptions = (t: Translations): AiOption[] => [
   { value: 'follow-up', label: t.ai.followUp },

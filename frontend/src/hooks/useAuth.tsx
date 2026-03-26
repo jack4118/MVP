@@ -8,6 +8,9 @@ import {
   AiTone,
   ConversationMode,
   EmojiDensity,
+  BaseStyleTone,
+  PersonalizationLevel,
+  HeadersListsLevel,
   OutputFormat,
 } from '../services/api';
 import { storage } from '../utils/storage';
@@ -27,6 +30,17 @@ interface AuthContextType {
     defaultConversationMode?: ConversationMode | null;
     defaultEmojiDensity?: EmojiDensity | null;
     defaultOutputFormat?: OutputFormat | null;
+    baseStyleTone?: BaseStyleTone | null;
+    characterWarmth?: PersonalizationLevel | null;
+    characterEnthusiasm?: PersonalizationLevel | null;
+    characterHeadersLists?: HeadersListsLevel | null;
+    characterEmoji?: PersonalizationLevel | null;
+    customInstructions?: string | null;
+    nickname?: string | null;
+    occupation?: string | null;
+    aboutYou?: string | null;
+    memoryEnabled?: boolean;
+    recordHistoryEnabled?: boolean;
     defaultFollowUpDays?: number | null;
     defaultCountryCode?: string | null;
     inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
@@ -124,6 +138,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     defaultConversationMode?: ConversationMode | null;
     defaultEmojiDensity?: EmojiDensity | null;
     defaultOutputFormat?: OutputFormat | null;
+    baseStyleTone?: BaseStyleTone | null;
+    characterWarmth?: PersonalizationLevel | null;
+    characterEnthusiasm?: PersonalizationLevel | null;
+    characterHeadersLists?: HeadersListsLevel | null;
+    characterEmoji?: PersonalizationLevel | null;
+    customInstructions?: string | null;
+    nickname?: string | null;
+    occupation?: string | null;
+    aboutYou?: string | null;
+    memoryEnabled?: boolean;
+    recordHistoryEnabled?: boolean;
     defaultFollowUpDays?: number | null;
     defaultCountryCode?: string | null;
     inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;

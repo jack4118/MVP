@@ -22,6 +22,17 @@ export interface UpdateProfileData {
   defaultConversationMode?: string | null;
   defaultEmojiDensity?: string | null;
   defaultOutputFormat?: string | null;
+  baseStyleTone?: 'default' | 'professional' | 'friendly' | 'concise' | null;
+  characterWarmth?: 'default' | 'low' | 'medium' | 'high' | null;
+  characterEnthusiasm?: 'default' | 'low' | 'medium' | 'high' | null;
+  characterHeadersLists?: 'default' | 'minimal' | 'structured' | null;
+  characterEmoji?: 'default' | 'low' | 'medium' | 'high' | null;
+  customInstructions?: string | null;
+  nickname?: string | null;
+  occupation?: string | null;
+  aboutYou?: string | null;
+  memoryEnabled?: boolean;
+  recordHistoryEnabled?: boolean;
   defaultFollowUpDays?: number | null;
   defaultCountryCode?: string | null;
   inboxDefaultView?: 'inbox' | 'contacts' | 'setup' | null;
@@ -43,6 +54,17 @@ const userSelect = {
   defaultConversationMode: true,
   defaultEmojiDensity: true,
   defaultOutputFormat: true,
+  baseStyleTone: true,
+  characterWarmth: true,
+  characterEnthusiasm: true,
+  characterHeadersLists: true,
+  characterEmoji: true,
+  customInstructions: true,
+  nickname: true,
+  occupation: true,
+  aboutYou: true,
+  memoryEnabled: true,
+  recordHistoryEnabled: true,
   defaultFollowUpDays: true,
   defaultCountryCode: true,
   inboxDefaultView: true,
@@ -52,6 +74,55 @@ const userSelect = {
   securityLastPasswordAt: true,
   securityLastLoginAt: true,
 } as const;
+
+const deriveBaseStyleToneFromLegacyTone = (tone?: string | null): 'default' | 'professional' | 'friendly' | 'concise' | null => {
+  if (!tone) {
+    return null;
+  }
+  if (tone === 'professional') {
+    return 'professional';
+  }
+  if (tone === 'friendly' || tone === 'casual' || tone === 'empathetic') {
+    return 'friendly';
+  }
+  if (tone === 'assertive' || tone === 'urgent') {
+    return 'concise';
+  }
+  return 'default';
+};
+
+const deriveCharacterEmojiFromLegacyDensity = (emojiDensity?: string | null): 'default' | 'low' | 'medium' | 'high' | null => {
+  if (!emojiDensity) {
+    return null;
+  }
+  if (emojiDensity === 'low' || emojiDensity === 'medium' || emojiDensity === 'high') {
+    return emojiDensity;
+  }
+  return 'default';
+};
+
+const withPersonalizationFallback = <T extends {
+  defaultTone?: string | null;
+  defaultEmojiDensity?: string | null;
+  baseStyleTone?: string | null;
+  characterWarmth?: string | null;
+  characterEnthusiasm?: string | null;
+  characterHeadersLists?: string | null;
+  characterEmoji?: string | null;
+  memoryEnabled?: boolean | null;
+  recordHistoryEnabled?: boolean | null;
+}>(user: T): T => {
+  return {
+    ...user,
+    baseStyleTone: user.baseStyleTone || deriveBaseStyleToneFromLegacyTone(user.defaultTone),
+    characterWarmth: user.characterWarmth || 'default',
+    characterEnthusiasm: user.characterEnthusiasm || 'default',
+    characterHeadersLists: user.characterHeadersLists || 'default',
+    characterEmoji: user.characterEmoji || deriveCharacterEmojiFromLegacyDensity(user.defaultEmojiDensity) || 'default',
+    memoryEnabled: user.memoryEnabled ?? true,
+    recordHistoryEnabled: user.recordHistoryEnabled ?? true,
+  };
+};
 
 export const register = async (data: RegisterData) => {
   const existingUser = await prisma.user.findUnique({
@@ -74,7 +145,7 @@ export const register = async (data: RegisterData) => {
     select: userSelect,
   });
 
-  return user;
+  return withPersonalizationFallback(user);
 };
 
 export const login = async (data: LoginData) => {
@@ -107,28 +178,41 @@ export const login = async (data: LoginData) => {
     { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] }
   );
 
+  const userWithFallback = withPersonalizationFallback(user);
+
   return {
     token,
     user: {
-      id: user.id,
-      email: user.email,
-      createdAt: user.createdAt,
-      displayName: user.displayName,
-      companyName: user.companyName,
-      industry: user.industry,
-      hasCompletedOnboarding: user.hasCompletedOnboarding,
-      defaultLanguage: user.defaultLanguage,
-      defaultTone: user.defaultTone,
-      defaultConversationMode: user.defaultConversationMode,
-      defaultEmojiDensity: user.defaultEmojiDensity,
-      defaultOutputFormat: user.defaultOutputFormat,
-      defaultFollowUpDays: user.defaultFollowUpDays,
-      defaultCountryCode: user.defaultCountryCode,
-      inboxDefaultView: user.inboxDefaultView,
-      notifyNewInbound: user.notifyNewInbound,
-      notifyReminderDue: user.notifyReminderDue,
-      notifyDailyDigestHour: user.notifyDailyDigestHour,
-      securityLastPasswordAt: user.securityLastPasswordAt,
+      id: userWithFallback.id,
+      email: userWithFallback.email,
+      createdAt: userWithFallback.createdAt,
+      displayName: userWithFallback.displayName,
+      companyName: userWithFallback.companyName,
+      industry: userWithFallback.industry,
+      hasCompletedOnboarding: userWithFallback.hasCompletedOnboarding,
+      defaultLanguage: userWithFallback.defaultLanguage,
+      defaultTone: userWithFallback.defaultTone,
+      defaultConversationMode: userWithFallback.defaultConversationMode,
+      defaultEmojiDensity: userWithFallback.defaultEmojiDensity,
+      defaultOutputFormat: userWithFallback.defaultOutputFormat,
+      baseStyleTone: userWithFallback.baseStyleTone,
+      characterWarmth: userWithFallback.characterWarmth,
+      characterEnthusiasm: userWithFallback.characterEnthusiasm,
+      characterHeadersLists: userWithFallback.characterHeadersLists,
+      characterEmoji: userWithFallback.characterEmoji,
+      customInstructions: userWithFallback.customInstructions,
+      nickname: userWithFallback.nickname,
+      occupation: userWithFallback.occupation,
+      aboutYou: userWithFallback.aboutYou,
+      memoryEnabled: userWithFallback.memoryEnabled,
+      recordHistoryEnabled: userWithFallback.recordHistoryEnabled,
+      defaultFollowUpDays: userWithFallback.defaultFollowUpDays,
+      defaultCountryCode: userWithFallback.defaultCountryCode,
+      inboxDefaultView: userWithFallback.inboxDefaultView,
+      notifyNewInbound: userWithFallback.notifyNewInbound,
+      notifyReminderDue: userWithFallback.notifyReminderDue,
+      notifyDailyDigestHour: userWithFallback.notifyDailyDigestHour,
+      securityLastPasswordAt: userWithFallback.securityLastPasswordAt,
       securityLastLoginAt: new Date(),
     },
   };
@@ -144,7 +228,7 @@ export const getCurrentUser = async (userId: string) => {
     throw new Error('User not found');
   }
 
-  return user;
+  return withPersonalizationFallback(user);
 };
 
 export const updateCurrentUser = async (userId: string, data: UpdateProfileData) => {
@@ -160,6 +244,17 @@ export const updateCurrentUser = async (userId: string, data: UpdateProfileData)
       ...(data.defaultConversationMode !== undefined ? { defaultConversationMode: data.defaultConversationMode || null } : {}),
       ...(data.defaultEmojiDensity !== undefined ? { defaultEmojiDensity: data.defaultEmojiDensity || null } : {}),
       ...(data.defaultOutputFormat !== undefined ? { defaultOutputFormat: data.defaultOutputFormat || null } : {}),
+      ...(data.baseStyleTone !== undefined ? { baseStyleTone: data.baseStyleTone || null } : {}),
+      ...(data.characterWarmth !== undefined ? { characterWarmth: data.characterWarmth || null } : {}),
+      ...(data.characterEnthusiasm !== undefined ? { characterEnthusiasm: data.characterEnthusiasm || null } : {}),
+      ...(data.characterHeadersLists !== undefined ? { characterHeadersLists: data.characterHeadersLists || null } : {}),
+      ...(data.characterEmoji !== undefined ? { characterEmoji: data.characterEmoji || null } : {}),
+      ...(data.customInstructions !== undefined ? { customInstructions: data.customInstructions || null } : {}),
+      ...(data.nickname !== undefined ? { nickname: data.nickname || null } : {}),
+      ...(data.occupation !== undefined ? { occupation: data.occupation || null } : {}),
+      ...(data.aboutYou !== undefined ? { aboutYou: data.aboutYou || null } : {}),
+      ...(data.memoryEnabled !== undefined ? { memoryEnabled: data.memoryEnabled } : {}),
+      ...(data.recordHistoryEnabled !== undefined ? { recordHistoryEnabled: data.recordHistoryEnabled } : {}),
       ...(data.defaultFollowUpDays !== undefined ? { defaultFollowUpDays: data.defaultFollowUpDays ?? null } : {}),
       ...(data.defaultCountryCode !== undefined ? { defaultCountryCode: data.defaultCountryCode || null } : {}),
       ...(data.inboxDefaultView !== undefined ? { inboxDefaultView: data.inboxDefaultView || null } : {}),
@@ -170,5 +265,5 @@ export const updateCurrentUser = async (userId: string, data: UpdateProfileData)
     select: userSelect,
   });
 
-  return user;
+  return withPersonalizationFallback(user);
 };

@@ -27,6 +27,16 @@ export const conversationModeValues = ['standard', 'humor', 'banter', 'direct', 
 export const conversationModeSchema = z.enum(conversationModeValues);
 export const emojiDensityValues = ['low', 'medium', 'high'] as const;
 export const emojiDensitySchema = z.enum(emojiDensityValues);
+export const baseStyleToneValues = ['default', 'professional', 'friendly', 'concise'] as const;
+export const baseStyleToneSchema = z.enum(baseStyleToneValues);
+export const warmthLevelValues = ['default', 'low', 'medium', 'high'] as const;
+export const warmthLevelSchema = z.enum(warmthLevelValues);
+export const enthusiasmLevelValues = ['default', 'low', 'medium', 'high'] as const;
+export const enthusiasmLevelSchema = z.enum(enthusiasmLevelValues);
+export const headersListsLevelValues = ['default', 'minimal', 'structured'] as const;
+export const headersListsLevelSchema = z.enum(headersListsLevelValues);
+export const characterEmojiValues = ['default', 'low', 'medium', 'high'] as const;
+export const characterEmojiSchema = z.enum(characterEmojiValues);
 export const reminderTypeValues = ['follow_up', 'payment', 'meeting', 'custom'] as const;
 export const reminderTypeSchema = z.enum(reminderTypeValues);
 
@@ -63,6 +73,17 @@ export const updateProfileSchema = z.object({
   defaultConversationMode: conversationModeSchema.optional().nullable(),
   defaultEmojiDensity: emojiDensitySchema.optional().nullable(),
   defaultOutputFormat: outputFormatSchema.optional().nullable(),
+  baseStyleTone: baseStyleToneSchema.optional().nullable(),
+  characterWarmth: warmthLevelSchema.optional().nullable(),
+  characterEnthusiasm: enthusiasmLevelSchema.optional().nullable(),
+  characterHeadersLists: headersListsLevelSchema.optional().nullable(),
+  characterEmoji: characterEmojiSchema.optional().nullable(),
+  customInstructions: z.string().max(2000).optional().nullable(),
+  nickname: z.string().max(100).optional().nullable(),
+  occupation: z.string().max(120).optional().nullable(),
+  aboutYou: z.string().max(1000).optional().nullable(),
+  memoryEnabled: z.boolean().optional(),
+  recordHistoryEnabled: z.boolean().optional(),
   defaultFollowUpDays: z.number().int().min(0).max(30).optional().nullable(),
   defaultCountryCode: z.string().max(10).optional().nullable(),
   inboxDefaultView: z.enum(['inbox', 'contacts', 'setup']).optional().nullable(),
