@@ -64,6 +64,7 @@ export const zhCN = {
     enterPassword: '请输入您的密码',
     loginFailed: '登录失败',
     registrationFailed: '注册失败',
+    sessionExpired: '登录状态已过期，请重新登录。',
     invalidCredentials: '邮箱或密码错误',
     emailExists: '邮箱已存在',
     brandTagline: '更快跟进，更顺现金流，少一点反复催促。',

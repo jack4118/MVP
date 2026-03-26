@@ -64,6 +64,7 @@ export const en = {
     enterPassword: 'Enter your password',
     loginFailed: 'Login failed',
     registrationFailed: 'Registration failed',
+    sessionExpired: 'Your session expired. Please sign in again.',
     invalidCredentials: 'Invalid email or password',
     emailExists: 'Email already exists',
     brandTagline: 'Fast follow-ups, cleaner cash flow, less chasing.',

@@ -16,13 +16,21 @@ const Login = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTo = new URLSearchParams(location.search).get('redirect') || '/dashboard';
+  const searchParams = new URLSearchParams(location.search);
+  const redirectTo = searchParams.get('redirect') || '/dashboard';
+  const reason = searchParams.get('reason');
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate(redirectTo, { replace: true });
     }
   }, [authLoading, isAuthenticated, navigate, redirectTo]);
+
+  useEffect(() => {
+    if (reason === 'session_expired') {
+      setError(t.auth.sessionExpired);
+    }
+  }, [reason, t.auth.sessionExpired]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

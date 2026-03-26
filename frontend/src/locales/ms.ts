@@ -62,6 +62,7 @@ export const ms = {
     enterPassword: 'Masukkan kata laluan anda',
     loginFailed: 'Log masuk gagal',
     registrationFailed: 'Pendaftaran gagal',
+    sessionExpired: 'Sesi anda telah tamat. Sila log masuk semula.',
     invalidCredentials: 'Emel atau kata laluan tidak sah',
     emailExists: 'Emel sudah wujud',
     brandTagline: 'Follow-up lebih pantas, aliran tunai lebih kemas, kurang kejar pelanggan.',

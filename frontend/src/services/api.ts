@@ -83,6 +83,8 @@ const api: AxiosInstance = axios.create({
   },
 });
 
+let isRedirectingToLogin = false;
+
 api.interceptors.request.use(
   (config) => {
     const token = storage.getToken();
@@ -104,10 +106,18 @@ api.interceptors.response.use(
 
       if (isMeRequest) {
         storage.removeToken();
+        if (!isRedirectingToLogin) {
+          isRedirectingToLogin = true;
+          const redirect = `${window.location.pathname}${window.location.search}`;
+          window.location.href = `/login?redirect=${encodeURIComponent(redirect)}&reason=session_expired`;
+        }
       } else if (!isLoginOrRegister) {
         storage.removeToken();
-        const redirect = `${window.location.pathname}${window.location.search}`;
-        window.location.href = `/login?redirect=${encodeURIComponent(redirect)}`;
+        if (!isRedirectingToLogin) {
+          isRedirectingToLogin = true;
+          const redirect = `${window.location.pathname}${window.location.search}`;
+          window.location.href = `/login?redirect=${encodeURIComponent(redirect)}&reason=session_expired`;
+        }
       }
     }
     return Promise.reject(error);
