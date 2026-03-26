@@ -58,6 +58,7 @@ const Leads = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sendingViaWhatsapp, setSendingViaWhatsapp] = useState(false);
+  const [aiModalError, setAiModalError] = useState('');
   const [usageInfo, setUsageInfo] = useState<UsageInfo | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
@@ -300,6 +301,7 @@ const Leads = () => {
     setMemorySummary('');
     setGenerationDebug(null);
     setGenerationStage('ready');
+    setAiModalError('');
     setAdvancedOpen(false);
   };
 
@@ -348,6 +350,7 @@ const Leads = () => {
     setMemorySummary(lead.memorySummary || '');
     setGenerationDebug(null);
     setGenerationStage('ready');
+    setAiModalError('');
     setShowAiModal(true);
     setError('');
     setAdvancedOpen(false);
@@ -453,12 +456,13 @@ const Leads = () => {
 
   const handleSendViaWhatsapp = async () => {
     if (!currentLead?.contact || !generatedText.trim()) {
-      setError('Lead needs a WhatsApp number and generated message before sending.');
+      setAiModalError('Lead needs a WhatsApp number and generated message before sending.');
       return;
     }
 
     try {
       setSendingViaWhatsapp(true);
+      setAiModalError('');
       setError('');
       await whatsappApi.sendText({
         leadId: currentLead.id,
@@ -471,7 +475,9 @@ const Leads = () => {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, t.common.error));
+      const message = getApiErrorMessage(err, t.common.error);
+      setAiModalError(message);
+      setError(message);
     } finally {
       setSendingViaWhatsapp(false);
     }
@@ -970,6 +976,11 @@ const Leads = () => {
                     {sendingViaWhatsapp ? t.dashboard.sending : t.dashboard.sendOnWhatsapp}
                   </button>
                 </div>
+                {aiModalError ? (
+                  <div className="alert alert-error">
+                    <span>{aiModalError}</span>
+                  </div>
+                ) : null}
 
                 <AiStatusPanel generationStage={generationStage} generationDebug={generationDebug} />
               </div>
