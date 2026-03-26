@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { remindersApi, Reminder, ReminderDispatchLog, leadsApi, Lead } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 
 const Reminders = () => {
-  const navigate = useNavigate();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,17 +139,6 @@ const Reminders = () => {
 
   const nextTask = overdueReminders[0] || todayReminders[0] || upcomingReminders[0] || null;
 
-  const buildInboxTaskLink = (reminder: Reminder) => {
-    const params = new URLSearchParams({
-      view: 'inbox',
-      phone: reminder.lead.contact || '',
-      reminderId: reminder.id,
-      leadId: reminder.lead.id,
-      source: 'reminders',
-    });
-    return `/whatsapp?${params.toString()}`;
-  };
-
   const renderReminderTask = (reminder: Reminder, priority: 'overdue' | 'today' | 'upcoming') => (
     <div
       key={reminder.id}
@@ -179,7 +167,16 @@ const Reminders = () => {
             <summary>{t.reminders.moreActions}</summary>
             <div className="reminder-secondary-actions-menu">
               {reminder.lead.contact ? (
-                <Link to={`/whatsapp?view=inbox&phone=${encodeURIComponent(reminder.lead.contact)}`} className="btn btn-secondary">
+                <Link
+                  to={`/whatsapp?${new URLSearchParams({
+                    view: 'inbox',
+                    phone: reminder.lead.contact || '',
+                    reminderId: reminder.id,
+                    leadId: reminder.lead.id,
+                    source: 'reminders',
+                  }).toString()}`}
+                  className="btn btn-secondary"
+                >
                   {t.reminders.openInInbox}
                 </Link>
               ) : null}
@@ -285,7 +282,16 @@ const Reminders = () => {
           </div>
 
           {nextTask?.lead.contact ? (
-            <Link to={`/whatsapp?view=inbox&phone=${encodeURIComponent(nextTask.lead.contact)}`} className="btn btn-primary">
+            <Link
+              to={`/whatsapp?${new URLSearchParams({
+                view: 'inbox',
+                phone: nextTask.lead.contact || '',
+                reminderId: nextTask.id,
+                leadId: nextTask.lead.id,
+                source: 'reminders',
+              }).toString()}`}
+              className="btn btn-primary"
+            >
               {t.reminders.processNextTask}
             </Link>
           ) : (
