@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getApiErrorMessage, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
+import { getApiErrorMessage, remindersApi, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import { useAuth } from '../hooks/useAuth';
@@ -50,7 +50,7 @@ const mapSendReadinessState = (
 const WhatsApp = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeView, setActiveView] = useState<WhatsAppView>(() => {
     const saved = storage.getItem(WHATSAPP_VIEW_KEY) as WhatsAppView | null;
     return saved === 'inbox' || saved === 'contacts' || saved === 'setup' ? saved : 'setup';
@@ -708,6 +708,46 @@ const WhatsApp = () => {
       setComposerText('');
       await loadConversation(selectedPhone);
       await loadContacts(contactQuery, contactsPage);
+      const linkedReminderId = searchParams.get('reminderId');
+      const linkedLeadId = searchParams.get('leadId') || selectedContact?.lead?.id;
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+
+      const clearFlowParams = () => {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('reminderId');
+        nextParams.delete('leadId');
+        nextParams.delete('source');
+        setSearchParams(nextParams, { replace: true });
+      };
+
+      try {
+        if (linkedReminderId) {
+          const resolved = await remindersApi.markDone(linkedReminderId);
+          if (resolved.success) {
+            setSuccess(t.whatsapp.replyResolvedReminder.replace('{name}', selectedContact?.lead?.name || selectedPhone));
+            clearFlowParams();
+          }
+        } else if (linkedLeadId) {
+          const pendingResp = await remindersApi.getReminders({ view: 'all', status: 'pending', days: 30 });
+          if (pendingResp.success && pendingResp.data) {
+            const related = pendingResp.data
+              .filter((item) => !item.isDone && item.lead.id === linkedLeadId)
+              .sort((a, b) => new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime())
+              .find((item) => new Date(item.triggerAt).getTime() <= endOfToday.getTime());
+
+            if (related) {
+              const resolved = await remindersApi.markDone(related.id);
+              if (resolved.success) {
+                setSuccess(t.whatsapp.replyResolvedReminder.replace('{name}', related.lead.name));
+                clearFlowParams();
+              }
+            }
+          }
+        }
+      } catch (_err) {
+        // keep reply success even if reminder auto-resolution fails
+      }
     } catch (err) {
       setError(getApiErrorMessage(err, t.common.error));
     } finally {

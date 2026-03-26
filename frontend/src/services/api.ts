@@ -103,6 +103,10 @@ api.interceptors.response.use(
       const url = error.config?.url || '';
       const isMeRequest = url.includes('/auth/me');
       const isLoginOrRegister = url.includes('/auth/login') || url.includes('/auth/register');
+      const code = error.response?.data?.error?.code || '';
+      const isDomainSpecific401 =
+        typeof code === 'string' &&
+        (code.startsWith('WHATSAPP_') || code.startsWith('WA_'));
 
       if (isMeRequest) {
         storage.removeToken();
@@ -111,7 +115,7 @@ api.interceptors.response.use(
           const redirect = `${window.location.pathname}${window.location.search}`;
           window.location.href = `/login?redirect=${encodeURIComponent(redirect)}&reason=session_expired`;
         }
-      } else if (!isLoginOrRegister) {
+      } else if (!isLoginOrRegister && !isDomainSpecific401) {
         storage.removeToken();
         if (!isRedirectingToLogin) {
           isRedirectingToLogin = true;

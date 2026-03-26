@@ -391,7 +391,7 @@ const Dashboard = () => {
         id: 'connect-whatsapp',
         title: t.dashboard.taskConnectWhatsappTitle,
         body: t.dashboard.connectWhatsappBody,
-        to: '/whatsapp?view=setup',
+        to: '/whatsapp?view=setup&source=dashboard',
         kind: 'warning',
         ctaLabel: t.dashboard.ctaOpenWhatsappSetup,
         priority: 130,
@@ -403,7 +403,7 @@ const Dashboard = () => {
         id: 'inbox',
         title: translate(t.dashboard.taskUnreadTitle, { count: summary.unreadMessages }),
         body: t.dashboard.unreadBannerBody,
-        to: '/whatsapp?view=inbox',
+        to: '/whatsapp?view=inbox&source=dashboard',
         kind: 'danger',
         ctaLabel: t.dashboard.ctaReviewUnreadNow,
         priority: 120,
@@ -415,7 +415,7 @@ const Dashboard = () => {
         id: 'overdue',
         title: translate(t.dashboard.taskOverdueTitle, { count: summary.overdueFollowUps }),
         body: translate(t.dashboard.overdueActionBody, { count: summary.overdueFollowUps }),
-        to: '/reminders',
+        to: '/reminders?source=dashboard',
         kind: 'warning',
         ctaLabel: t.dashboard.ctaResolveOverdueNow,
         priority: 110,
@@ -427,7 +427,7 @@ const Dashboard = () => {
         id: 'reminders',
         title: t.dashboard.taskTodayQueueTitle,
         body: t.dashboard.tasksActionBody,
-        to: '/reminders',
+        to: '/reminders?source=dashboard',
         kind: 'info',
         ctaLabel: t.dashboard.ctaReviewTasksNow,
         priority: 90,
@@ -449,7 +449,7 @@ const Dashboard = () => {
       id: 'whatsapp',
       title: t.dashboard.taskReviewConversationsTitle,
       body: t.dashboard.whatsappNavBody,
-      to: '/whatsapp',
+      to: '/whatsapp?source=dashboard',
       kind: 'success',
       ctaLabel: t.dashboard.ctaOpenWhatsappInbox,
       priority: 30,
@@ -497,7 +497,7 @@ const Dashboard = () => {
               {topbarSecondaryAction.ctaLabel || t.dashboard.openCta}
             </Link>
           ) : (
-            <Link to="/reminders" className="btn btn-secondary dashboard-secondary-cta">
+            <Link to="/reminders?source=dashboard" className="btn btn-secondary dashboard-secondary-cta">
               {t.reminders.title}
             </Link>
           )}
@@ -528,7 +528,7 @@ const Dashboard = () => {
             <span className="status-chip status-chip-info">
               {translate(t.dashboard.unreadBannerTitle, { count: summary?.unreadMessages || 0 })}
             </span>
-              <Link to="/whatsapp?view=inbox" className="btn btn-secondary dashboard-secondary-cta">
+              <Link to="/whatsapp?view=inbox&source=dashboard" className="btn btn-secondary dashboard-secondary-cta">
                 {t.dashboard.openUnreadConversation}
               </Link>
           </div>
@@ -555,11 +555,11 @@ const Dashboard = () => {
                   : t.dashboard.noUnreadClear}
             </p>
             {!hasConnectedWhatsApp ? (
-              <Link to="/whatsapp?view=setup" className="btn btn-secondary">{t.dashboard.ctaOpenWhatsappSetup}</Link>
+              <Link to="/whatsapp?view=setup&source=dashboard" className="btn btn-secondary">{t.dashboard.ctaOpenWhatsappSetup}</Link>
             ) : !hasLeads ? (
               <Link to="/leads" className="btn btn-secondary">{t.dashboard.ctaAddFirstLead}</Link>
             ) : (
-              <Link to="/whatsapp?view=inbox" className="btn btn-secondary">{t.dashboard.ctaOpenWhatsappInbox}</Link>
+              <Link to="/whatsapp?view=inbox&source=dashboard" className="btn btn-secondary">{t.dashboard.ctaOpenWhatsappInbox}</Link>
             )}
           </div>
         ) : (
@@ -573,7 +573,7 @@ const Dashboard = () => {
                 <div className="dashboard-list-actions">
                   <span className="status-chip status-chip-danger">{item.unreadCount}</span>
                   <Link
-                    to={`/whatsapp?view=inbox&phone=${encodeURIComponent(item.phone)}`}
+                    to={`/whatsapp?view=inbox&source=dashboard&phone=${encodeURIComponent(item.phone)}`}
                     className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary dashboard-secondary-cta'}`}
                   >
                     {index === 0 ? t.dashboard.ctaReviewUnreadNow : t.dashboard.openUnreadConversation}
@@ -595,7 +595,7 @@ const Dashboard = () => {
             <span className="status-chip status-chip-info">
               {t.dashboard.waitingPaymentLabel}: {summary?.waitingPaymentAmount ? `RM ${summary.waitingPaymentAmount}` : summary?.waitingPayment || 0}
             </span>
-            <Link to="/reminders" className="btn btn-secondary dashboard-secondary-cta">{t.reminders.title}</Link>
+            <Link to="/reminders?source=dashboard" className="btn btn-secondary dashboard-secondary-cta">{t.reminders.title}</Link>
           </div>
         </div>
 
@@ -619,11 +619,11 @@ const Dashboard = () => {
                   : t.dashboard.noTasksDue}
             </p>
             {unreadCount > 0 ? (
-              <Link to="/whatsapp?view=inbox" className="btn btn-secondary">{t.dashboard.ctaReviewUnreadNow}</Link>
+              <Link to="/whatsapp?view=inbox&source=dashboard" className="btn btn-secondary">{t.dashboard.ctaReviewUnreadNow}</Link>
             ) : !hasLeads ? (
               <Link to="/leads" className="btn btn-secondary">{t.dashboard.ctaAddFirstLead}</Link>
             ) : (
-              <Link to="/reminders" className="btn btn-secondary">{t.reminders.createReminder}</Link>
+              <Link to="/reminders?source=dashboard" className="btn btn-secondary">{t.reminders.createReminder}</Link>
             )}
           </div>
         ) : (
@@ -670,7 +670,7 @@ const Dashboard = () => {
         <article className={`card dashboard-panel ${hasUrgentAttention ? 'dashboard-panel-muted' : ''}`}>
           <div className="section-heading dashboard-panel-heading">
             <h3>{t.dashboard.todayFollowUpsTitle}</h3>
-            <Link to="/reminders" className="btn btn-secondary dashboard-secondary-cta">{t.reminders.title}</Link>
+            <Link to="/reminders?source=dashboard" className="btn btn-secondary dashboard-secondary-cta">{t.reminders.title}</Link>
           </div>
           {loading ? (
             <div className="dashboard-panel-state"><div className="spinner" aria-hidden="true" /><p>{t.common.loading}</p></div>
@@ -679,7 +679,7 @@ const Dashboard = () => {
           ) : recentReplies.length === 0 ? (
             <div className="dashboard-panel-state">
               <p>{t.dashboard.noRecentRepliesActionBody}</p>
-              <Link to="/whatsapp?view=inbox" className="btn btn-secondary dashboard-secondary-cta">{t.dashboard.ctaOpenWhatsappInbox}</Link>
+              <Link to="/whatsapp?view=inbox&source=dashboard" className="btn btn-secondary dashboard-secondary-cta">{t.dashboard.ctaOpenWhatsappInbox}</Link>
             </div>
           ) : (
             <div className="simple-list">
@@ -701,7 +701,7 @@ const Dashboard = () => {
         <article className={`card dashboard-panel ${hasUrgentAttention ? 'dashboard-panel-muted' : ''}`}>
           <div className="section-heading dashboard-panel-heading">
             <h3>{t.dashboard.quickActionTitle}</h3>
-            <Link to="/whatsapp?view=inbox" className="btn btn-secondary dashboard-secondary-cta">{t.dashboard.openWhatsappCta}</Link>
+            <Link to="/whatsapp?view=inbox&source=dashboard" className="btn btn-secondary dashboard-secondary-cta">{t.dashboard.openWhatsappCta}</Link>
           </div>
           {loading ? (
             <div className="dashboard-panel-state"><div className="spinner" aria-hidden="true" /><p>{t.common.loading}</p></div>
