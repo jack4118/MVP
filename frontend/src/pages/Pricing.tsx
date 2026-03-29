@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
@@ -10,50 +10,54 @@ import '../styles/landing-v2.css';
 const Pricing = () => {
   const { t } = useLanguage();
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isAppEmbedded = location.pathname.startsWith('/app/');
   const trialTarget = isAuthenticated ? '/dashboard' : '/login';
   const demoTarget = isAuthenticated ? '/whatsapp' : '/login?redirect=/whatsapp';
 
   return (
     <div className="landing-v2">
-      <header className="landing-v2-header">
-        <div className="landing-v2-header-inner">
-          <Link to="/" className="landing-v2-brand" aria-label={t.landingV2.brandAriaLabel}>
-            <AppLogo />
-          </Link>
+      {!isAppEmbedded ? (
+        <header className="landing-v2-header">
+          <div className="landing-v2-header-inner">
+            <Link to="/" className="landing-v2-brand" aria-label={t.landingV2.brandAriaLabel}>
+              <AppLogo />
+            </Link>
 
-          <nav className="landing-v2-nav" aria-label={t.landingV2.navAriaLabel}>
-            <Link to="/#how-it-works">{t.landingV2.navHowItWorks}</Link>
-            <Link to="/#solutions">{t.landingV2.navSolutions}</Link>
-            <a href="#pricing-plans">{t.landingV2.navPricing}</a>
-            <Link to="/#success">{t.landingV2.navSuccess}</Link>
-          </nav>
+            <nav className="landing-v2-nav" aria-label={t.landingV2.navAriaLabel}>
+              <Link to="/#how-it-works">{t.landingV2.navHowItWorks}</Link>
+              <Link to="/#solutions">{t.landingV2.navSolutions}</Link>
+              <a href="#pricing-plans">{t.landingV2.navPricing}</a>
+              <Link to="/#success">{t.landingV2.navSuccess}</Link>
+            </nav>
 
-          <div className="landing-v2-header-controls">
-            <div className="landing-v2-toggle-row">
-              <LanguageToggle />
-              <ThemeToggle />
+            <div className="landing-v2-header-controls">
+              <div className="landing-v2-toggle-row">
+                <LanguageToggle />
+                <ThemeToggle />
+              </div>
+              <Link to="/login" className="landing-v2-link-btn">{t.landingV2.navLogin}</Link>
+              <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.navStartTrial}</Link>
             </div>
-            <Link to="/login" className="landing-v2-link-btn">{t.landingV2.navLogin}</Link>
-            <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.navStartTrial}</Link>
-          </div>
 
-          <div className="landing-v2-mobile-actions">
-            <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.navStartTrial}</Link>
-            <button
-              type="button"
-              className="landing-v2-mobile-menu-btn"
-              aria-expanded={mobileMenuOpen}
-              aria-controls="pricing-v2-mobile-menu"
-              aria-label={t.landingV2.navMenu}
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-            >
-              ☰
-            </button>
+            <div className="landing-v2-mobile-actions">
+              <Link to={trialTarget} className="landing-v2-btn landing-v2-btn-primary">{t.landingV2.navStartTrial}</Link>
+              <button
+                type="button"
+                className="landing-v2-mobile-menu-btn"
+                aria-expanded={mobileMenuOpen}
+                aria-controls="pricing-v2-mobile-menu"
+                aria-label={t.landingV2.navMenu}
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+              >
+                ☰
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
-      {mobileMenuOpen ? (
+        </header>
+      ) : null}
+      {!isAppEmbedded && mobileMenuOpen ? (
         <>
           <button
             type="button"
@@ -140,38 +144,40 @@ const Pricing = () => {
         </section>
       </main>
 
-      <footer className="landing-v2-footer">
-        <div className="landing-v2-footer-grid">
-          <div>
-            <h3>{t.landingV2.footerBrand}</h3>
-            <p>{t.landingV2.footerBrandBody}</p>
+      {!isAppEmbedded ? (
+        <footer className="landing-v2-footer">
+          <div className="landing-v2-footer-grid">
+            <div>
+              <h3>{t.landingV2.footerBrand}</h3>
+              <p>{t.landingV2.footerBrandBody}</p>
+            </div>
+            <div>
+              <h4>{t.landingV2.footerProductTitle}</h4>
+              <nav>
+                <Link to="/whatsapp">{t.landingV2.footerProductWhatsApp}</Link>
+                <Link to="/leads">{t.landingV2.footerProductLeads}</Link>
+                <Link to="/reminders">{t.landingV2.footerProductReminders}</Link>
+                <Link to="/ai">{t.landingV2.footerProductAi}</Link>
+              </nav>
+            </div>
+            <div>
+              <h4>{t.landingV2.footerCompanyTitle}</h4>
+              <nav>
+                <Link to="/pricing">{t.landingV2.footerCompanyPricing}</Link>
+                <Link to="/login">{t.landingV2.footerCompanyLogin}</Link>
+              </nav>
+            </div>
+            <div>
+              <h4>{t.landingV2.footerSupportTitle}</h4>
+              <nav>
+                <Link to="/pricing">{t.landingV2.footerSupportPricing}</Link>
+                <Link to={demoTarget}>{t.landingV2.footerSupportDemo}</Link>
+              </nav>
+            </div>
           </div>
-          <div>
-            <h4>{t.landingV2.footerProductTitle}</h4>
-            <nav>
-              <Link to="/whatsapp">{t.landingV2.footerProductWhatsApp}</Link>
-              <Link to="/leads">{t.landingV2.footerProductLeads}</Link>
-              <Link to="/reminders">{t.landingV2.footerProductReminders}</Link>
-              <Link to="/ai">{t.landingV2.footerProductAi}</Link>
-            </nav>
-          </div>
-          <div>
-            <h4>{t.landingV2.footerCompanyTitle}</h4>
-            <nav>
-              <Link to="/pricing">{t.landingV2.footerCompanyPricing}</Link>
-              <Link to="/login">{t.landingV2.footerCompanyLogin}</Link>
-            </nav>
-          </div>
-          <div>
-            <h4>{t.landingV2.footerSupportTitle}</h4>
-            <nav>
-              <Link to="/pricing">{t.landingV2.footerSupportPricing}</Link>
-              <Link to={demoTarget}>{t.landingV2.footerSupportDemo}</Link>
-            </nav>
-          </div>
-        </div>
-        <p className="landing-v2-footer-note">{t.landingV2.footerNote}</p>
-      </footer>
+          <p className="landing-v2-footer-note">{t.landingV2.footerNote}</p>
+        </footer>
+      ) : null}
     </div>
   );
 };

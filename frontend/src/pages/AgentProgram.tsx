@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
 
 const AgentProgram = () => {
   const { t } = useLanguage();
+  const location = useLocation();
   const [copied, setCopied] = useState(false);
+  const isAppEmbedded = location.pathname.startsWith('/app/');
   const referralLink = 'https://ezreply.app/ref/demo-agent';
   const mockRows = useMemo(
     () => [
@@ -30,7 +33,7 @@ const AgentProgram = () => {
 
   return (
     <div className="landing-shell">
-      <PublicHeader />
+      {!isAppEmbedded ? <PublicHeader /> : null}
       <main className="landing-main">
         <section className="agent-hero card">
           <p className="eyebrow">{t.agent.waitlistEyebrow}</p>
@@ -102,7 +105,7 @@ const AgentProgram = () => {
           <p>{t.agent.riskNote}</p>
         </section>
       </main>
-      <PublicFooter />
+      {!isAppEmbedded ? <PublicFooter /> : null}
     </div>
   );
 };
