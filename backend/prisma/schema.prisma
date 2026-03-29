@@ -73,6 +73,7 @@ model Lead {
   status             String    @default("new")
   stage              String    @default("inquiry")
   tags               Json?
+  leadMemory         Json?     @map("lead_memory")
   memorySummary      String?   @map("memory_summary")
   memoryGoal         String?   @map("memory_goal")
   memoryLanguage     String?   @map("memory_language")

@@ -1,4 +1,5 @@
 import prisma from '../config/database';
+import { Prisma } from '@prisma/client';
 import { normalizeLeadStatus } from './followUpService';
 
 export interface CreateLeadData {
@@ -19,6 +20,15 @@ export interface UpdateLeadData {
   status?: string;
   stage?: string;
   tags?: string[];
+  leadMemory?: {
+    customer_intent: string;
+    current_status: string;
+    key_issues: string;
+    tone_preference: string;
+    urgency_level: 'low' | 'medium' | 'high';
+    next_best_action: string;
+    summary: string;
+  } | null;
   closedReason?: string;
   nextFollowUpAt?: string;
 }
@@ -133,6 +143,14 @@ export const updateLead = async (userId: string, leadId: string, data: UpdateLea
       ...(data.status !== undefined ? { status: normalizeLeadStatus(data.status) } : {}),
       ...(data.stage !== undefined ? { stage: data.stage || 'inquiry' } : {}),
       ...(data.tags !== undefined ? { tags: data.tags } : {}),
+      ...(data.leadMemory !== undefined
+        ? {
+            leadMemory: data.leadMemory === null ? Prisma.JsonNull : data.leadMemory,
+            memorySummary: data.leadMemory?.summary ?? null,
+            memoryGoal: data.leadMemory?.next_best_action ?? null,
+            memoryUpdatedAt: new Date(),
+          }
+        : {}),
       ...(data.closedReason !== undefined ? { closedReason: data.closedReason } : {}),
       ...(data.nextFollowUpAt !== undefined ? { nextFollowUpAt: data.nextFollowUpAt ? new Date(data.nextFollowUpAt) : null } : {}),
       lastActivityAt: new Date(),

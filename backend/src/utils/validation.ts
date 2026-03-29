@@ -112,6 +112,15 @@ export const updateLeadSchema = z.object({
   status: leadStatusSchema.optional(),
   stage: z.string().max(80).optional(),
   tags: z.array(z.string().max(80)).max(10).optional(),
+  leadMemory: z.object({
+    customer_intent: z.string().min(1).max(240),
+    current_status: z.string().min(1).max(240),
+    key_issues: z.string().min(1).max(320),
+    tone_preference: z.string().min(1).max(120),
+    urgency_level: z.enum(['low', 'medium', 'high']),
+    next_best_action: z.string().min(1).max(240),
+    summary: z.string().min(1).max(320),
+  }).optional().nullable(),
   closedReason: z.string().max(200, 'closedReason is too long').optional(),
   nextFollowUpAt: z.string().datetime('nextFollowUpAt must be a valid ISO datetime').optional(),
 });
@@ -130,6 +139,12 @@ export const importLeadsSchema = z.object({
       status: leadStatusSchema.optional(),
     })
   ).optional(),
+});
+
+export const analyzeConversationSchema = z.object({
+  leadId: z.string().min(1, 'leadId is required'),
+  conversation: z.string().trim().min(1, 'conversation is required').max(20000, 'conversation is too long'),
+  notes: z.string().max(4000, 'notes is too long').optional(),
 });
 
 export const aiFollowUpSchema = z.object({

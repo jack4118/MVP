@@ -32,6 +32,16 @@ import {
   shouldRefreshLeadMemory,
 } from '../features/ai/shared';
 
+const createEmptyLeadMemory = (lead?: Lead | null): NonNullable<Lead['leadMemory']> => ({
+  customer_intent: lead?.memoryGoal || 'Clarify customer intent',
+  current_status: lead?.status || 'new',
+  key_issues: 'No clear blockers stated',
+  tone_preference: lead?.aiTonePreference || 'polite',
+  urgency_level: 'medium',
+  next_best_action: lead?.memoryGoal || 'Send a concise next-step follow-up',
+  summary: lead?.memorySummary || 'Lead memory not analyzed yet',
+});
+
 const AI = () => {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -55,6 +65,8 @@ const AI = () => {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeSource, setUpgradeSource] = useState<'copy_gate' | 'ai_limit' | 'post_success' | 'generic'>('generic');
   const [memorySummary, setMemorySummary] = useState('');
+  const [memoryDraft, setMemoryDraft] = useState<Lead['leadMemory'] | null>(null);
+  const [savingMemory, setSavingMemory] = useState(false);
   const [refreshingMemory, setRefreshingMemory] = useState(false);
 
   useEffect(() => {
@@ -115,6 +127,7 @@ const AI = () => {
 
   const hydrateLeadMemory = async (lead: Lead) => {
     setMemorySummary(lead.memorySummary || '');
+    setMemoryDraft(lead.leadMemory || createEmptyLeadMemory(lead));
     setConfig((current) => ({
       ...current,
       ...getDefaultConfigFromUserPreferences(user, current),
@@ -133,6 +146,7 @@ const AI = () => {
         setLeads((current) => current.map((item) => (item.id === refreshedLead.id ? refreshedLead : item)));
         setSelectedLead(refreshedLead);
         setMemorySummary(response.data.memory.summary || refreshedLead.memorySummary || '');
+        setMemoryDraft(refreshedLead.leadMemory || createEmptyLeadMemory(refreshedLead));
         setConfig((current) => ({
           ...current,
           ...getDefaultConfigFromUserPreferences(user, current),
@@ -147,6 +161,36 @@ const AI = () => {
     }
 
     return lead;
+  };
+
+  const handleSaveMemory = async () => {
+    if (!selectedLead || !memoryDraft) {
+      return;
+    }
+
+    try {
+      setSavingMemory(true);
+      setError('');
+      const response = await leadsApi.updateLead(selectedLead.id, {
+        leadMemory: memoryDraft,
+      });
+      if (!response.success || !response.data) {
+        setError(response.error?.message || t.common.error);
+        return;
+      }
+      const updated = response.data;
+      setSelectedLead(updated);
+      setLeads((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setMemorySummary(updated.memorySummary || '');
+      setConfig((current) => ({
+        ...current,
+        ...getDefaultConfigFromLeadMemory(updated, current),
+      }));
+    } catch (err) {
+      setError(getApiErrorMessage(err, t.common.error));
+    } finally {
+      setSavingMemory(false);
+    }
   };
 
   const handleGenerate = async () => {
@@ -374,6 +418,7 @@ const AI = () => {
                   hydrateLeadMemory(lead);
                 } else {
                   setMemorySummary('');
+                  setMemoryDraft(null);
                 }
               }}
               className="input"
@@ -403,6 +448,84 @@ const AI = () => {
               ) : null}
             </div>
           )}
+
+          {selectedLead && memoryDraft ? (
+            <div className="ai-cutoff-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
+                <strong>Structured Lead Memory</strong>
+                <button className="btn btn-primary" type="button" onClick={handleSaveMemory} disabled={savingMemory}>
+                  {savingMemory ? t.common.loading : t.common.save}
+                </button>
+              </div>
+              <div className="form-group" style={{ marginTop: '8px' }}>
+                <label className="form-label">Customer intent</label>
+                <input
+                  className="input"
+                  value={memoryDraft.customer_intent}
+                  onChange={(e) => setMemoryDraft((current) => current ? { ...current, customer_intent: e.target.value } : current)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Current status</label>
+                <input
+                  className="input"
+                  value={memoryDraft.current_status}
+                  onChange={(e) => setMemoryDraft((current) => current ? { ...current, current_status: e.target.value } : current)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Key issues</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={memoryDraft.key_issues}
+                  onChange={(e) => setMemoryDraft((current) => current ? { ...current, key_issues: e.target.value } : current)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Tone preference</label>
+                <input
+                  className="input"
+                  value={memoryDraft.tone_preference}
+                  onChange={(e) => setMemoryDraft((current) => current ? { ...current, tone_preference: e.target.value } : current)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Urgency level</label>
+                <select
+                  className="input"
+                  value={memoryDraft.urgency_level}
+                  onChange={(e) => setMemoryDraft((current) => current ? { ...current, urgency_level: e.target.value as 'low' | 'medium' | 'high' } : current)}
+                >
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Next best action</label>
+                <textarea
+                  className="input"
+                  rows={2}
+                  value={memoryDraft.next_best_action}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setMemoryDraft((current) => current ? { ...current, next_best_action: value } : current);
+                    setConfig((current) => ({ ...current, goal: value || current.goal }));
+                  }}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Summary</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={memoryDraft.summary}
+                  onChange={(e) => setMemoryDraft((current) => current ? { ...current, summary: e.target.value } : current)}
+                />
+              </div>
+            </div>
+          ) : null}
 
           <button onClick={handleGenerate} disabled={loading || !selectedLead} className="btn btn-primary" style={{ width: '100%' }}>
             {loading ? (

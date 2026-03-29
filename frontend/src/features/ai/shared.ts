@@ -60,17 +60,17 @@ const PLACEHOLDER_MEMORY_SIGNALS = [
 const normalizeMemoryText = (value?: string | null) => (value || '').trim().toLowerCase();
 
 export const hasPlaceholderLeadMemory = (
-  lead: Pick<Lead, 'memorySummary' | 'memoryGoal'>
+  lead: Pick<Lead, 'memorySummary' | 'memoryGoal' | 'leadMemory'>
 ) => {
-  const summary = normalizeMemoryText(lead.memorySummary);
-  const goal = normalizeMemoryText(lead.memoryGoal);
+  const summary = normalizeMemoryText(lead.leadMemory?.summary || lead.memorySummary);
+  const goal = normalizeMemoryText(lead.leadMemory?.next_best_action || lead.memoryGoal);
   return PLACEHOLDER_MEMORY_SIGNALS.some(
     (signal) => summary.includes(signal) || goal.includes(signal)
   );
 };
 
-export const getSanitizedLeadMemoryGoal = (lead: Pick<Lead, 'memorySummary' | 'memoryGoal'>) =>
-  hasPlaceholderLeadMemory(lead) ? '' : lead.memoryGoal || '';
+export const getSanitizedLeadMemoryGoal = (lead: Pick<Lead, 'memorySummary' | 'memoryGoal' | 'leadMemory'>) =>
+  hasPlaceholderLeadMemory(lead) ? '' : lead.leadMemory?.next_best_action || lead.memoryGoal || '';
 
 export const shouldRefreshLeadMemory = (
   lead: Pick<

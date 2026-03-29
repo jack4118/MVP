@@ -34,6 +34,7 @@ const Leads = () => {
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showConversationImport, setShowConversationImport] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -68,6 +69,11 @@ const Leads = () => {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importSummary, setImportSummary] = useState<null | { importedCount: number; skippedCount: number; totalRows: number }>(null);
+  const [conversationImportLeadId, setConversationImportLeadId] = useState('');
+  const [conversationImportText, setConversationImportText] = useState('');
+  const [conversationImportNotes, setConversationImportNotes] = useState('');
+  const [analyzingConversation, setAnalyzingConversation] = useState(false);
+  const [conversationImportSuccess, setConversationImportSuccess] = useState('');
   const [memorySummary, setMemorySummary] = useState('');
   const [refreshingMemory, setRefreshingMemory] = useState(false);
   const returnTo = searchParams.get('return');
@@ -280,6 +286,44 @@ const Leads = () => {
       setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleAnalyzeConversation = async () => {
+    if (!conversationImportLeadId || !conversationImportText.trim()) {
+      setError('Please select a lead and paste conversation text.');
+      return;
+    }
+
+    try {
+      setAnalyzingConversation(true);
+      setError('');
+      setConversationImportSuccess('');
+      const response = await aiApi.analyzeConversation({
+        leadId: conversationImportLeadId,
+        conversation: conversationImportText.trim(),
+        notes: conversationImportNotes.trim() || undefined,
+      });
+
+      if (!response.success || !response.data) {
+        setError(response.error?.message || 'Failed to analyze conversation.');
+        if (response.usage) {
+          setUsageInfo(response.usage);
+        }
+        return;
+      }
+
+      await loadLeads();
+      setConversationImportSuccess('Memory analyzed and saved.');
+      setConversationImportText('');
+      setConversationImportNotes('');
+      if (response.usage) {
+        setUsageInfo(response.usage);
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to analyze conversation.'));
+    } finally {
+      setAnalyzingConversation(false);
     }
   };
 
@@ -568,6 +612,19 @@ const Leads = () => {
         </button>
         <button
           onClick={() => {
+            setShowConversationImport((value) => !value);
+            setConversationImportSuccess('');
+            setError('');
+            if (!conversationImportLeadId && allLeads.length > 0) {
+              setConversationImportLeadId(allLeads[0].id);
+            }
+          }}
+          className="btn btn-secondary"
+        >
+          Import Conversation
+        </button>
+        <button
+          onClick={() => {
             setShowImport((value) => !value);
             setImportSummary(null);
             setError('');
@@ -691,6 +748,76 @@ const Leads = () => {
                 setShowImport(false);
                 setImportText('');
                 setImportSummary(null);
+              }}
+              className="btn btn-secondary"
+            >
+              {t.common.cancel}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showConversationImport && (
+        <div className="card form-card">
+          <h2>Import Conversation</h2>
+          <p className="page-subtitle">Paste prior chat history and optional notes to analyze structured lead memory.</p>
+          <div className="form-group">
+            <label className="form-label">Lead</label>
+            <select
+              value={conversationImportLeadId}
+              onChange={(e) => setConversationImportLeadId(e.target.value)}
+              className="input"
+            >
+              <option value="">Select lead</option>
+              {allLeads.map((lead) => (
+                <option key={lead.id} value={lead.id}>
+                  {lead.name} ({t.status[lead.status]})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Conversation text *</label>
+            <textarea
+              value={conversationImportText}
+              onChange={(e) => setConversationImportText(e.target.value)}
+              className="input"
+              rows={10}
+              placeholder="Paste prior conversation here"
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Notes (optional)</label>
+            <textarea
+              value={conversationImportNotes}
+              onChange={(e) => setConversationImportNotes(e.target.value)}
+              className="input"
+              rows={4}
+              placeholder="Any extra context for analysis"
+            />
+          </div>
+          {conversationImportSuccess ? (
+            <div className="alert alert-success">
+              <span>{conversationImportSuccess}</span>
+            </div>
+          ) : null}
+          <div className="form-actions">
+            <button
+              type="button"
+              onClick={handleAnalyzeConversation}
+              className="btn btn-primary"
+              disabled={analyzingConversation || !conversationImportLeadId || !conversationImportText.trim()}
+            >
+              {analyzingConversation ? t.ai.generating : 'Analyze and Save Memory'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowConversationImport(false);
+                setConversationImportLeadId('');
+                setConversationImportText('');
+                setConversationImportNotes('');
+                setConversationImportSuccess('');
               }}
               className="btn btn-secondary"
             >

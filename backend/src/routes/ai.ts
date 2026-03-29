@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { buildGenerationDebugInfo, generateFollowUpText, generatePaymentText, generateRefinedText, getAiHistory } from '../services/aiService';
-import { aiFollowUpSchema, aiPaymentSchema, aiRefineSchema } from '../utils/validation';
+import { analyzeConversationToLeadMemory, buildGenerationDebugInfo, generateFollowUpText, generatePaymentText, generateRefinedText, getAiHistory } from '../services/aiService';
+import { aiFollowUpSchema, aiPaymentSchema, aiRefineSchema, analyzeConversationSchema } from '../utils/validation';
 import { getLeadById } from '../services/leadService';
 import { getUserPlan, checkAiUsageLimit, getUsageInfo } from '../services/planService';
 import { trackEvent } from '../services/eventService';
@@ -280,6 +280,61 @@ router.post('/refine', async (req: AuthRequest, res: Response, next: NextFunctio
         debug,
       },
       usage: usageInfo,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Lead not found') {
+      return res.status(404).json({
+        success: false,
+        error: { message: error.message },
+      });
+    }
+    next(error);
+  }
+});
+
+router.post('/analyze-conversation', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Unauthorized' },
+      });
+    }
+
+    const validatedData = analyzeConversationSchema.parse(req.body);
+    await getLeadById(req.userId, validatedData.leadId);
+
+    const plan = await getUserPlan(req.userId);
+    const canUseAi = await checkAiUsageLimit(req.userId, plan);
+    if (!canUseAi) {
+      const usageInfo = await getUsageInfo(req.userId);
+      await trackEvent(req.userId, {
+        event: 'ai_generate_failed_limit',
+        props: { purpose: 'follow_up', mode: 'analyze_conversation' },
+      }).catch(() => undefined);
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'AI usage limit reached. Please upgrade to Pro for unlimited AI messages.',
+          code: 'AI_LIMIT_REACHED',
+        },
+        usage: usageInfo,
+      });
+    }
+
+    const memory = await analyzeConversationToLeadMemory(req.userId, validatedData);
+    await trackEvent(req.userId, {
+      event: 'ai_generate_success',
+      props: { purpose: 'follow_up', mode: 'analyze_conversation' },
+    }).catch(() => undefined);
+
+    return res.json({
+      success: true,
+      data: {
+        leadId: validatedData.leadId,
+        memory,
+      },
+      usage: await getUsageInfo(req.userId),
     });
   } catch (error) {
     if (error instanceof Error && error.message === 'Lead not found') {

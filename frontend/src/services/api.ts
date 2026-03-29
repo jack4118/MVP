@@ -18,6 +18,7 @@ export type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_es
 export type OutputFormat = 'chat' | 'email' | 'whatsapp';
 export type AiChannel = OutputFormat;
 export type AppLanguage = 'en' | 'zh-CN' | 'ms';
+export type UrgencyLevel = 'low' | 'medium' | 'high';
 export type ProductEvent =
   | 'ai_generate_clicked'
   | 'ai_generate_success'
@@ -178,6 +179,15 @@ export interface Lead {
   status: LeadStatus;
   stage?: string;
   tags?: string[] | null;
+  leadMemory?: {
+    customer_intent: string;
+    current_status: string;
+    key_issues: string;
+    tone_preference: string;
+    urgency_level: UrgencyLevel;
+    next_best_action: string;
+    summary: string;
+  } | null;
   memorySummary?: string | null;
   memoryGoal?: string | null;
   memoryLanguage?: AppLanguage | null;
@@ -531,6 +541,15 @@ export const leadsApi = {
       status?: LeadStatus;
       stage?: string;
       tags?: string[];
+      leadMemory?: {
+        customer_intent: string;
+        current_status: string;
+        key_issues: string;
+        tone_preference: string;
+        urgency_level: UrgencyLevel;
+        next_best_action: string;
+        summary: string;
+      } | null;
       closedReason?: string;
       nextFollowUpAt?: string | null;
     }
@@ -681,6 +700,37 @@ export const remindersApi = {
 };
 
 export const aiApi = {
+  analyzeConversation: async (data: {
+    leadId: string;
+    conversation: string;
+    notes?: string;
+  }): Promise<ApiResponse<{
+    leadId: string;
+    memory: {
+      customer_intent: string;
+      current_status: string;
+      key_issues: string;
+      tone_preference: string;
+      urgency_level: UrgencyLevel;
+      next_best_action: string;
+      summary: string;
+    };
+  }>> => {
+    const response = await api.post<ApiResponse<{
+      leadId: string;
+      memory: {
+        customer_intent: string;
+        current_status: string;
+        key_issues: string;
+        tone_preference: string;
+        urgency_level: UrgencyLevel;
+        next_best_action: string;
+        summary: string;
+      };
+    }>>('/ai/analyze-conversation', data);
+    return response.data;
+  },
+
   generateFollowUp: async (data: {
     leadId: string;
     leadName: string;

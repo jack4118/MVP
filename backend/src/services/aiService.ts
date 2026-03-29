@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import prisma from '../config/database';
+import { z } from 'zod';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -1645,6 +1646,18 @@ const parseTaggedSection = (payload: string, tag: string) => {
   return match?.[1]?.trim() || '';
 };
 
+const leadStructuredMemorySchema = z.object({
+  customer_intent: z.string().min(1).max(240),
+  current_status: z.string().min(1).max(240),
+  key_issues: z.string().min(1).max(320),
+  tone_preference: z.string().min(1).max(120),
+  urgency_level: z.enum(['low', 'medium', 'high']),
+  next_best_action: z.string().min(1).max(240),
+  summary: z.string().min(1).max(320),
+});
+
+type LeadStructuredMemory = z.infer<typeof leadStructuredMemorySchema>;
+
 interface LeadMemorySnapshot {
   summary: string | null;
   goal: string | null;
@@ -1652,6 +1665,7 @@ interface LeadMemorySnapshot {
   conversationMode: ConversationMode | null;
   emojiDensity: EmojiPreference | null;
   outputFormat: OutputFormat | null;
+  structured: LeadStructuredMemory | null;
   language: Language | null;
   updatedAt: Date | null;
 }
@@ -2274,10 +2288,152 @@ const buildRefinePrompt = (input: {
   ].join('\n');
 };
 
+const ANALYSIS_CONVERSATION_MAX_CHARS = 9000;
+const ANALYSIS_NOTES_MAX_CHARS = 1400;
+
+const truncateForAnalysis = (value: string, maxChars: number): string => {
+  const normalized = value.replace(/\r/g, '').trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return normalized.slice(0, maxChars);
+};
+
+const buildConversationAnalysisPrompt = (input: {
+  language: Language;
+  leadName: string;
+  conversation: string;
+  notes?: string;
+}) => {
+  const schemaHint = '{"customer_intent":"","current_status":"","key_issues":"","tone_preference":"","urgency_level":"low|medium|high","next_best_action":"","summary":""}';
+  return [
+    'Extract compact CRM memory from the provided conversation.',
+    'Return JSON only. No markdown, no explanations.',
+    'Keep every field concise and practical for follow-up generation.',
+    'If uncertain, make conservative inferences from explicit signals only.',
+    `Target schema: ${schemaHint}`,
+    '',
+    `Lead name: ${input.leadName}`,
+    `Language: ${input.language}`,
+    '',
+    'Conversation:',
+    input.conversation || 'n/a',
+    '',
+    'Manual notes:',
+    input.notes || 'none',
+  ].join('\n');
+};
+
+const mapTonePreferenceToStoredTone = (value?: string | null): FollowUpTone | PaymentTone => {
+  const normalized = (value || '').trim().toLowerCase();
+  if (
+    normalized === 'polite' ||
+    normalized === 'friendly' ||
+    normalized === 'professional' ||
+    normalized === 'casual' ||
+    normalized === 'assertive' ||
+    normalized === 'empathetic' ||
+    normalized === 'urgent'
+  ) {
+    return normalized;
+  }
+  if (normalized.includes('urgent') || normalized.includes('firm')) {
+    return 'assertive';
+  }
+  if (normalized.includes('professional')) {
+    return 'professional';
+  }
+  if (normalized.includes('casual')) {
+    return 'casual';
+  }
+  if (normalized.includes('friend') || normalized.includes('warm')) {
+    return 'friendly';
+  }
+  if (normalized.includes('empath')) {
+    return 'empathetic';
+  }
+  return 'polite';
+};
+
+const normalizeStructuredMemory = (
+  payload: Partial<Record<keyof LeadStructuredMemory, unknown>>
+): LeadStructuredMemory => {
+  const compact = (value: unknown, max: number) => trimSnippet(String(value || ''), max);
+  const urgencyRaw = String(payload.urgency_level || '').trim().toLowerCase();
+  const urgency_level: LeadStructuredMemory['urgency_level'] =
+    urgencyRaw === 'high' || urgencyRaw === 'medium' || urgencyRaw === 'low'
+      ? urgencyRaw
+      : urgencyRaw.includes('high') || urgencyRaw.includes('urgent')
+        ? 'high'
+        : urgencyRaw.includes('low')
+          ? 'low'
+          : 'medium';
+
+  const normalizedCandidate = {
+    customer_intent: compact(payload.customer_intent, 240),
+    current_status: compact(payload.current_status, 240),
+    key_issues: compact(payload.key_issues, 320),
+    tone_preference: compact(payload.tone_preference, 120),
+    urgency_level,
+    next_best_action: compact(payload.next_best_action, 240),
+    summary: compact(payload.summary, 320),
+  };
+
+  return leadStructuredMemorySchema.parse({
+    customer_intent: normalizedCandidate.customer_intent || 'Need was implied but not explicit',
+    current_status: normalizedCandidate.current_status || 'Conversation ongoing',
+    key_issues: normalizedCandidate.key_issues || 'No clear blockers stated',
+    tone_preference: normalizedCandidate.tone_preference || 'polite',
+    urgency_level: normalizedCandidate.urgency_level,
+    next_best_action: normalizedCandidate.next_best_action || 'Send a concise follow-up asking for a clear next step',
+    summary: normalizedCandidate.summary || 'Lead context captured from prior conversation',
+  });
+};
+
+const parseStructuredMemoryFromModelOutput = (raw: string): LeadStructuredMemory => {
+  const trimmed = raw.trim();
+  try {
+    return normalizeStructuredMemory(JSON.parse(trimmed));
+  } catch {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+      throw new Error('Invalid structured memory JSON');
+    }
+    const candidate = trimmed.slice(start, end + 1);
+    return normalizeStructuredMemory(JSON.parse(candidate));
+  }
+};
+
+const buildLeadMemoryUpdateData = (memory: LeadStructuredMemory, language: Language, now: Date = new Date()) => ({
+  leadMemory: memory,
+  memorySummary: memory.summary,
+  memoryGoal: memory.next_best_action,
+  aiTonePreference: mapTonePreferenceToStoredTone(memory.tone_preference),
+  memoryLanguage: language,
+  memoryUpdatedAt: now,
+  lastActivityAt: now,
+});
+
+const toStructuredMemoryFromLegacy = (legacy: {
+  summary?: string | null;
+  goal?: string | null;
+  tone?: string | null;
+}): LeadStructuredMemory => ({
+  customer_intent: trimSnippet(legacy.goal || legacy.summary || 'Clarify customer intent', 240),
+  current_status: trimSnippet(legacy.summary || 'Conversation in progress', 240),
+  key_issues: trimSnippet(legacy.summary || 'No clear blockers stated', 320),
+  tone_preference: trimSnippet(legacy.tone || 'polite', 120),
+  urgency_level: 'medium',
+  next_best_action: trimSnippet(legacy.goal || 'Send a clear next-step follow-up', 240),
+  summary: trimSnippet(legacy.summary || 'Lead memory updated', 320),
+});
+
 const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<LeadMemorySnapshot> => {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
     select: {
+      leadMemory: true,
       memorySummary: true,
       memoryGoal: true,
       aiTonePreference: true,
@@ -2289,6 +2445,15 @@ const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<Le
     },
   });
 
+  let structured: LeadStructuredMemory | null = null;
+  if (lead?.leadMemory) {
+    try {
+      structured = normalizeStructuredMemory(lead.leadMemory as Record<string, unknown>);
+    } catch {
+      structured = null;
+    }
+  }
+
   return {
     summary: lead?.memorySummary || null,
     goal: lead?.memoryGoal || null,
@@ -2296,6 +2461,7 @@ const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<Le
     conversationMode: normalizeConversationModePreference(lead?.aiConversationMode),
     emojiDensity: normalizeEmojiPreferenceValue(lead?.aiEmojiDensity),
     outputFormat: normalizeOutputFormatValue(lead?.aiOutputFormat),
+    structured,
     language: (lead?.memoryLanguage as Language | null) || null,
     updatedAt: lead?.memoryUpdatedAt || null,
   };
@@ -2392,6 +2558,11 @@ const buildLeadMemoryFallback = (lead: {
     conversationMode: 'standard',
     emojiDensity: 'medium',
     outputFormat: 'whatsapp',
+    structured: toStructuredMemoryFromLegacy({
+      summary: summary || null,
+      goal,
+      tone: 'polite',
+    }),
     language,
     updatedAt: null,
   };
@@ -2481,6 +2652,11 @@ export const refreshLeadMemory = async (
     await prisma.lead.update({
       where: { id: leadId },
       data: {
+        leadMemory: toStructuredMemoryFromLegacy({
+          summary: fallback.summary,
+          goal: fallback.goal,
+          tone: fallback.tone,
+        }),
         memorySummary: fallback.summary,
         memoryGoal: fallback.goal,
         aiTonePreference: fallback.tone,
@@ -2589,12 +2765,22 @@ export const refreshLeadMemory = async (
     const emojiDensity = normalizeEmojiPreferenceValue(parseTaggedSection(raw, 'EMOJI')) || 'medium';
     const outputFormat = normalizeOutputFormatValue(parseTaggedSection(raw, 'FORMAT')) || 'whatsapp';
     const updatedAt = new Date();
+    const structured = normalizeStructuredMemory({
+      customer_intent: summary || fallback.summary || '',
+      current_status: summary || fallback.summary || '',
+      key_issues: summary || fallback.summary || '',
+      tone_preference: tone,
+      urgency_level: 'medium',
+      next_best_action: goal || fallback.goal || '',
+      summary: summary || fallback.summary || '',
+    });
 
     await prisma.lead.update({
       where: { id: leadId },
       data: {
-        memorySummary: summary,
-        memoryGoal: goal,
+        leadMemory: structured,
+        memorySummary: structured.summary,
+        memoryGoal: structured.next_best_action,
         aiTonePreference: tone,
         aiConversationMode: conversationMode,
         aiEmojiDensity: emojiDensity,
@@ -2604,7 +2790,17 @@ export const refreshLeadMemory = async (
       },
     });
 
-    return { summary, goal, tone, conversationMode, emojiDensity, outputFormat, language, updatedAt };
+    return {
+      summary: structured.summary,
+      goal: structured.next_best_action,
+      tone,
+      conversationMode,
+      emojiDensity,
+      outputFormat,
+      structured,
+      language,
+      updatedAt,
+    };
   } catch (_error) {
     const fallback = buildLeadMemoryFallback({
       ...lead,
@@ -2614,6 +2810,11 @@ export const refreshLeadMemory = async (
     await prisma.lead.update({
       where: { id: leadId },
       data: {
+        leadMemory: toStructuredMemoryFromLegacy({
+          summary: fallback.summary,
+          goal: fallback.goal,
+          tone: fallback.tone,
+        }),
         memorySummary: fallback.summary,
         memoryGoal: fallback.goal,
         aiTonePreference: fallback.tone,
@@ -2628,6 +2829,68 @@ export const refreshLeadMemory = async (
   }
 };
 
+export const analyzeConversationToLeadMemory = async (
+  userId: string,
+  input: { leadId: string; conversation: string; notes?: string; language?: Language }
+): Promise<LeadStructuredMemory> => {
+  const lead = await prisma.lead.findFirst({
+    where: { id: input.leadId, userId },
+    select: {
+      id: true,
+      name: true,
+      memoryLanguage: true,
+    },
+  });
+
+  if (!lead) {
+    throw new Error('Lead not found');
+  }
+
+  const language = input.language || (lead.memoryLanguage as Language | null) || 'en';
+  const conversation = truncateForAnalysis(input.conversation, ANALYSIS_CONVERSATION_MAX_CHARS);
+  const notes = input.notes ? truncateForAnalysis(input.notes, ANALYSIS_NOTES_MAX_CHARS) : '';
+  const prompt = buildConversationAnalysisPrompt({
+    language,
+    leadName: lead.name,
+    conversation,
+    notes,
+  });
+
+  let memory: LeadStructuredMemory;
+
+  if (!process.env.OPENAI_API_KEY) {
+    memory = toStructuredMemoryFromLegacy({
+      summary: trimSnippet(conversation, 320),
+      goal: 'Send a concise follow-up asking for the next clear step',
+      tone: 'polite',
+    });
+  } else {
+    try {
+      const completion = await generateCompletion(
+        'You extract structured CRM memory. Output valid JSON only with exact required keys.',
+        prompt,
+        { maxTokens: 260 }
+      );
+      const raw = completion.choices[0]?.message?.content || '';
+      memory = parseStructuredMemoryFromModelOutput(raw);
+    } catch {
+      memory = toStructuredMemoryFromLegacy({
+        summary: trimSnippet(conversation, 320),
+        goal: 'Send a concise follow-up asking for the next clear step',
+        tone: 'polite',
+      });
+    }
+  }
+
+  const updatedAt = new Date();
+  await prisma.lead.update({
+    where: { id: input.leadId },
+    data: buildLeadMemoryUpdateData(memory, language, updatedAt),
+  });
+
+  return memory;
+};
+
 const getConversationCutoffContext = async (userId: string, leadId: string, language: Language) => {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
@@ -2637,6 +2900,7 @@ const getConversationCutoffContext = async (userId: string, leadId: string, lang
       contact: true,
       notes: true,
       status: true,
+      leadMemory: true,
       memorySummary: true,
       memoryGoal: true,
       aiTonePreference: true,
@@ -2663,6 +2927,15 @@ const getConversationCutoffContext = async (userId: string, leadId: string, lang
     conversationMode: normalizeConversationModePreference(lead.aiConversationMode),
     emojiDensity: normalizeEmojiPreferenceValue(lead.aiEmojiDensity),
     outputFormat: normalizeOutputFormatValue(lead.aiOutputFormat),
+    structured: lead.leadMemory
+      ? (() => {
+          try {
+            return normalizeStructuredMemory(lead.leadMemory as Record<string, unknown>);
+          } catch {
+            return null;
+          }
+        })()
+      : null,
     language: (lead.memoryLanguage as Language | null) || null,
     updatedAt: lead.memoryUpdatedAt || null,
   };
@@ -2858,7 +3131,7 @@ const buildVariantPrompt = (
         : `Give ${variantCount} distinct variants: variant 1 safest, variant 2 warmer, variant 3 more direct. All must be sendable as-is.`;
 
   const memoryBlock = memory?.summary
-    ? `\n\nLead memory point:\n- Summary: ${memory.summary}\n- Suggested default objective: ${memory.goal || 'n/a'}\n- Preferred tone: ${memory.tone || 'n/a'}\n- Preferred mode: ${memory.conversationMode || 'n/a'}\n- Preferred emoji density: ${memory.emojiDensity || 'n/a'}\n- Preferred output format: ${memory.outputFormat || 'n/a'}`
+    ? `\n\nLead memory point:\n- Summary: ${memory.structured?.summary || memory.summary}\n- Suggested default objective: ${memory.structured?.next_best_action || memory.goal || 'n/a'}\n- Customer intent: ${memory.structured?.customer_intent || 'n/a'}\n- Key issues: ${memory.structured?.key_issues || 'n/a'}\n- Urgency: ${memory.structured?.urgency_level || 'medium'}\n- Preferred tone: ${memory.structured?.tone_preference || memory.tone || 'n/a'}\n- Preferred mode: ${memory.conversationMode || 'n/a'}\n- Preferred emoji density: ${memory.emojiDensity || 'n/a'}\n- Preferred output format: ${memory.outputFormat || 'n/a'}`
     : '';
 
   const contextBlock = cutoffSummary
@@ -2950,8 +3223,18 @@ export const generateFollowUpText = async (
     'chat';
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
-  const trimmedMemorySummary = memorySnapshot?.summary ? trimSnippet(memorySnapshot.summary, 220) : '';
-  const mergedContext = [additionalContext, trimmedMemorySummary ? `Lead memory: ${trimmedMemorySummary}` : '']
+  const memoryCompact = memorySnapshot?.structured
+    ? [
+        `Summary: ${trimSnippet(memorySnapshot.structured.summary, 120)}`,
+        `Intent: ${trimSnippet(memorySnapshot.structured.customer_intent, 80)}`,
+        `Issues: ${trimSnippet(memorySnapshot.structured.key_issues, 100)}`,
+        `Urgency: ${memorySnapshot.structured.urgency_level}`,
+        `Next action: ${trimSnippet(memorySnapshot.structured.next_best_action, 100)}`,
+      ].join(' | ')
+    : memorySnapshot?.summary
+      ? trimSnippet(memorySnapshot.summary, 220)
+      : '';
+  const mergedContext = [additionalContext, memoryCompact ? `Lead memory: ${memoryCompact}` : '']
     .filter(Boolean)
     .join('\n');
   const userPrompt = buildPrompt({
@@ -3032,6 +3315,14 @@ export const generateFollowUpText = async (
         aiOutputFormat: outputFormat,
         ...(userContext.memoryEnabled
           ? {
+              ...(memorySnapshot?.structured
+                ? {
+                    leadMemory: {
+                      ...memorySnapshot.structured,
+                      next_best_action: trimSnippet(goal, 240),
+                    },
+                  }
+                : {}),
               memoryGoal: goal,
               memorySummary: memorySnapshot?.summary || null,
               memoryLanguage: language,
@@ -3143,8 +3434,18 @@ export const generatePaymentText = async (
   }
 
   const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
-  const trimmedMemorySummary = memorySnapshot?.summary ? trimSnippet(memorySnapshot.summary, 220) : '';
-  const mergedContext = [additionalContext, trimmedMemorySummary ? `Lead memory: ${trimmedMemorySummary}` : '']
+  const memoryCompact = memorySnapshot?.structured
+    ? [
+        `Summary: ${trimSnippet(memorySnapshot.structured.summary, 120)}`,
+        `Intent: ${trimSnippet(memorySnapshot.structured.customer_intent, 80)}`,
+        `Issues: ${trimSnippet(memorySnapshot.structured.key_issues, 100)}`,
+        `Urgency: ${memorySnapshot.structured.urgency_level}`,
+        `Next action: ${trimSnippet(memorySnapshot.structured.next_best_action, 100)}`,
+      ].join(' | ')
+    : memorySnapshot?.summary
+      ? trimSnippet(memorySnapshot.summary, 220)
+      : '';
+  const mergedContext = [additionalContext, memoryCompact ? `Lead memory: ${memoryCompact}` : '']
     .filter(Boolean)
     .join('\n');
   const userPrompt = buildPrompt({
@@ -3231,6 +3532,14 @@ export const generatePaymentText = async (
         aiOutputFormat: outputFormat,
         ...(userContext.memoryEnabled
           ? {
+              ...(memorySnapshot?.structured
+                ? {
+                    leadMemory: {
+                      ...memorySnapshot.structured,
+                      next_best_action: trimSnippet(goal, 240),
+                    },
+                  }
+                : {}),
               memoryGoal: goal,
               memorySummary: memorySnapshot?.summary || null,
               memoryLanguage: language,
@@ -3402,4 +3711,7 @@ export const __test__ = {
   buildGreetingPolicyContextFromLogs,
   getTurnPolicyInstruction,
   buildPrompt,
+  buildConversationAnalysisPrompt,
+  parseStructuredMemoryFromModelOutput,
+  buildLeadMemoryUpdateData,
 };
