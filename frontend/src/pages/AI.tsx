@@ -23,6 +23,7 @@ import {
   generateAiMessage,
   GenerationStage,
   getDefaultConfigFromLeadMemory,
+  getDefaultPurposeFromLeadStatus,
   getDefaultConfigFromUserPreferences,
   getEventPurpose,
   getHistoryPurposeLabel,
@@ -153,13 +154,14 @@ const AI = () => {
       setError(t.ai.pleaseSelectLead);
       return;
     }
-    if (!config.objective.trim()) {
-      setError(t.ai.objectiveRequired);
+    if (!config.goal.trim()) {
+      setError(t.ai.goalRequired);
       return;
     }
+    const eventPurpose = getEventPurpose(getDefaultPurposeFromLeadStatus(selectedLead.status));
 
     trackProductEvent('ai_generate_clicked', {
-      purpose: getEventPurpose(config.purpose),
+      purpose: eventPurpose,
       leadId: selectedLead.id,
     });
 
@@ -185,7 +187,7 @@ const AI = () => {
         setCutoffSummary(data.cutoffSummary || '');
         setMemorySummary(data.memorySummary || memorySummary);
         if (data.memoryGoal) {
-          setConfig((current) => ({ ...current, objective: data.memoryGoal || current.objective }));
+          setConfig((current) => ({ ...current, goal: data.memoryGoal || current.goal }));
         }
         setGenerationDebug(data.debug || null);
         setGenerationStage('done');
@@ -200,7 +202,7 @@ const AI = () => {
         }
 
         trackProductEvent('ai_generate_success', {
-          purpose: getEventPurpose(config.purpose),
+          purpose: eventPurpose,
           leadId: selectedLead.id,
         });
         await loadHistory(historyPurpose);
@@ -209,7 +211,7 @@ const AI = () => {
 
       setGenerationStage('ready');
       if (response.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
+        trackProductEvent('ai_generate_failed_limit', { purpose: eventPurpose });
         openUpgradeModal('ai_limit');
         if (response.usage) {
           setUsageInfo(response.usage);
@@ -219,7 +221,7 @@ const AI = () => {
     } catch (err: any) {
       setGenerationStage('ready');
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
+        trackProductEvent('ai_generate_failed_limit', { purpose: eventPurpose });
         openUpgradeModal('ai_limit');
         if (err?.response?.data?.usage) {
           setUsageInfo(err.response.data.usage);
@@ -348,8 +350,8 @@ const AI = () => {
                 </button>
               </div>
               {memorySummary ? <p>{memorySummary}</p> : null}
-              {config.objective ? (
-                <p><strong>{t.ai.memoryGoal}:</strong> {config.objective}</p>
+              {config.goal ? (
+                <p><strong>{t.ai.memoryGoal}:</strong> {config.goal}</p>
               ) : null}
             </div>
           )}

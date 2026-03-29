@@ -41,12 +41,24 @@ const AiStatusPanel = ({ generationStage, generationDebug }: AiStatusPanelProps)
               <strong>{generationDebug.requested.language}</strong>
             </div>
             <div className="ai-debug-item">
-              <span>{t.ai.debugTone}</span>
-              <strong>{generationDebug.requested.tone}</strong>
+              <span>{t.ai.debugGoal}</span>
+              <strong>{generationDebug.requested.goal || '-'}</strong>
             </div>
             <div className="ai-debug-item">
-              <span>{t.ai.debugMode}</span>
-              <strong>{generationDebug.requested.conversationMode}</strong>
+              <span>{t.ai.debugChannel}</span>
+              <strong>{generationDebug.requested.channel}</strong>
+            </div>
+            <div className="ai-debug-item">
+              <span>{t.ai.debugStyle}</span>
+              <strong>{generationDebug.requested.style}</strong>
+            </div>
+            <div className="ai-debug-item">
+              <span>{t.ai.debugContext}</span>
+              <strong>{generationDebug.requested.context || '-'}</strong>
+            </div>
+            <div className="ai-debug-item">
+              <span>{t.ai.debugDays}</span>
+              <strong>{generationDebug.requested.daysPassed}</strong>
             </div>
             <div className="ai-debug-item">
               <span>{t.ai.debugEmoji}</span>
@@ -60,15 +72,15 @@ const AiStatusPanel = ({ generationStage, generationDebug }: AiStatusPanelProps)
             </div>
             <div className="ai-debug-item">
               <span>{t.ai.debugModeMatch}</span>
-              <strong>{generationDebug.checks.modeSignalDetected ? t.ai.debugYes : t.ai.debugNo}</strong>
+              <strong>{generationDebug.checks.styleSignalDetected ? t.ai.debugYes : t.ai.debugNo}</strong>
             </div>
             <div className="ai-debug-item">
               <span>{t.ai.debugObjective}</span>
-              <strong>{generationDebug.checks.objectiveCoverageRatio}</strong>
+              <strong>{generationDebug.checks.goalCoverageRatio}</strong>
             </div>
             <div className="ai-debug-item">
               <span>{t.ai.debugObjectiveMatch}</span>
-              <strong>{generationDebug.checks.objectiveCoveragePass ? t.ai.debugYes : t.ai.debugNo}</strong>
+              <strong>{generationDebug.checks.goalCoveragePass ? t.ai.debugYes : t.ai.debugNo}</strong>
             </div>
           </div>
         )}

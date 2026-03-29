@@ -1,14 +1,14 @@
 import {
   aiApi,
+  AiChannel,
   AiGenerationDebug,
+  AiStyle,
   AiTone,
   AppLanguage,
-  ConversationMode,
   EmojiDensity,
   FollowUpStylePreset,
   Lead,
   LeadStatus,
-  OutputFormat,
   PaymentStylePreset,
   User,
 } from '../../services/api';
@@ -20,17 +20,12 @@ export type AiPurpose = 'follow-up' | 'payment';
 export type GenerationStage = 'ready' | 'thinking' | 'done';
 
 export interface SharedAiConfig {
-  purpose: AiPurpose;
-  objective: string;
-  outputFormat: OutputFormat;
+  goal: string;
+  channel: AiChannel;
+  style: AiStyle;
+  context: string;
   daysPassed: number;
-  tone: AiTone;
-  amount: number;
-  dueDate: string;
-  conversationMode: ConversationMode;
-  emojiDensity: EmojiDensity;
-  followUpStylePreset: FollowUpStylePreset;
-  paymentStylePreset: PaymentStylePreset;
+  emojiIntensity: EmojiDensity;
 }
 
 export interface AiOption {
@@ -39,20 +34,15 @@ export interface AiOption {
 }
 
 export const createInitialAiConfig = (
-  purpose: AiPurpose = 'follow-up',
+  _purpose: AiPurpose = 'follow-up',
   overrides: Partial<SharedAiConfig> = {}
 ): SharedAiConfig => ({
-  purpose,
-  objective: '',
-  outputFormat: 'chat',
+  goal: '',
+  channel: 'chat',
+  style: 'standard',
+  context: '',
   daysPassed: 0,
-  tone: 'polite',
-  amount: 0,
-  dueDate: '',
-  conversationMode: 'standard',
-  emojiDensity: 'medium',
-  followUpStylePreset: 'gentle_nudge',
-  paymentStylePreset: 'friendly_reminder',
+  emojiIntensity: 'medium',
   ...overrides,
 });
 
@@ -112,40 +102,63 @@ export const shouldRefreshLeadMemory = (
   return Date.now() - memoryUpdatedAt > 1000 * 60 * 60 * 24 * 3;
 };
 
+const mapConversationModeToStyle = (value?: string | null): AiStyle => {
+  if (value === 'humor' || value === 'banter' || value === 'direct' || value === 'consultative') {
+    return value;
+  }
+  return 'standard';
+};
+
+const mapStyleToTone = (style: AiStyle): AiTone => {
+  if (style === 'direct') return 'assertive';
+  if (style === 'consultative') return 'professional';
+  if (style === 'banter') return 'friendly';
+  if (style === 'humor') return 'casual';
+  return 'polite';
+};
+
+const mapStyleToLegacyPreset = (
+  style: AiStyle,
+  purpose: AiPurpose
+): FollowUpStylePreset | PaymentStylePreset => {
+  if (purpose === 'payment') {
+    if (style === 'direct') return 'due_today';
+    if (style === 'consultative') return 'installment_offer';
+    if (style === 'banter') return 'friendly_reminder';
+    if (style === 'humor') return 'friendly_reminder';
+    return 'friendly_reminder';
+  }
+
+  if (style === 'direct') return 'deadline_push';
+  if (style === 'consultative') return 'meeting_request';
+  if (style === 'banter') return 'social_proof';
+  if (style === 'humor') return 'value_reminder';
+  return 'gentle_nudge';
+};
+
 export const getDefaultQuickConfigForLead = (lead: Lead, daysPassed: number): SharedAiConfig =>
   createInitialAiConfig(getDefaultPurposeFromLeadStatus(lead.status), {
     daysPassed,
-    objective: getSanitizedLeadMemoryGoal(lead),
-    outputFormat: lead.aiOutputFormat || 'whatsapp',
-    tone: lead.aiTonePreference || 'polite',
-    conversationMode: lead.aiConversationMode || 'standard',
-    emojiDensity: lead.aiEmojiDensity || 'medium',
+    goal: getSanitizedLeadMemoryGoal(lead),
+    channel: lead.aiOutputFormat || 'whatsapp',
+    style: mapConversationModeToStyle(lead.aiConversationMode),
+    emojiIntensity: lead.aiEmojiDensity || 'medium',
   });
 
 export const getDefaultConfigFromLeadMemory = (
   lead: Lead,
   current: SharedAiConfig
 ): Partial<SharedAiConfig> => ({
-  objective: getSanitizedLeadMemoryGoal(lead) || current.objective,
-  tone: lead.aiTonePreference || current.tone,
-  conversationMode: lead.aiConversationMode || current.conversationMode,
-  emojiDensity: lead.aiEmojiDensity || current.emojiDensity,
-  outputFormat: lead.aiOutputFormat || current.outputFormat,
+  goal: getSanitizedLeadMemoryGoal(lead) || current.goal,
+  style: mapConversationModeToStyle(lead.aiConversationMode) || current.style,
+  emojiIntensity: lead.aiEmojiDensity || current.emojiIntensity,
+  channel: lead.aiOutputFormat || current.channel,
 });
 
 export const getDefaultConfigFromUserPreferences = (
   user: User | null | undefined,
   current: SharedAiConfig
 ): Partial<SharedAiConfig> => {
-  const mappedTone =
-    user?.defaultTone ||
-    (user?.baseStyleTone === 'professional'
-      ? 'professional'
-      : user?.baseStyleTone === 'friendly'
-        ? 'friendly'
-        : user?.baseStyleTone === 'concise'
-          ? 'assertive'
-          : current.tone);
   const mappedEmojiDensity =
     user?.defaultEmojiDensity ||
     (user?.characterEmoji === 'high'
@@ -155,24 +168,36 @@ export const getDefaultConfigFromUserPreferences = (
         : 'medium');
 
   return {
-    tone: mappedTone,
-    conversationMode: user?.defaultConversationMode || current.conversationMode,
-    emojiDensity: mappedEmojiDensity,
-    outputFormat: user?.defaultOutputFormat || current.outputFormat,
+    style: mapConversationModeToStyle(user?.defaultConversationMode) || current.style,
+    emojiIntensity: mappedEmojiDensity,
+    channel: user?.defaultOutputFormat || current.channel,
     daysPassed: user?.defaultFollowUpDays ?? current.daysPassed,
   };
 };
 
-export const getPurposeOptions = (t: Translations): AiOption[] => [
-  { value: 'follow-up', label: t.ai.followUp },
-  { value: 'payment', label: t.ai.payment },
+export const getChannelOptions = (t: Translations): AiOption[] => [
+  { value: 'chat', label: t.ai.channelChat },
+  { value: 'email', label: t.ai.channelEmail },
+  { value: 'whatsapp', label: t.ai.channelWhatsapp },
 ];
 
-export const getOutputFormatOptions = (t: Translations): AiOption[] => [
-  { value: 'chat', label: t.ai.formatChat },
-  { value: 'email', label: t.ai.formatEmail },
-  { value: 'whatsapp', label: t.ai.formatWhatsapp },
+export const getStyleOptions = (t: Translations): AiOption[] => [
+  { value: 'standard', label: t.ai.styleStandard },
+  { value: 'humor', label: t.ai.styleHumor },
+  { value: 'banter', label: t.ai.styleBanter },
+  { value: 'direct', label: t.ai.styleDirect },
+  { value: 'consultative', label: t.ai.styleConsultative },
 ];
+
+export const getEmojiIntensityOptions = (t: Translations): AiOption[] => [
+  { value: 'low', label: t.ai.emojiLow },
+  { value: 'medium', label: t.ai.emojiMedium },
+  { value: 'high', label: t.ai.emojiHigh },
+];
+
+export const getOutputFormatOptions = getChannelOptions;
+export const getConversationModeOptions = getStyleOptions;
+export const getEmojiOptions = getEmojiIntensityOptions;
 
 export const getToneOptions = (t: Translations): AiOption[] => [
   { value: 'polite', label: t.ai.polite },
@@ -184,36 +209,6 @@ export const getToneOptions = (t: Translations): AiOption[] => [
   { value: 'urgent', label: t.ai.urgent },
 ];
 
-export const getConversationModeOptions = (t: Translations): AiOption[] => [
-  { value: 'standard', label: t.ai.replyModeStandard },
-  { value: 'humor', label: t.ai.replyModeHumor },
-  { value: 'banter', label: t.ai.replyModeBanter },
-  { value: 'direct', label: t.ai.replyModeDirect },
-  { value: 'consultative', label: t.ai.replyModeConsultative },
-];
-
-export const getEmojiOptions = (t: Translations): AiOption[] => [
-  { value: 'low', label: t.ai.emojiLow },
-  { value: 'medium', label: t.ai.emojiMedium },
-  { value: 'high', label: t.ai.emojiHigh },
-];
-
-export const getFollowUpPresetOptions = (t: Translations): AiOption[] => [
-  { value: 'gentle_nudge', label: t.ai.followUpPresetGentleNudge },
-  { value: 'value_reminder', label: t.ai.followUpPresetValueReminder },
-  { value: 'meeting_request', label: t.ai.followUpPresetMeetingRequest },
-  { value: 'deadline_push', label: t.ai.followUpPresetDeadlinePush },
-  { value: 'social_proof', label: t.ai.followUpPresetSocialProof },
-];
-
-export const getPaymentPresetOptions = (t: Translations): AiOption[] => [
-  { value: 'friendly_reminder', label: t.ai.paymentPresetFriendlyReminder },
-  { value: 'due_today', label: t.ai.paymentPresetDueToday },
-  { value: 'overdue_escalation', label: t.ai.paymentPresetOverdueEscalation },
-  { value: 'installment_offer', label: t.ai.paymentPresetInstallmentOffer },
-  { value: 'soft_final_notice', label: t.ai.paymentPresetSoftFinalNotice },
-];
-
 export const getHistoryStyleLabel = (
   t: Translations,
   purpose: 'follow_up' | 'payment',
@@ -223,16 +218,31 @@ export const getHistoryStyleLabel = (
     return '';
   }
 
+  const styleMap: Record<string, string> = Object.fromEntries(
+    getStyleOptions(t).map((option) => [option.value, option.label])
+  );
+  if (styleMap[stylePreset]) {
+    return styleMap[stylePreset];
+  }
+
   if (purpose === 'follow_up') {
-    const followUpMap: Record<string, string> = Object.fromEntries(
-      getFollowUpPresetOptions(t).map((option) => [option.value, option.label])
-    );
+    const followUpMap: Record<string, string> = {
+      gentle_nudge: t.ai.followUpPresetGentleNudge,
+      value_reminder: t.ai.followUpPresetValueReminder,
+      meeting_request: t.ai.followUpPresetMeetingRequest,
+      deadline_push: t.ai.followUpPresetDeadlinePush,
+      social_proof: t.ai.followUpPresetSocialProof,
+    };
     return followUpMap[stylePreset] || stylePreset;
   }
 
-  const paymentMap: Record<string, string> = Object.fromEntries(
-    getPaymentPresetOptions(t).map((option) => [option.value, option.label])
-  );
+  const paymentMap: Record<string, string> = {
+    friendly_reminder: t.ai.paymentPresetFriendlyReminder,
+    due_today: t.ai.paymentPresetDueToday,
+    overdue_escalation: t.ai.paymentPresetOverdueEscalation,
+    installment_offer: t.ai.paymentPresetInstallmentOffer,
+    soft_final_notice: t.ai.paymentPresetSoftFinalNotice,
+  };
   return paymentMap[stylePreset] || stylePreset;
 };
 
@@ -247,37 +257,44 @@ export const generateAiMessage = async ({
 }): Promise<
   Awaited<ReturnType<typeof aiApi.generateFollowUp>> | Awaited<ReturnType<typeof aiApi.generatePayment>>
 > => {
-  if (config.purpose === 'follow-up') {
-    return aiApi.generateFollowUp({
-      leadId: lead.id,
-      leadName: lead.name,
-      objective: config.objective.trim(),
+  const purpose = getDefaultPurposeFromLeadStatus(lead.status);
+  const legacyTone = mapStyleToTone(config.style);
+  const legacyPreset = mapStyleToLegacyPreset(config.style, purpose);
+
+  const payload = {
+    leadId: lead.id,
+    leadName: lead.name,
+    goal: config.goal.trim(),
+    context: config.context.trim() || undefined,
+    channel: config.channel,
+    style: config.style,
+    daysPassed: config.daysPassed,
+    emojiIntensity: config.emojiIntensity,
+    objective: config.goal.trim(),
+    tone: legacyTone,
+    conversationMode: config.style,
+    emojiDensity: config.emojiIntensity,
+    outputFormat: config.channel,
+    language,
+    variantCount: 3,
+  };
+
+  if (purpose === 'follow-up') {
+    const followUpPayload: Parameters<typeof aiApi.generateFollowUp>[0] = {
+      ...payload,
+      stylePreset: aiPresetsEnabled ? (legacyPreset as FollowUpStylePreset) : undefined,
       status: lead.status,
-      daysPassed: config.daysPassed,
-      tone: config.tone,
-      stylePreset: aiPresetsEnabled ? config.followUpStylePreset : undefined,
-      conversationMode: config.conversationMode,
-      emojiDensity: config.emojiDensity,
-      outputFormat: config.outputFormat,
-      language,
-      variantCount: 3,
+    };
+    return aiApi.generateFollowUp({
+      ...followUpPayload,
     });
   }
 
-  return aiApi.generatePayment({
-    leadId: lead.id,
-    leadName: lead.name,
-    objective: config.objective.trim(),
-    amount: config.amount > 0 ? config.amount : undefined,
-    dueDate: config.dueDate || undefined,
-    tone: config.tone,
-    stylePreset: aiPresetsEnabled ? config.paymentStylePreset : undefined,
-    conversationMode: config.conversationMode,
-    emojiDensity: config.emojiDensity,
-    outputFormat: config.outputFormat,
-    language,
-    variantCount: 3,
-  });
+  const paymentPayload: Parameters<typeof aiApi.generatePayment>[0] = {
+    ...payload,
+    stylePreset: aiPresetsEnabled ? (legacyPreset as PaymentStylePreset) : undefined,
+  };
+  return aiApi.generatePayment(paymentPayload);
 };
 
 export const getHistoryPurposeLabel = (t: Translations, purpose: 'follow_up' | 'payment') =>

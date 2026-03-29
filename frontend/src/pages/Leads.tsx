@@ -15,6 +15,7 @@ import {
   generateAiMessage,
   GenerationStage,
   getDefaultConfigFromLeadMemory,
+  getDefaultPurposeFromLeadStatus,
   getDefaultConfigFromUserPreferences,
   getDefaultQuickConfigForLead,
   getEventPurpose,
@@ -91,10 +92,10 @@ const Leads = () => {
     openAiModalForLead(
       lead,
       action === 'payment_reminder'
-        ? { purpose: 'payment', objective: 'Follow up on payment and ask for a clear payment date.' }
+        ? { goal: 'Follow up on payment and ask for a clear payment date.' }
         : action === 'ask_budget'
-          ? { purpose: 'follow-up', objective: 'Ask for budget and next-step timing.' }
-          : { purpose: 'follow-up', objective: 'Send a concise follow-up and move the conversation forward.' }
+          ? { goal: 'Ask for budget and next-step timing.' }
+          : { goal: 'Send a concise follow-up and move the conversation forward.' }
     );
     setSearchParams({});
   }, [searchParams, allLeads]);
@@ -339,7 +340,7 @@ const Leads = () => {
   const openAiModalForLead = (lead: Lead, overrides?: Partial<SharedAiConfig>) => {
     setCurrentLead(lead);
     setConfig({
-      ...getDefaultConfigFromUserPreferences(user, createInitialAiConfig(getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)).purpose)),
+      ...getDefaultConfigFromUserPreferences(user, createInitialAiConfig()),
       ...getDefaultQuickConfigForLead(lead, calculateDaysPassed(lead)),
       ...overrides,
     });
@@ -361,10 +362,11 @@ const Leads = () => {
     if (!currentLead) {
       return;
     }
-    if (!config.objective.trim()) {
-      setError(t.ai.objectiveRequired);
+    if (!config.goal.trim()) {
+      setError(t.ai.goalRequired);
       return;
     }
+    const eventPurpose = getEventPurpose(getDefaultPurposeFromLeadStatus(currentLead.status));
 
     setAiLoading(true);
     setError('');
@@ -372,7 +374,7 @@ const Leads = () => {
     setGeneratedText('');
     setGenerationDebug(null);
     trackProductEvent('ai_generate_clicked', {
-      purpose: getEventPurpose(config.purpose),
+      purpose: eventPurpose,
       leadId: currentLead.id,
     });
 
@@ -387,12 +389,12 @@ const Leads = () => {
         setCutoffSummary(data.cutoffSummary || '');
         setMemorySummary(data.memorySummary || memorySummary);
         if (data.memoryGoal) {
-          setConfig((current) => ({ ...current, objective: data.memoryGoal || current.objective }));
+          setConfig((current) => ({ ...current, goal: data.memoryGoal || current.goal }));
         }
         setGenerationDebug(data.debug || null);
         setGenerationStage('done');
         trackProductEvent('ai_generate_success', {
-          purpose: getEventPurpose(config.purpose),
+          purpose: eventPurpose,
           leadId: currentLead.id,
         });
         if (response.usage) {
@@ -408,7 +410,7 @@ const Leads = () => {
 
       setGenerationStage('ready');
       if (response.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
+        trackProductEvent('ai_generate_failed_limit', { purpose: eventPurpose });
         setUpgradeSource('ai_limit');
         setShowUpgradeModal(true);
         if (response.usage) {
@@ -419,7 +421,7 @@ const Leads = () => {
     } catch (err: any) {
       setGenerationStage('ready');
       if (err?.response?.data?.error?.code === 'AI_LIMIT_REACHED') {
-        trackProductEvent('ai_generate_failed_limit', { purpose: getEventPurpose(config.purpose) });
+        trackProductEvent('ai_generate_failed_limit', { purpose: eventPurpose });
         setUpgradeSource('ai_limit');
         setShowUpgradeModal(true);
         if (err?.response?.data?.usage) {
@@ -897,7 +899,7 @@ const Leads = () => {
               </div>
 
               <div className="quick-ai-result">
-                {(memorySummary || refreshingMemory || config.objective) && (
+                {(memorySummary || refreshingMemory || config.goal) && (
                   <div className="ai-cutoff-card ai-cutoff-card-compact">
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
                       <strong>{t.ai.memoryPoint}</strong>
@@ -908,7 +910,7 @@ const Leads = () => {
                       ) : null}
                     </div>
                     {memorySummary ? <p>{memorySummary}</p> : null}
-                    {config.objective ? <p><strong>{t.ai.memoryGoal}:</strong> {config.objective}</p> : null}
+                    {config.goal ? <p><strong>{t.ai.memoryGoal}:</strong> {config.goal}</p> : null}
                   </div>
                 )}
 

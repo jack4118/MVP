@@ -1,23 +1,11 @@
 import { useLanguage } from '../contexts/LanguageContext';
 import {
-  AiPurpose,
+  getChannelOptions,
+  getEmojiIntensityOptions,
+  getStyleOptions,
   SharedAiConfig,
-  aiPresetsEnabled,
-  getConversationModeOptions,
-  getEmojiOptions,
-  getFollowUpPresetOptions,
-  getOutputFormatOptions,
-  getPaymentPresetOptions,
-  getPurposeOptions,
-  getToneOptions,
 } from '../features/ai/shared';
-import {
-  ConversationMode,
-  EmojiDensity,
-  FollowUpStylePreset,
-  OutputFormat,
-  PaymentStylePreset,
-} from '../services/api';
+import { AiStyle, EmojiDensity } from '../services/api';
 
 interface AiComposerFieldsProps {
   config: SharedAiConfig;
@@ -40,44 +28,57 @@ const AiComposerFields = ({
   return (
     <>
       <div className="form-group">
-        <label className="form-label">{t.ai.purpose} *</label>
-        <select
-          value={config.purpose}
-          onChange={(e) => onChange({ purpose: e.target.value as AiPurpose })}
-          className="input"
-        >
-          {getPurposeOptions(t).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="form-group">
-        <label className="form-label">{t.ai.objective} *</label>
+        <label className="form-label">{t.ai.goal} *</label>
         <textarea
-          value={config.objective}
-          onChange={(e) => onChange({ objective: e.target.value })}
+          value={config.goal}
+          onChange={(e) => onChange({ goal: e.target.value })}
           className="input"
           rows={compact ? 3 : 4}
-          placeholder={t.ai.objectivePlaceholder}
+          placeholder={t.ai.goalPlaceholder}
         />
       </div>
 
+      <div className="ai-fields-grid">
+        <div className="form-group">
+          <label className="form-label">{t.ai.channel} *</label>
+          <select
+            value={config.channel}
+            onChange={(e) => onChange({ channel: e.target.value as SharedAiConfig['channel'] })}
+            className="input"
+          >
+            {getChannelOptions(t).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">{t.ai.style} *</label>
+          <select
+            value={config.style}
+            onChange={(e) => onChange({ style: e.target.value as AiStyle })}
+            className="input"
+          >
+            {getStyleOptions(t).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       <div className="form-group">
-        <label className="form-label">{t.ai.outputFormat}</label>
-        <select
-          value={config.outputFormat}
-          onChange={(e) => onChange({ outputFormat: e.target.value as OutputFormat })}
+        <label className="form-label">{t.ai.context}</label>
+        <textarea
+          value={config.context}
+          onChange={(e) => onChange({ context: e.target.value })}
           className="input"
-        >
-          {getOutputFormatOptions(t).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          rows={compact ? 2 : 3}
+          placeholder={t.ai.contextPlaceholder}
+        />
       </div>
 
       {compact && onToggleAdvanced && (
@@ -88,101 +89,26 @@ const AiComposerFields = ({
 
       {showAdvanced && (
         <div className={`ai-fields-grid ${compact ? 'ai-fields-grid-compact' : ''}`}>
-          {config.purpose === 'follow-up' ? (
-            <div className="form-group">
-              <label className="form-label">{t.ai.daysPassed}</label>
-              <input
-                type="number"
-                min="0"
-                value={config.daysPassed}
-                onChange={(e) => onChange({ daysPassed: parseInt(e.target.value, 10) || 0 })}
-                className="input"
-                placeholder={t.ai.daysPassedPlaceholder}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="form-group">
-                <label className="form-label">{t.ai.amount}</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={config.amount}
-                  onChange={(e) => onChange({ amount: parseFloat(e.target.value) || 0 })}
-                  className="input"
-                  placeholder={t.ai.amountPlaceholder}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{t.ai.dueDate}</label>
-                <input
-                  type="date"
-                  value={config.dueDate}
-                  onChange={(e) => onChange({ dueDate: e.target.value })}
-                  className="input"
-                />
-              </div>
-            </>
-          )}
-
-          {aiPresetsEnabled && (
-            <div className="form-group">
-              <label className="form-label">{t.ai.stylePreset}</label>
-              <select
-                value={config.purpose === 'follow-up' ? config.followUpStylePreset : config.paymentStylePreset}
-                onChange={(e) =>
-                  onChange(
-                    config.purpose === 'follow-up'
-                      ? { followUpStylePreset: e.target.value as FollowUpStylePreset }
-                      : { paymentStylePreset: e.target.value as PaymentStylePreset }
-                  )
-                }
-                className="input"
-              >
-                {(config.purpose === 'follow-up' ? getFollowUpPresetOptions(t) : getPaymentPresetOptions(t)).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <div className="form-group">
-            <label className="form-label">{t.ai.tone}</label>
-            <select value={config.tone} onChange={(e) => onChange({ tone: e.target.value as SharedAiConfig['tone'] })} className="input">
-              {getToneOptions(t).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">{t.ai.replyMode}</label>
-            <select
-              value={config.conversationMode}
-              onChange={(e) => onChange({ conversationMode: e.target.value as ConversationMode })}
+            <label className="form-label">{t.ai.daysPassed}</label>
+            <input
+              type="number"
+              min="0"
+              value={config.daysPassed}
+              onChange={(e) => onChange({ daysPassed: parseInt(e.target.value, 10) || 0 })}
               className="input"
-            >
-              {getConversationModeOptions(t).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              placeholder={t.ai.daysPassedPlaceholder}
+            />
           </div>
 
           <div className="form-group">
             <label className="form-label">{t.ai.emojiLevel}</label>
             <select
-              value={config.emojiDensity}
-              onChange={(e) => onChange({ emojiDensity: e.target.value as EmojiDensity })}
+              value={config.emojiIntensity}
+              onChange={(e) => onChange({ emojiIntensity: e.target.value as EmojiDensity })}
               className="input"
             >
-              {getEmojiOptions(t).map((option) => (
+              {getEmojiIntensityOptions(t).map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

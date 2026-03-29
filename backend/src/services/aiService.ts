@@ -8,6 +8,7 @@ const openai = new OpenAI({
 type Language = 'en' | 'zh-CN' | 'ms';
 type OutputFormat = 'chat' | 'email' | 'whatsapp';
 type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
+type AiStyle = ConversationMode;
 type TurnType = 'first_turn' | 'ongoing_reply' | 'follow_up' | 'clarification' | 'topic_shift' | 'conversation_restart';
 
 type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
@@ -18,13 +19,18 @@ type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalatio
 
 export interface FollowUpData {
   leadName: string;
-  objective: string;
+  goal?: string;
+  objective?: string;
+  context?: string;
+  channel?: OutputFormat;
+  style?: AiStyle;
   status?: string;
   daysPassed?: number;
   variantCount?: number;
   tone?: FollowUpTone;
   stylePreset?: FollowUpStylePreset;
   conversationMode?: ConversationMode;
+  emojiIntensity?: EmojiPreference;
   emojiDensity?: EmojiPreference;
   outputFormat?: OutputFormat;
   language?: Language;
@@ -32,13 +38,18 @@ export interface FollowUpData {
 
 export interface PaymentData {
   leadName: string;
-  objective: string;
+  goal?: string;
+  objective?: string;
+  context?: string;
+  channel?: OutputFormat;
+  style?: AiStyle;
   amount?: number;
   dueDate?: string;
   variantCount?: number;
   tone?: PaymentTone;
   stylePreset?: PaymentStylePreset;
   conversationMode?: ConversationMode;
+  emojiIntensity?: EmojiPreference;
   emojiDensity?: EmojiPreference;
   outputFormat?: OutputFormat;
   language?: Language;
@@ -48,6 +59,11 @@ type AiErrorKind = 'quota' | 'auth' | 'timeout' | 'unknown';
 type EmojiPreference = 'low' | 'medium' | 'high';
 
 interface DraftConfig {
+  goal?: string;
+  context?: string;
+  channel?: OutputFormat;
+  style?: AiStyle;
+  daysPassed?: number;
   language: Language;
   outputFormat: OutputFormat;
   purpose: 'follow_up' | 'payment';
@@ -77,20 +93,22 @@ interface ChatLogLite {
 
 export interface GenerationDebugInfo {
   requested: {
+    goal: string;
+    context: string;
     language: Language;
-    outputFormat: OutputFormat;
-    tone: FollowUpTone | PaymentTone;
-    conversationMode: ConversationMode;
-    emojiDensity: EmojiPreference;
+    channel: OutputFormat;
+    style: AiStyle;
+    daysPassed: number;
+    emojiIntensity: EmojiPreference;
   };
   checks: {
     emojiCount: number;
     emojiMin: number;
     emojiMax: number;
     emojiInRange: boolean;
-    modeSignalDetected: boolean;
-    objectiveCoverageRatio: number;
-    objectiveCoveragePass: boolean;
+    styleSignalDetected: boolean;
+    goalCoverageRatio: number;
+    goalCoveragePass: boolean;
   };
 }
 
@@ -418,7 +436,12 @@ const getTurnPolicyInstruction = (language: Language, context: GreetingPolicyCon
   ].join(' ');
 };
 
-const createFollowUpFallback = (data: FollowUpData, daysPassed: number, isChinese: boolean, preset: FollowUpStylePreset): string => {
+const createFollowUpFallback = (
+  data: FollowUpData & { objective: string },
+  daysPassed: number,
+  isChinese: boolean,
+  preset: FollowUpStylePreset
+): string => {
   if (isChinese) {
     if (preset === 'deadline_push') {
       return `你好 ${data.leadName}，\n\n想确认一下“${data.objective}”这件事，我们这边需要在这周内把时间敲定。\n\n方便的话直接回我一个可执行时间，我好马上安排。`;
@@ -459,7 +482,7 @@ const createFollowUpFallback = (data: FollowUpData, daysPassed: number, isChines
 };
 
 const createPaymentFallback = (
-  data: PaymentData,
+  data: PaymentData & { objective: string },
   isChinese: boolean,
   preset: PaymentStylePreset,
   daysOverdue: number
@@ -1319,29 +1342,31 @@ const enforceObjectiveCoverage = async (
 export const buildGenerationDebugInfo = (
   text: string,
   config: DraftConfig,
-  objective: string
+  goal: string
 ): GenerationDebugInfo => {
-  const objectiveItems = splitObjectives(objective);
+  const objectiveItems = splitObjectives(goal);
   const objectiveCoverageRatio = getObjectiveCoverageRatio(text, objectiveItems);
   const objectiveCoveragePass = objectiveCoverageRatio >= getObjectiveCoverageThreshold(objectiveItems);
   const emojiCount = countEmojis(text);
   const emojiRange = getEmojiRange(config.outputFormat, config.emojiPreference);
   return {
     requested: {
+      goal: config.goal || '',
+      context: config.context || '',
       language: config.language,
-      outputFormat: config.outputFormat,
-      tone: config.tone,
-      conversationMode: config.conversationMode,
-      emojiDensity: config.emojiPreference,
+      channel: config.channel || config.outputFormat,
+      style: config.style || config.conversationMode,
+      daysPassed: config.daysPassed || 0,
+      emojiIntensity: config.emojiPreference,
     },
     checks: {
       emojiCount,
       emojiMin: emojiRange.min,
       emojiMax: emojiRange.max,
       emojiInRange: emojiCount >= emojiRange.min && emojiCount <= emojiRange.max,
-      modeSignalDetected: hasModeSignal(text, config.language, config.conversationMode),
-      objectiveCoverageRatio: Number(objectiveCoverageRatio.toFixed(3)),
-      objectiveCoveragePass,
+      styleSignalDetected: hasModeSignal(text, config.language, config.conversationMode),
+      goalCoverageRatio: Number(objectiveCoverageRatio.toFixed(3)),
+      goalCoveragePass: objectiveCoveragePass,
     },
   };
 };
@@ -1987,6 +2012,96 @@ const normalizeOutputFormatValue = (value?: string | null): OutputFormat | null 
   return supported.includes(value as OutputFormat) ? (value as OutputFormat) : null;
 };
 
+const normalizeStyleValue = (value?: string | null): AiStyle | null =>
+  normalizeConversationModePreference(value);
+
+const mapStyleToTonePreference = (style: AiStyle): FollowUpTone | PaymentTone => {
+  if (style === 'direct') return 'assertive';
+  if (style === 'consultative') return 'professional';
+  if (style === 'banter') return 'friendly';
+  if (style === 'humor') return 'casual';
+  return 'polite';
+};
+
+const mapStyleToFollowUpPreset = (style: AiStyle): FollowUpStylePreset => {
+  if (style === 'direct') return 'deadline_push';
+  if (style === 'consultative') return 'meeting_request';
+  if (style === 'banter') return 'social_proof';
+  if (style === 'humor') return 'value_reminder';
+  return 'gentle_nudge';
+};
+
+const mapStyleToPaymentPreset = (style: AiStyle): PaymentStylePreset => {
+  if (style === 'direct') return 'due_today';
+  if (style === 'consultative') return 'installment_offer';
+  if (style === 'banter' || style === 'humor') return 'friendly_reminder';
+  return 'friendly_reminder';
+};
+
+type PromptBuildInput = {
+  purpose: 'follow_up' | 'payment';
+  language: Language;
+  leadName: string;
+  goal: string;
+  context: string;
+  channel: OutputFormat;
+  daysPassed: number;
+  style: AiStyle;
+  emojiIntensity: EmojiPreference;
+};
+
+const getPromptTaskInstruction = (
+  language: Language,
+  purpose: 'follow_up' | 'payment',
+  leadName: string
+) => {
+  if (language === 'zh-CN') {
+    return purpose === 'payment'
+      ? `请写一条可直接发送给 ${leadName} 的付款提醒消息。`
+      : `请写一条可直接发送给 ${leadName} 的跟进消息。`;
+  }
+  if (language === 'ms') {
+    return purpose === 'payment'
+      ? `Tulis mesej peringatan bayaran yang boleh terus dihantar kepada ${leadName}.`
+      : `Tulis mesej follow-up yang boleh terus dihantar kepada ${leadName}.`;
+  }
+  return purpose === 'payment'
+    ? `Write a payment reminder message that can be sent directly to ${leadName}.`
+    : `Write a follow-up message that can be sent directly to ${leadName}.`;
+};
+
+const buildPrompt = (input: PromptBuildInput): string => {
+  const contextMap: Record<string, string> = {
+    Goal: input.goal || 'n/a',
+    'Additional context': input.context || 'none',
+    Channel: input.channel,
+    'Days since last contact': String(input.daysPassed),
+  };
+  const styleMap: Record<string, string> = {
+    Tone: input.style,
+    'Emoji intensity': input.emojiIntensity,
+  };
+  const contextBlock = Object.entries(contextMap)
+    .map(([key, value]) => `- ${key}: ${value}`)
+    .join('\n');
+  const styleBlock = Object.entries(styleMap)
+    .map(([key, value]) => `- ${key}: ${value}`)
+    .join('\n');
+
+  return [
+    'You are a sales assistant.',
+    '',
+    'Context:',
+    contextBlock,
+    '',
+    'Style:',
+    styleBlock,
+    '',
+    'Task:',
+    getPromptTaskInstruction(input.language, input.purpose, input.leadName),
+  ].join('\n');
+};
+
 const getLeadMemorySnapshot = async (userId: string, leadId: string): Promise<LeadMemorySnapshot> => {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId },
@@ -2627,44 +2742,62 @@ export const generateFollowUpText = async (
   data: FollowUpData
 ): Promise<AiGenerationBundle> => {
   const userContext = await getUserAiContext(userId);
+  const goal = (data.goal || data.objective || '').trim();
+  const additionalContext = (data.context || '').trim();
   const daysPassed = data.daysPassed || 0;
   const language = data.language || 'en';
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
-  const selectedPreset: FollowUpStylePreset = presetsEnabled ? data.stylePreset || 'gentle_nudge' : 'gentle_nudge';
-  const objectiveItems = splitObjectives(data.objective);
+  const objectiveItems = splitObjectives(goal);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
   const effectiveMemory = userContext.memoryEnabled ? memory : null;
   const effectiveCutoffSummary = userContext.recordHistoryEnabled ? cutoffSummary : null;
   const effectiveTranscript = userContext.recordHistoryEnabled ? transcript : '';
-  const tone = normalizeTonePreference(data.tone) || effectiveMemory?.tone || userContext.defaultTone || 'polite';
-  const conversationMode: ConversationMode =
+  const style: AiStyle =
+    normalizeStyleValue(data.style) ||
     normalizeConversationModePreference(data.conversationMode) ||
     effectiveMemory?.conversationMode ||
     userContext.defaultConversationMode ||
     'standard';
+  const selectedPreset: FollowUpStylePreset = presetsEnabled
+    ? data.stylePreset || mapStyleToFollowUpPreset(style)
+    : mapStyleToFollowUpPreset(style);
+  const tone =
+    normalizeTonePreference(data.tone) ||
+    mapStyleToTonePreference(style) ||
+    effectiveMemory?.tone ||
+    userContext.defaultTone ||
+    'polite';
+  const conversationMode: ConversationMode =
+    style;
   const emojiPreference =
+    normalizeEmojiPreferenceValue(data.emojiIntensity) ||
     normalizeEmojiPreferenceValue(data.emojiDensity) ||
     effectiveMemory?.emojiDensity ||
     userContext.defaultEmojiDensity ||
-    detectEmojiPreference(data.objective);
+    detectEmojiPreference(goal);
   const outputFormat =
+    normalizeOutputFormatValue(data.channel) ||
     normalizeOutputFormatValue(data.outputFormat) ||
     effectiveMemory?.outputFormat ||
     userContext.defaultOutputFormat ||
     'chat';
-  const mappedTone = mapFollowUpTone(tone);
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
   const systemPrompt = `${getAdvisorPersona(language)}\n\n${getConversationContinuitySystemPrompt()}`;
-
-  const userPrompt = isChinese
-    ? `用中文写一封跟进消息。\n\n上下文：\n- 客户姓名：${data.leadName}\n- 目标：${data.objective}\n- 距离上次回复天数：${daysPassed}\n- 语气：${mappedTone === 'soft' ? '温和' : mappedTone === 'professional' ? '专业' : '坚定'}\n- 模板风格：${selectedPreset}\n\n风格要求：\n${getFollowUpPresetFragment(selectedPreset, true)}\n\n规则：\n- 简短自然\n- 不要施压\n- 结尾用简单问题\n- 必须使用客户姓名` 
-    : isMalay
-      ? `Tulis mesej follow-up dalam Bahasa Melayu.\n\nKonteks:\n- Nama pelanggan: ${data.leadName}\n- Objektif: ${data.objective}\n- Hari sejak respons terakhir: ${daysPassed}\n- Nada: ${mappedTone}\n- Gaya template: ${selectedPreset}\n\nPeraturan:\n- Ringkas dan natural\n- Tiada tekanan\n- Akhiri dengan soalan mudah dibalas\n- Wajib sebut nama pelanggan`
-      : `Write a follow-up message in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Days since last reply: ${daysPassed}\n- Tone: ${mappedTone}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getFollowUpPresetFragment(selectedPreset, false)}\n\nRules:\n- Keep it short and natural\n- No pressure\n- End with an easy question\n- Must use the customer name`;
+  const promptCore = buildPrompt({
+    purpose: 'follow_up',
+    language,
+    leadName: data.leadName,
+    goal,
+    context: additionalContext,
+    channel: outputFormat,
+    daysPassed,
+    style,
+    emojiIntensity: emojiPreference,
+  });
   const formatInstruction = getFormatInstruction(outputFormat, language);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'follow_up');
@@ -2673,7 +2806,7 @@ export const generateFollowUpText = async (
   const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
   const turnPolicyInstruction = getTurnPolicyInstruction(language, greetingPolicy);
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
-  const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'follow_up');
+  const objectiveDirective = getObjectiveDirective(goal, language, objectiveItems, 'follow_up');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const personalizationInstruction = getPersonalizationInstruction(userContext, language);
   const humanStyleBlock =
@@ -2696,13 +2829,40 @@ export const generateFollowUpText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const styleRequirement = getFollowUpPresetFragment(selectedPreset, isChinese);
+  const promptWithFormat = `${promptCore}\n\nStyle requirement:\n${styleRequirement}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, effectiveCutoffSummary, effectiveTranscript, effectiveMemory, language, 'follow_up', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not set');
     }
+
+    const promptDebugId = `follow_up_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    console.log(
+      '[AI_PROMPT_DEBUG]',
+      JSON.stringify(
+        {
+          id: promptDebugId,
+          purpose: 'follow_up',
+          normalizedConfig: {
+            goal,
+            context: additionalContext,
+            channel: outputFormat,
+            style,
+            daysPassed,
+            emojiIntensity: emojiPreference,
+            language,
+          },
+          prompt: {
+            system: systemPrompt,
+            user: bundlePrompt,
+          },
+        },
+        null,
+        2
+      )
+    );
 
     const completion = await generateCompletion(systemPrompt, bundlePrompt);
     const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
@@ -2728,18 +2888,18 @@ export const generateFollowUpText = async (
             conversationMode,
             emojiPreference,
           },
-          data.objective,
+          goal,
           localTimeContext.hour,
           greetingPolicy
         );
         next = await enforceReplyPolicy(systemPrompt, next, language);
         next = enforceGreetingPolicy(next, greetingPolicy);
-        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, data.objective);
+        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, goal);
       })
     );
     let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
     generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
-    generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, data.objective);
+    generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, goal);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2764,7 +2924,7 @@ export const generateFollowUpText = async (
         aiOutputFormat: outputFormat,
         ...(userContext.memoryEnabled
           ? {
-              memoryGoal: data.objective.trim(),
+              memoryGoal: goal,
               memorySummary: parsed.cutoffSummary || effectiveMemory?.summary || effectiveCutoffSummary,
               memoryLanguage: language,
               memoryUpdatedAt: new Date(),
@@ -2778,7 +2938,7 @@ export const generateFollowUpText = async (
       variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
       cutoffSummary: parsed.cutoffSummary || effectiveCutoffSummary,
       memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || parsed.cutoffSummary || effectiveCutoffSummary : null,
-      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
+      memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
@@ -2786,12 +2946,12 @@ export const generateFollowUpText = async (
 
     const objectiveSummary = objectiveItems.length > 1
       ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n')
-      : data.objective;
+      : goal;
     const baseFallbackText = isMalay
       ? `Hai ${data.leadName},\n\nSaya nak follow-up ringkas tentang perkara berikut:\n${objectiveSummary}\n${daysPassed > 0 ? `\nSudah ${daysPassed} hari sejak mesej terakhir.` : ''}\n\nBoleh kongsi anggaran masa untuk setiap perkara di atas?`
       : isChinese
         ? `你好 ${data.leadName}，\n\n我这边简短跟进以下事项：\n${objectiveSummary}\n${daysPassed > 0 ? `\n距离上次沟通已 ${daysPassed} 天。` : ''}\n\n方便的话，请按以上事项回复大概时间。`
-        : createFollowUpFallback(data, daysPassed, isChinese, selectedPreset).replace(data.objective, objectiveSummary);
+        : createFollowUpFallback({ ...data, objective: goal }, daysPassed, isChinese, selectedPreset).replace(goal, objectiveSummary);
     const fallbackBase = enforceGreetingPolicy(formatFallbackMessage(
       baseFallbackText,
       outputFormat,
@@ -2800,7 +2960,7 @@ export const generateFollowUpText = async (
       isChinese ? '跟进确认' : isMalay ? 'Susulan Ringkas' : 'Quick Follow-up'
     ), greetingPolicy);
     let fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
-    fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, data.objective);
+    fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, goal);
 
     await prisma.aiLog.create({
       data: {
@@ -2817,7 +2977,7 @@ export const generateFollowUpText = async (
       variants: [fallbackText],
       cutoffSummary: effectiveCutoffSummary,
       memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || effectiveCutoffSummary : null,
-      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
+      memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   }
 };
@@ -2828,35 +2988,48 @@ export const generatePaymentText = async (
   data: PaymentData
 ): Promise<AiGenerationBundle> => {
   const userContext = await getUserAiContext(userId);
+  const goal = (data.goal || data.objective || '').trim();
+  const additionalContext = (data.context || '').trim();
   const amount = data.amount;
   const dueDate = data.dueDate;
   const language = data.language || 'en';
   const isChinese = language === 'zh-CN';
   const isMalay = language === 'ms';
-  const selectedPreset: PaymentStylePreset = presetsEnabled ? data.stylePreset || 'friendly_reminder' : 'friendly_reminder';
-  const objectiveItems = splitObjectives(data.objective);
+  const objectiveItems = splitObjectives(goal);
   const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
   const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
   const effectiveMemory = userContext.memoryEnabled ? memory : null;
   const effectiveCutoffSummary = userContext.recordHistoryEnabled ? cutoffSummary : null;
   const effectiveTranscript = userContext.recordHistoryEnabled ? transcript : '';
-  const tone = normalizeTonePreference(data.tone) || effectiveMemory?.tone || userContext.defaultTone || 'polite';
-  const conversationMode: ConversationMode =
+  const style: AiStyle =
+    normalizeStyleValue(data.style) ||
     normalizeConversationModePreference(data.conversationMode) ||
     effectiveMemory?.conversationMode ||
     userContext.defaultConversationMode ||
     'standard';
+  const selectedPreset: PaymentStylePreset = presetsEnabled
+    ? data.stylePreset || mapStyleToPaymentPreset(style)
+    : mapStyleToPaymentPreset(style);
+  const tone =
+    normalizeTonePreference(data.tone) ||
+    mapStyleToTonePreference(style) ||
+    effectiveMemory?.tone ||
+    userContext.defaultTone ||
+    'polite';
+  const conversationMode: ConversationMode =
+    style;
   const emojiPreference =
+    normalizeEmojiPreferenceValue(data.emojiIntensity) ||
     normalizeEmojiPreferenceValue(data.emojiDensity) ||
     effectiveMemory?.emojiDensity ||
     userContext.defaultEmojiDensity ||
-    detectEmojiPreference(data.objective);
+    detectEmojiPreference(goal);
   const outputFormat =
+    normalizeOutputFormatValue(data.channel) ||
     normalizeOutputFormatValue(data.outputFormat) ||
     effectiveMemory?.outputFormat ||
     userContext.defaultOutputFormat ||
     'chat';
-  const mappedTone = mapPaymentTone(tone);
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
   const localTimeContext = getCurrentLocalContext(language);
 
@@ -2868,12 +3041,17 @@ export const generatePaymentText = async (
   }
 
   const systemPrompt = `${getAdvisorPersona(language)}\n\n${getConversationContinuitySystemPrompt()}`;
-
-  const userPrompt = isChinese
-    ? `用中文写一封付款提醒。\n\n上下文：\n- 客户姓名：${data.leadName}\n- 目标：${data.objective}\n- 项目已完成\n- 付款待处理\n- 逾期天数：${daysOverdue}\n- 语气：${mappedTone === 'professional' ? '专业' : '坚定'}\n${amount ? `- 金额：${amount.toFixed(2)}` : ''}\n- 模板风格：${selectedPreset}\n\n风格要求：\n${getPaymentPresetFragment(selectedPreset, true)}\n\n规则：\n- 保持尊重\n- 清晰友好\n- 使用客户姓名`
-    : isMalay
-      ? `Tulis mesej peringatan bayaran dalam Bahasa Melayu.\n\nKonteks:\n- Nama pelanggan: ${data.leadName}\n- Objektif: ${data.objective}\n- Projek telah siap\n- Bayaran masih belum diterima\n- Hari tertunggak: ${daysOverdue}\n- Nada: ${mappedTone}\n${amount ? `- Jumlah: ${amount.toFixed(2)}` : ''}\n- Gaya template: ${selectedPreset}\n\nPeraturan:\n- Hormat dan profesional\n- Jelas serta ringkas\n- Wajib sebut nama pelanggan`
-      : `Write a payment reminder in English.\n\nContext:\n- Customer Name: ${data.leadName}\n- Objective: ${data.objective}\n- Project is completed\n- Payment is pending\n- Days overdue: ${daysOverdue}\n- Tone: ${mappedTone}\n${amount ? `- Amount: $${amount.toFixed(2)}` : ''}\n- Style preset: ${selectedPreset}\n\nStyle requirement:\n${getPaymentPresetFragment(selectedPreset, false)}\n\nRules:\n- Be respectful\n- Keep it clear and friendly\n- Must use the customer name`;
+  const promptCore = buildPrompt({
+    purpose: 'payment',
+    language,
+    leadName: data.leadName,
+    goal,
+    context: additionalContext,
+    channel: outputFormat,
+    daysPassed: daysOverdue,
+    style,
+    emojiIntensity: emojiPreference,
+  });
   const formatInstruction = getFormatInstruction(outputFormat, language);
   const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
   const modeInstruction = getConversationModeInstruction(language, conversationMode, 'payment');
@@ -2882,7 +3060,7 @@ export const generatePaymentText = async (
   const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
   const turnPolicyInstruction = getTurnPolicyInstruction(language, greetingPolicy);
   const industryInstruction = getIndustryInstruction(userContext.industry, language);
-  const objectiveDirective = getObjectiveDirective(data.objective, language, objectiveItems, 'payment');
+  const objectiveDirective = getObjectiveDirective(goal, language, objectiveItems, 'payment');
   const hardConstraints = getHardConstraints(language, outputFormat);
   const personalizationInstruction = getPersonalizationInstruction(userContext, language);
   const humanStyleBlock =
@@ -2905,13 +3083,42 @@ export const generatePaymentText = async (
     userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
     userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
   ].filter(Boolean).join('\n');
-  const promptWithFormat = `${userPrompt}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
+  const styleRequirement = getPaymentPresetFragment(selectedPreset, isChinese);
+  const amountLine = amount ? `\n- Payment amount: ${amount.toFixed(2)}` : '';
+  const overdueLine = `\n- Days overdue: ${daysOverdue}`;
+  const promptWithFormat = `${promptCore}${amountLine}${overdueLine}\n\nStyle requirement:\n${styleRequirement}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
   const bundlePrompt = buildVariantPrompt(promptWithFormat, effectiveCutoffSummary, effectiveTranscript, effectiveMemory, language, 'payment', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not set');
     }
+
+    const promptDebugId = `payment_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    console.log(
+      '[AI_PROMPT_DEBUG]',
+      JSON.stringify(
+        {
+          id: promptDebugId,
+          purpose: 'payment',
+          normalizedConfig: {
+            goal,
+            context: additionalContext,
+            channel: outputFormat,
+            style,
+            daysPassed: daysOverdue,
+            emojiIntensity: emojiPreference,
+            language,
+          },
+          prompt: {
+            system: systemPrompt,
+            user: bundlePrompt,
+          },
+        },
+        null,
+        2
+      )
+    );
 
     const completion = await generateCompletion(systemPrompt, bundlePrompt);
     const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
@@ -2937,18 +3144,18 @@ export const generatePaymentText = async (
             conversationMode,
             emojiPreference,
           },
-          data.objective,
+          goal,
           localTimeContext.hour,
           greetingPolicy
         );
         next = await enforceReplyPolicy(systemPrompt, next, language);
         next = enforceGreetingPolicy(next, greetingPolicy);
-        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, data.objective);
+        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, goal);
       })
     );
     let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
     generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
-    generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, data.objective);
+    generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, goal);
 
     if (!generatedText.trim()) {
       throw new Error('OpenAI API returned empty response');
@@ -2973,7 +3180,7 @@ export const generatePaymentText = async (
         aiOutputFormat: outputFormat,
         ...(userContext.memoryEnabled
           ? {
-              memoryGoal: data.objective.trim(),
+              memoryGoal: goal,
               memorySummary: parsed.cutoffSummary || effectiveMemory?.summary || effectiveCutoffSummary,
               memoryLanguage: language,
               memoryUpdatedAt: new Date(),
@@ -2987,7 +3194,7 @@ export const generatePaymentText = async (
       variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
       cutoffSummary: parsed.cutoffSummary || effectiveCutoffSummary,
       memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || parsed.cutoffSummary || effectiveCutoffSummary : null,
-      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
+      memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
@@ -2995,12 +3202,12 @@ export const generatePaymentText = async (
 
     const objectiveSummary = objectiveItems.length > 1
       ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n')
-      : data.objective;
+      : goal;
     const baseFallbackText = isMalay
       ? `Hai ${data.leadName},\n\nPeringatan mesra untuk perkara berikut:\n${objectiveSummary}${amount ? `\nJumlah bayaran semasa: ${amount.toFixed(2)}.` : ''}\n\nBoleh kongsi anggaran tarikh untuk tindakan di atas, terutamanya bayaran?`
       : isChinese
         ? `你好 ${data.leadName}，\n\n这边提醒以下事项：\n${objectiveSummary}${amount ? `\n当前金额：${amount.toFixed(2)}。` : ''}\n\n方便的话，请优先确认付款时间，并告知其余事项安排。`
-        : createPaymentFallback(data, isChinese, selectedPreset, daysOverdue).replace(data.objective, objectiveSummary);
+        : createPaymentFallback({ ...data, objective: goal }, isChinese, selectedPreset, daysOverdue).replace(goal, objectiveSummary);
     const fallbackBase = enforceGreetingPolicy(formatFallbackMessage(
       baseFallbackText,
       outputFormat,
@@ -3009,7 +3216,7 @@ export const generatePaymentText = async (
       isChinese ? '付款提醒' : isMalay ? 'Peringatan Bayaran' : 'Payment Reminder'
     ), greetingPolicy);
     let fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
-    fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, data.objective);
+    fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, goal);
 
     await prisma.aiLog.create({
       data: {
@@ -3026,7 +3233,7 @@ export const generatePaymentText = async (
       variants: [fallbackText],
       cutoffSummary: effectiveCutoffSummary,
       memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || effectiveCutoffSummary : null,
-      memoryGoal: userContext.memoryEnabled ? data.objective.trim() : null,
+      memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   }
 };
@@ -3064,4 +3271,5 @@ export const __test__ = {
   detectLightCodeSwitchSignal,
   buildGreetingPolicyContextFromLogs,
   getTurnPolicyInstruction,
+  buildPrompt,
 };

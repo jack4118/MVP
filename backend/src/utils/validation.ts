@@ -25,6 +25,8 @@ export const outputFormatValues = ['chat', 'email', 'whatsapp'] as const;
 export const outputFormatSchema = z.enum(outputFormatValues);
 export const conversationModeValues = ['standard', 'humor', 'banter', 'direct', 'consultative'] as const;
 export const conversationModeSchema = z.enum(conversationModeValues);
+export const aiStyleValues = conversationModeValues;
+export const aiStyleSchema = conversationModeSchema;
 export const emojiDensityValues = ['low', 'medium', 'high'] as const;
 export const emojiDensitySchema = z.enum(emojiDensityValues);
 export const baseStyleToneValues = ['default', 'professional', 'friendly', 'concise'] as const;
@@ -132,30 +134,47 @@ export const importLeadsSchema = z.object({
 
 export const aiFollowUpSchema = z.object({
   leadName: z.string().min(1, 'Lead name is required'),
-  objective: z.string().min(3, 'Objective is required').max(300, 'Objective is too long'),
+  goal: z.string().min(3, 'Goal is required').max(300, 'Goal is too long').optional(),
+  objective: z.string().min(3, 'Objective is required').max(300, 'Objective is too long').optional(),
+  context: z.string().max(500, 'Context is too long').optional(),
+  channel: outputFormatSchema.optional(),
+  style: aiStyleSchema.optional(),
   status: leadStatusSchema.optional(),
   daysPassed: z.number().int().nonnegative().optional(),
   tone: followUpToneSchema.optional(),
   stylePreset: followUpStylePresetSchema.optional(),
   conversationMode: conversationModeSchema.optional(),
+  emojiIntensity: emojiDensitySchema.optional(),
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(3),
+}).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
+  message: 'Goal is required',
+  path: ['goal'],
 });
 
 export const aiPaymentSchema = z.object({
   leadName: z.string().min(1, 'Lead name is required'),
-  objective: z.string().min(3, 'Objective is required').max(300, 'Objective is too long'),
+  goal: z.string().min(3, 'Goal is required').max(300, 'Goal is too long').optional(),
+  objective: z.string().min(3, 'Objective is required').max(300, 'Objective is too long').optional(),
+  context: z.string().max(500, 'Context is too long').optional(),
+  channel: outputFormatSchema.optional(),
+  style: aiStyleSchema.optional(),
+  daysPassed: z.number().int().nonnegative().optional(),
   amount: z.number().positive().optional(),
   dueDate: z.string().optional(),
   tone: paymentToneSchema.optional(),
   stylePreset: paymentStylePresetSchema.optional(),
   conversationMode: conversationModeSchema.optional(),
+  emojiIntensity: emojiDensitySchema.optional(),
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(3),
+}).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
+  message: 'Goal is required',
+  path: ['goal'],
 });
 
 export const eventLogSchema = z.object({

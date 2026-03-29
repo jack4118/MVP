@@ -147,16 +147,13 @@ const Dashboard = () => {
     const baseConfig = getDefaultQuickConfigForLead(refreshedLead, 0);
     const objectiveByAction: Record<string, Partial<SharedAiConfig>> = {
       send_follow_up: {
-        purpose: 'follow-up',
-        objective: refreshedLead.memoryGoal || 'Send a concise follow-up and ask for a clear next step.',
+        goal: refreshedLead.memoryGoal || 'Send a concise follow-up and ask for a clear next step.',
       },
       ask_budget: {
-        purpose: 'follow-up',
-        objective: 'Ask for budget, package fit, and next-step timing.',
+        goal: 'Ask for budget, package fit, and next-step timing.',
       },
       payment_reminder: {
-        purpose: 'payment',
-        objective: 'Follow up on payment and ask for a clear payment date.',
+        goal: 'Follow up on payment and ask for a clear payment date.',
       },
     };
 
@@ -164,7 +161,7 @@ const Dashboard = () => {
     setConfig({
       ...getDefaultConfigFromUserPreferences(user, baseConfig),
       ...baseConfig,
-      outputFormat: 'whatsapp',
+      channel: 'whatsapp',
       ...(objectiveByAction[action] || objectiveByAction.send_follow_up),
     });
     setGeneratedText('');
@@ -235,7 +232,7 @@ const Dashboard = () => {
         setCutoffSummary(data.cutoffSummary || '');
         setMemorySummary(data.memorySummary || memorySummary);
         if (data.memoryGoal) {
-          setConfig((current) => ({ ...current, objective: data.memoryGoal || current.objective }));
+          setConfig((current) => ({ ...current, goal: data.memoryGoal || current.goal }));
         }
         setGenerationDebug(data.debug || null);
         setGenerationStage('done');
@@ -796,7 +793,7 @@ const Dashboard = () => {
               </div>
 
               <div className="quick-ai-result">
-                {(memorySummary || refreshingMemory || config.objective) && (
+                {(memorySummary || refreshingMemory || config.goal) && (
                   <div className="ai-cutoff-card ai-cutoff-card-compact">
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center' }}>
                       <strong>{t.ai.memoryPoint}</strong>
@@ -834,7 +831,7 @@ const Dashboard = () => {
                       ) : null}
                     </div>
                     {memorySummary ? <p>{memorySummary}</p> : null}
-                    {config.objective ? <p><strong>{t.ai.memoryGoal}:</strong> {config.objective}</p> : null}
+                    {config.goal ? <p><strong>{t.ai.memoryGoal}:</strong> {config.goal}</p> : null}
                   </div>
                 )}
 

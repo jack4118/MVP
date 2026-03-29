@@ -9,12 +9,14 @@ export type LeadStatus = 'new' | 'waiting_reply' | 'follow_up_due' | 'won' | 'lo
 export type AiTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
 export type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
 export type EmojiDensity = 'low' | 'medium' | 'high';
+export type AiStyle = ConversationMode;
 export type BaseStyleTone = 'default' | 'professional' | 'friendly' | 'concise';
 export type PersonalizationLevel = 'default' | 'low' | 'medium' | 'high';
 export type HeadersListsLevel = 'default' | 'minimal' | 'structured';
 export type FollowUpStylePreset = 'gentle_nudge' | 'value_reminder' | 'meeting_request' | 'deadline_push' | 'social_proof';
 export type PaymentStylePreset = 'friendly_reminder' | 'due_today' | 'overdue_escalation' | 'installment_offer' | 'soft_final_notice';
 export type OutputFormat = 'chat' | 'email' | 'whatsapp';
+export type AiChannel = OutputFormat;
 export type AppLanguage = 'en' | 'zh-CN' | 'ms';
 export type ProductEvent =
   | 'ai_generate_clicked'
@@ -306,20 +308,22 @@ export interface AiHistoryItem {
 
 export interface AiGenerationDebug {
   requested: {
+    goal: string;
+    context: string;
     language: AppLanguage;
-    outputFormat: OutputFormat;
-    tone: AiTone;
-    conversationMode: ConversationMode;
-    emojiDensity: EmojiDensity;
+    channel: AiChannel;
+    style: AiStyle;
+    daysPassed: number;
+    emojiIntensity: EmojiDensity;
   };
   checks: {
     emojiCount: number;
     emojiMin: number;
     emojiMax: number;
     emojiInRange: boolean;
-    modeSignalDetected: boolean;
-    objectiveCoverageRatio: number;
-    objectiveCoveragePass: boolean;
+    styleSignalDetected: boolean;
+    goalCoverageRatio: number;
+    goalCoveragePass: boolean;
   };
 }
 
@@ -680,7 +684,12 @@ export const aiApi = {
   generateFollowUp: async (data: {
     leadId: string;
     leadName: string;
-    objective: string;
+    goal?: string;
+    context?: string;
+    channel?: AiChannel;
+    style?: AiStyle;
+    emojiIntensity?: EmojiDensity;
+    objective?: string;
     status?: LeadStatus;
     daysPassed?: number;
     tone?: AiTone;
@@ -698,7 +707,12 @@ export const aiApi = {
   generatePayment: async (data: {
     leadId: string;
     leadName: string;
-    objective: string;
+    goal?: string;
+    context?: string;
+    channel?: AiChannel;
+    style?: AiStyle;
+    emojiIntensity?: EmojiDensity;
+    objective?: string;
     amount?: number;
     dueDate?: string;
     tone?: AiTone;

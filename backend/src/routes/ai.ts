@@ -75,22 +75,29 @@ router.post('/follow-up', async (req: AuthRequest, res: Response, next: NextFunc
     }
 
     const generatedResult = await generateFollowUpText(req.userId, leadId, validatedData);
-    const followUpMode = validatedData.conversationMode || 'standard';
-    const followUpTone = validatedData.tone || 'polite';
-    const followUpEmoji = validatedData.emojiDensity || 'medium';
+    const followUpStyle = validatedData.style || validatedData.conversationMode || 'standard';
+    const followUpEmoji = validatedData.emojiIntensity || validatedData.emojiDensity || 'medium';
     const followUpLanguage = validatedData.language || 'en';
-    const followUpFormat = validatedData.outputFormat || 'chat';
+    const followUpChannel = validatedData.channel || validatedData.outputFormat || 'chat';
+    const followUpGoal = (validatedData.goal || validatedData.objective || '').trim();
+    const followUpContext = (validatedData.context || '').trim();
+    const followUpDays = validatedData.daysPassed || 0;
     const debug = buildGenerationDebugInfo(generatedResult.text, {
+      goal: followUpGoal,
+      context: followUpContext,
       language: followUpLanguage,
-      outputFormat: followUpFormat,
+      channel: followUpChannel,
+      style: followUpStyle,
+      daysPassed: followUpDays,
+      outputFormat: followUpChannel,
       purpose: 'follow_up',
-      tone: followUpTone,
-      conversationMode: followUpMode,
+      tone: validatedData.tone || 'polite',
+      conversationMode: followUpStyle,
       emojiPreference: followUpEmoji,
-    }, validatedData.objective);
+    }, followUpGoal);
     await trackEvent(req.userId, {
       event: 'ai_generate_success',
-      props: { purpose: 'follow_up', stylePreset: validatedData.stylePreset || 'gentle_nudge' },
+      props: { purpose: 'follow_up', style: followUpStyle },
     }).catch(() => undefined);
     const usageInfo = await getUsageInfo(req.userId);
 
@@ -160,22 +167,29 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
     }
 
     const generatedResult = await generatePaymentText(req.userId, leadId, validatedData);
-    const paymentMode = validatedData.conversationMode || 'standard';
-    const paymentTone = validatedData.tone || 'polite';
-    const paymentEmoji = validatedData.emojiDensity || 'medium';
+    const paymentStyle = validatedData.style || validatedData.conversationMode || 'standard';
+    const paymentEmoji = validatedData.emojiIntensity || validatedData.emojiDensity || 'medium';
     const paymentLanguage = validatedData.language || 'en';
-    const paymentFormat = validatedData.outputFormat || 'chat';
+    const paymentChannel = validatedData.channel || validatedData.outputFormat || 'chat';
+    const paymentGoal = (validatedData.goal || validatedData.objective || '').trim();
+    const paymentContext = (validatedData.context || '').trim();
+    const paymentDays = validatedData.daysPassed || 0;
     const debug = buildGenerationDebugInfo(generatedResult.text, {
+      goal: paymentGoal,
+      context: paymentContext,
       language: paymentLanguage,
-      outputFormat: paymentFormat,
+      channel: paymentChannel,
+      style: paymentStyle,
+      daysPassed: paymentDays,
+      outputFormat: paymentChannel,
       purpose: 'payment',
-      tone: paymentTone,
-      conversationMode: paymentMode,
+      tone: validatedData.tone || 'polite',
+      conversationMode: paymentStyle,
       emojiPreference: paymentEmoji,
-    }, validatedData.objective);
+    }, paymentGoal);
     await trackEvent(req.userId, {
       event: 'ai_generate_success',
-      props: { purpose: 'payment', stylePreset: validatedData.stylePreset || 'friendly_reminder' },
+      props: { purpose: 'payment', style: paymentStyle },
     }).catch(() => undefined);
     const usageInfo = await getUsageInfo(req.userId);
 
