@@ -549,18 +549,18 @@ const estimateTokenCount = (text: string): number => Math.max(1, Math.ceil(text.
 
 const getEmojiRuleText = (emojiPreference: EmojiPreference, language: Language): string => {
   if (language === 'zh-CN') {
-    if (emojiPreference === 'low') return 'emoji 规则：严格使用 0 个。';
-    if (emojiPreference === 'high') return 'emoji 规则：严格使用 1-2 个，不可超过 2 个。';
-    return 'emoji 规则：可用 0-1 个，不可超过 1 个。';
+    if (emojiPreference === 'low') return 'emoji 规则：可用 0-1 个，最多 1 个，若有 emoji 请放在结尾。';
+    if (emojiPreference === 'high') return 'emoji 规则：使用 1-3 个，不可超过 3 个，不要每句都放。';
+    return 'emoji 规则：使用 1-2 个，自然分布。';
   }
   if (language === 'ms') {
-    if (emojiPreference === 'low') return 'Peraturan emoji: guna 0 emoji sahaja.';
-    if (emojiPreference === 'high') return 'Peraturan emoji: guna 1-2 emoji sahaja, maksimum 2.';
-    return 'Peraturan emoji: guna 0-1 emoji sahaja, maksimum 1.';
+    if (emojiPreference === 'low') return 'Peraturan emoji: guna 0-1 emoji sahaja, maksimum 1, dan letak di hujung jika digunakan.';
+    if (emojiPreference === 'high') return 'Peraturan emoji: guna 1-3 emoji sahaja, maksimum 3, jangan letak pada setiap ayat.';
+    return 'Peraturan emoji: guna 1-2 emoji secara semula jadi.';
   }
-  if (emojiPreference === 'low') return 'Emoji rule: use exactly 0 emojis.';
-  if (emojiPreference === 'high') return 'Emoji rule: use 1-2 emojis only (max 2).';
-  return 'Emoji rule: use 0-1 emoji only (max 1).';
+  if (emojiPreference === 'low') return 'Emoji rule: use 0-1 emoji only (max 1), and if used place it at the end.';
+  if (emojiPreference === 'high') return 'Emoji rule: use 1-3 emojis only (max 3), do not place emoji in every sentence.';
+  return 'Emoji rule: use 1-2 emojis naturally.';
 };
 
 const buildPromptDebugPayload = (args: {
@@ -593,7 +593,13 @@ const buildPromptDebugPayload = (args: {
   };
 };
 
-const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference): string => {
+const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference, language: Language): string => {
+  const languageLock =
+    language === 'zh-CN'
+      ? 'LANGUAGE LOCK: 输出必须是简体中文。'
+      : language === 'ms'
+        ? 'LANGUAGE LOCK: Output must be in Bahasa Melayu.'
+        : 'LANGUAGE LOCK: Output must be in English.';
   const emojiRules =
     emojiIntensity === 'low'
       ? [
@@ -635,6 +641,8 @@ const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference): string
     '- Friendly and respectful',
     '- Slight urgency is okay, but never aggressive',
     '- If asking for action, make it feel easy and reasonable',
+    '',
+    languageLock,
     '',
     'EMOJI RULES (STRICT):',
     '- none -> no emoji at all',
@@ -1110,12 +1118,12 @@ const getEmojiRange = (
   emojiPreference: EmojiPreference
 ): { min: number; max: number } => {
   if (emojiPreference === 'low') {
-    return { min: 0, max: 0 };
+    return { min: 0, max: 1 };
   }
   if (emojiPreference === 'high') {
-    return { min: 1, max: 2 };
+    return { min: 1, max: 3 };
   }
-  return { min: 0, max: 1 };
+  return { min: 1, max: 2 };
 };
 
 const needsEmojiRewrite = (text: string, outputFormat: OutputFormat, emojiPreference: EmojiPreference): boolean => {
@@ -1190,7 +1198,53 @@ const ensureEmojiRange = (text: string, outputFormat: OutputFormat, emojiPrefere
     count += 1;
   }
 
+  if (emojiPreference === 'low' && countEmojis(result) === 1) {
+    const chars = Array.from(result);
+    const nonEmojiChars: string[] = [];
+    let emojiChar = '';
+    for (const ch of chars) {
+      if (/\p{Extended_Pictographic}/u.test(ch) && !emojiChar) {
+        emojiChar = ch;
+      } else if (!/\p{Extended_Pictographic}/u.test(ch)) {
+        nonEmojiChars.push(ch);
+      }
+    }
+    if (emojiChar) {
+      result = `${nonEmojiChars.join('').trimEnd()} ${emojiChar}`.trim();
+    }
+  }
+
   return result;
+};
+
+const isLanguageMatch = (text: string, language: Language): boolean => {
+  if (!text.trim()) return false;
+  if (language === 'zh-CN') {
+    return /[\u4e00-\u9fff]/.test(text);
+  }
+  return true;
+};
+
+const enforceLanguageLock = async (
+  systemPrompt: string,
+  text: string,
+  language: Language
+): Promise<string> => {
+  if (isLanguageMatch(text, language)) {
+    return text;
+  }
+
+  const langLabel = language === 'zh-CN' ? 'Simplified Chinese' : language === 'ms' ? 'Bahasa Melayu' : 'English';
+  const rewritePrompt = [
+    `Rewrite the message below in ${langLabel}.`,
+    'Keep the same meaning and keep it WhatsApp-natural.',
+    'Return only the rewritten message.',
+    '',
+    text,
+  ].join('\n');
+  const completion = await generateCompletion(systemPrompt, rewritePrompt, { maxTokens: 120 });
+  const rewritten = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+  return rewritten || text;
 };
 
 const buildRewritePrompt = (draft: string, config: DraftConfig): string => {
@@ -2162,6 +2216,7 @@ const buildPrompt = (input: PromptBuildInput): string => {
     `Customer name: ${input.leadName}`,
     `Goal: ${input.goal || 'n/a'}`,
     `Channel: ${input.channel === 'whatsapp' ? 'WhatsApp' : input.channel}`,
+    `Language: ${input.language}`,
     `Days since last contact: ${input.daysPassed}`,
     `Emoji intensity: ${input.emojiIntensity}`,
     '',
@@ -2894,7 +2949,7 @@ export const generateFollowUpText = async (
     userContext.defaultOutputFormat ||
     'chat';
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
-  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference);
+  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
   const trimmedMemorySummary = memorySnapshot?.summary ? trimSnippet(memorySnapshot.summary, 220) : '';
   const mergedContext = [additionalContext, trimmedMemorySummary ? `Lead memory: ${trimmedMemorySummary}` : '']
     .filter(Boolean)
@@ -2947,6 +3002,7 @@ export const generateFollowUpText = async (
 
     const completion = await generateCompletion(systemPrompt, userPrompt, { maxTokens: 120 });
     let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    generatedText = await enforceLanguageLock(systemPrompt, generatedText, language);
     generatedText = sanitizePolicyBannedPhrases(generatedText, language);
     generatedText = enforceOutputFormatConsistency(generatedText, outputFormat);
     generatedText = ensureEmojiRange(generatedText, outputFormat, emojiPreference);
@@ -3086,7 +3142,7 @@ export const generatePaymentText = async (
     daysOverdue = Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
   }
 
-  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference);
+  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
   const trimmedMemorySummary = memorySnapshot?.summary ? trimSnippet(memorySnapshot.summary, 220) : '';
   const mergedContext = [additionalContext, trimmedMemorySummary ? `Lead memory: ${trimmedMemorySummary}` : '']
     .filter(Boolean)
@@ -3145,6 +3201,7 @@ export const generatePaymentText = async (
 
     const completion = await generateCompletion(systemPrompt, finalUserPrompt, { maxTokens: 120 });
     let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    generatedText = await enforceLanguageLock(systemPrompt, generatedText, language);
     generatedText = sanitizePolicyBannedPhrases(generatedText, language);
     generatedText = enforceOutputFormatConsistency(generatedText, outputFormat);
     generatedText = ensureEmojiRange(generatedText, outputFormat, emojiPreference);
@@ -3254,7 +3311,7 @@ export const generateRefinedText = async (
   const channel: OutputFormat = normalizeOutputFormatValue(data.channel) || 'chat';
   const emojiIntensity = normalizeEmojiPreferenceValue(data.emojiIntensity) || 'medium';
   const purpose = data.purpose || 'follow_up';
-  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiIntensity);
+  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiIntensity, language);
   const userPrompt = buildRefinePrompt({
     language,
     purpose,
@@ -3293,6 +3350,7 @@ export const generateRefinedText = async (
 
   const completion = await generateCompletion(systemPrompt, userPrompt, { maxTokens: 120 });
   let refinedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+  refinedText = await enforceLanguageLock(systemPrompt, refinedText, language);
   refinedText = sanitizePolicyBannedPhrases(refinedText, language);
   refinedText = enforceOutputFormatConsistency(refinedText, channel);
   refinedText = ensureEmojiRange(refinedText, channel, emojiIntensity);
