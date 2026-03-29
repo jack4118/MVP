@@ -1,6 +1,6 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { aiApi, getApiErrorMessage, remindersApi, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
+import { aiApi, getApiErrorMessage, QuickActionIntent, remindersApi, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import { useAuth } from '../hooks/useAuth';
@@ -50,6 +50,46 @@ const mapSendReadinessState = (
   }
 };
 
+const quickActionIntentMap: Record<
+  QuickActionIntent,
+  {
+    internalInstruction: string;
+    promptStrategyBlock: string;
+    defaultToneBias: 'friendly' | 'professional' | 'assertive';
+    defaultCtaBias: string;
+    purposeHint: 'follow_up' | 'payment';
+  }
+> = {
+  follow_up_softly: {
+    internalInstruction: 'Send a gentle low-pressure check-in that feels warm and natural.',
+    promptStrategyBlock: 'Use reassurance-first language, reduce urgency pressure, and ask one easy reply question.',
+    defaultToneBias: 'friendly',
+    defaultCtaBias: 'light yes/no reply',
+    purposeHint: 'follow_up',
+  },
+  push_for_payment: {
+    internalInstruction: 'Follow up on payment with clarity and process orientation.',
+    promptStrategyBlock: 'Stay polite but direct, confirm payment date/method, and avoid threatening language.',
+    defaultToneBias: 'professional',
+    defaultCtaBias: 'confirm exact payment time',
+    purposeHint: 'payment',
+  },
+  offer_discount: {
+    internalInstruction: 'Use a value-focused discount offer to move the lead toward conversion.',
+    promptStrategyBlock: 'Emphasize value and controlled urgency, then ask for a concrete decision.',
+    defaultToneBias: 'friendly',
+    defaultCtaBias: 'accept offer today',
+    purposeHint: 'follow_up',
+  },
+  close_deal: {
+    internalInstruction: 'Assume high intent and guide the lead to final confirmation.',
+    promptStrategyBlock: 'Keep momentum, present one clear close path, and ask for booking/payment confirmation.',
+    defaultToneBias: 'assertive',
+    defaultCtaBias: 'confirm now',
+    purposeHint: 'payment',
+  },
+};
+
 const WhatsApp = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -79,6 +119,7 @@ const WhatsApp = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
+  const [isConversationNearTop, setIsConversationNearTop] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [isTablet, setIsTablet] = useState(false);
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
@@ -275,6 +316,7 @@ const WhatsApp = () => {
     const handleScroll = () => {
       const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
       setIsConversationAtBottom(distanceFromBottom < 24);
+      setIsConversationNearTop(node.scrollTop < 24);
     };
 
     handleScroll();
@@ -426,6 +468,13 @@ const WhatsApp = () => {
       });
       setIsConversationAtBottom(true);
       void markConversationRead(selectedPhone);
+    }
+  };
+
+  const scrollConversationToTop = () => {
+    if (conversationBodyRef.current) {
+      conversationBodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      setIsConversationNearTop(true);
     }
   };
 
@@ -856,7 +905,7 @@ const WhatsApp = () => {
     }
   };
 
-  const handleGenerateAiSuggestion = async (instruction?: string) => {
+  const handleGenerateAiSuggestion = async (quickActionIntent?: QuickActionIntent) => {
     if (!selectedContact?.lead?.id) {
       setAiPanelError('Link this conversation to a lead to unlock AI suggestions.');
       return;
@@ -870,10 +919,13 @@ const WhatsApp = () => {
         .slice(-10)
         .map((message) => `${message.direction || 'outbound'}: ${message.content}`)
         .join('\n')
-        .slice(0, 2400);
-      const goal = instruction || 'Write a concise WhatsApp sales follow-up with one clear next step.';
+        .slice(0, 460);
+      const intentConfig = quickActionIntent ? quickActionIntentMap[quickActionIntent] : null;
+      const goal = (intentConfig
+        ? `${intentConfig.internalInstruction} ${intentConfig.promptStrategyBlock} CTA bias: ${intentConfig.defaultCtaBias}.`
+        : 'Write a concise WhatsApp sales follow-up with one clear next step.').slice(0, 280);
 
-      const response = instruction?.toLowerCase().includes('payment')
+      const response = (intentConfig?.purposeHint === 'payment')
         ? await aiApi.generatePayment({
             leadId: selectedContact.lead.id,
             leadName,
@@ -884,6 +936,8 @@ const WhatsApp = () => {
             style: 'standard',
             emojiIntensity: 'medium',
             language: user?.defaultLanguage || 'en',
+            tone: intentConfig?.defaultToneBias || 'professional',
+            quickActionIntent,
           })
         : await aiApi.generateFollowUp({
             leadId: selectedContact.lead.id,
@@ -896,6 +950,8 @@ const WhatsApp = () => {
             style: 'standard',
             emojiIntensity: 'medium',
             language: user?.defaultLanguage || 'en',
+            tone: intentConfig?.defaultToneBias || 'friendly',
+            quickActionIntent,
           });
 
       if (!response.success || !response.data?.text) {
@@ -1164,9 +1220,9 @@ const WhatsApp = () => {
       : (inboxReadinessError || inboxReadiness?.reasonMessage || t.common.error);
 
     return (
-      <section className="grid gap-4 overflow-x-hidden">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_320px]">
-          <aside className="hidden min-w-0 rounded-xl bg-white p-3 shadow-sm md:flex md:flex-col">
+      <section className="whatsapp-inbox-view">
+        <div className="whatsapp-inbox-grid grid grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+          <aside className="whatsapp-inbox-leads-pane hidden min-w-0 rounded-xl bg-white p-3 shadow-sm md:flex md:flex-col">
             <div className="mb-3">
               <p className="text-sm font-semibold text-slate-900">Leads</p>
               <p className="text-xs text-slate-500">Select a conversation to continue.</p>
@@ -1206,7 +1262,7 @@ const WhatsApp = () => {
             </div>
           </aside>
 
-          <section className="min-w-0 rounded-xl bg-white shadow-sm">
+          <section className="whatsapp-inbox-conversation-shell min-w-0 rounded-xl bg-white shadow-sm">
             <div className="border-b border-slate-100 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -1266,7 +1322,7 @@ const WhatsApp = () => {
               </div>
             ) : null}
 
-            <div className="flex min-h-[58vh] flex-col p-4 pt-3 md:min-h-[62vh]">
+            <div className="whatsapp-inbox-body">
               <MemoryPanel
                 intent={aiMemory.intent}
                 status={aiMemory.status}
@@ -1275,7 +1331,7 @@ const WhatsApp = () => {
                 nextStep={aiMemory.nextStep}
               />
 
-              <div ref={conversationBodyRef} className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-3">
+              <div ref={conversationBodyRef} className="whatsapp-inbox-conversation-scroll mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-3">
                 {!selectedPhone ? (
                   <div className="text-sm text-slate-500">{t.whatsapp.selectContact}</div>
                 ) : loadingConversation ? (
@@ -1412,7 +1468,7 @@ const WhatsApp = () => {
             </div>
           </section>
 
-          <aside className="hidden min-w-0 lg:block">
+          <aside className="whatsapp-inbox-ai-pane hidden min-w-0 lg:block">
             <AIPanel
               suggestion={aiSuggestion}
               loading={aiLoading}
@@ -1423,7 +1479,7 @@ const WhatsApp = () => {
               onUse={() => setComposerText(aiSuggestion)}
               onEdit={() => composerTextareaRef.current?.focus()}
               onRegenerate={() => void handleGenerateAiSuggestion()}
-              onQuickAction={(instruction) => void handleGenerateAiSuggestion(instruction)}
+              onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
               onSendTemplate={() => void handleSendTemplateMessage(false)}
               onSendAndContinue={() => void handleSendTemplateMessage(true)}
             />
@@ -1446,7 +1502,7 @@ const WhatsApp = () => {
                 onUse={() => setComposerText(aiSuggestion)}
                 onEdit={() => composerTextareaRef.current?.focus()}
                 onRegenerate={() => void handleGenerateAiSuggestion()}
-                onQuickAction={(instruction) => void handleGenerateAiSuggestion(instruction)}
+                onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
                 onSendTemplate={() => void handleSendTemplateMessage(false)}
                 onSendAndContinue={() => void handleSendTemplateMessage(true)}
               />
@@ -1472,7 +1528,7 @@ const WhatsApp = () => {
                 onUse={() => setComposerText(aiSuggestion)}
                 onEdit={() => composerTextareaRef.current?.focus()}
                 onRegenerate={() => void handleGenerateAiSuggestion()}
-                onQuickAction={(instruction) => void handleGenerateAiSuggestion(instruction)}
+                onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
                 onSendTemplate={() => void handleSendTemplateMessage(false)}
                 onSendAndContinue={() => void handleSendTemplateMessage(true)}
               />
@@ -1670,6 +1726,11 @@ const WhatsApp = () => {
       {activeView === 'inbox' && selectedPhone && conversation.length > 0 && !isConversationAtBottom && (
         <button type="button" className="whatsapp-scroll-latest" onClick={scrollConversationToLatest}>
           {t.whatsapp.jumpToLatest}
+        </button>
+      )}
+      {activeView === 'inbox' && selectedPhone && conversation.length > 0 && !isConversationNearTop && (
+        <button type="button" className="whatsapp-scroll-top" onClick={scrollConversationToTop}>
+          Back to top
         </button>
       )}
     </div>

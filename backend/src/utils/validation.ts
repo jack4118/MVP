@@ -41,6 +41,8 @@ export const characterEmojiValues = ['default', 'low', 'medium', 'high'] as cons
 export const characterEmojiSchema = z.enum(characterEmojiValues);
 export const reminderTypeValues = ['follow_up', 'payment', 'meeting', 'custom'] as const;
 export const reminderTypeSchema = z.enum(reminderTypeValues);
+export const quickActionIntentValues = ['follow_up_softly', 'push_for_payment', 'offer_discount', 'close_deal'] as const;
+export const quickActionIntentSchema = z.enum(quickActionIntentValues);
 
 export const productEventValues = [
   'ai_generate_clicked',
@@ -164,6 +166,7 @@ export const aiFollowUpSchema = z.object({
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
+  quickActionIntent: quickActionIntentSchema.optional(),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
@@ -187,6 +190,7 @@ export const aiPaymentSchema = z.object({
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
+  quickActionIntent: quickActionIntentSchema.optional(),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
@@ -201,6 +205,7 @@ export const aiRefineSchema = z.object({
   emojiIntensity: emojiDensitySchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   purpose: z.enum(['follow_up', 'payment']).optional(),
+  quickActionIntent: quickActionIntentSchema.optional(),
 });
 
 export const eventLogSchema = z.object({
