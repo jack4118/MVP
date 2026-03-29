@@ -1,10 +1,13 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getApiErrorMessage, remindersApi, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
+import { aiApi, getApiErrorMessage, remindersApi, whatsappApi, WhatsAppConnection, WhatsAppContactSummary, WhatsAppLogItem, WhatsAppSendPreflight } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthenticatedHeader from '../components/AuthenticatedHeader';
 import { useAuth } from '../hooks/useAuth';
 import { storage } from '../utils/storage';
+import LeadListItem from '../components/whatsapp/LeadListItem';
+import MemoryPanel from '../components/whatsapp/MemoryPanel';
+import AIPanel from '../components/whatsapp/AIPanel';
 
 type WhatsAppView = 'setup' | 'inbox' | 'contacts';
 const WHATSAPP_VIEW_KEY = 'whatsapp_active_view';
@@ -77,11 +80,16 @@ const WhatsApp = () => {
   const [success, setSuccess] = useState('');
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [mobileThreadOpen, setMobileThreadOpen] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
+  const [aiAccordionOpen, setAiAccordionOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [sending, setSending] = useState(false);
   const [composerText, setComposerText] = useState('');
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiPanelError, setAiPanelError] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'document'>('image');
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -145,11 +153,19 @@ const WhatsApp = () => {
   }, []);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(max-width: 768px)');
-    const syncMedia = () => setIsMobile(mediaQuery.matches);
+    const mobileQuery = window.matchMedia('(max-width: 767px)');
+    const tabletQuery = window.matchMedia('(min-width: 768px) and (max-width: 1023px)');
+    const syncMedia = () => {
+      setIsMobile(mobileQuery.matches);
+      setIsTablet(tabletQuery.matches);
+    };
     syncMedia();
-    mediaQuery.addEventListener('change', syncMedia);
-    return () => mediaQuery.removeEventListener('change', syncMedia);
+    mobileQuery.addEventListener('change', syncMedia);
+    tabletQuery.addEventListener('change', syncMedia);
+    return () => {
+      mobileQuery.removeEventListener('change', syncMedia);
+      tabletQuery.removeEventListener('change', syncMedia);
+    };
   }, []);
 
   useEffect(() => {
@@ -185,9 +201,7 @@ const WhatsApp = () => {
 
   useEffect(() => {
     storage.setItem(WHATSAPP_VIEW_KEY, activeView);
-    if (activeView !== 'inbox') {
-      setMobileThreadOpen(false);
-    }
+    if (activeView !== 'inbox') setAiDrawerOpen(false);
   }, [activeView]);
 
   useEffect(() => {
@@ -200,10 +214,12 @@ const WhatsApp = () => {
       return;
     }
     loadConversation(selectedPhone);
-    if (isMobile) {
-      setMobileThreadOpen(true);
-    }
-  }, [selectedPhone, isMobile]);
+  }, [selectedPhone]);
+
+  useEffect(() => {
+    setAiSuggestion('');
+    setAiPanelError('');
+  }, [selectedPhone]);
 
   useEffect(() => {
     if (activeView !== 'inbox' || !selectedPhone) {
@@ -364,6 +380,42 @@ const WhatsApp = () => {
     { id: 'contacts' as const, label: t.whatsapp.tabContacts },
   ];
 
+  const leadLinked = Boolean(selectedContact?.lead?.id);
+  const outside24hWindow = inboxReadiness?.reasonCode === 'WHATSAPP_TEMPLATE_REQUIRED';
+  const suggestedTemplateMessage = useMemo(() => {
+    const name = selectedContact?.lead?.name || 'there';
+    return `Hi ${name}, thanks for your message. This is a quick template check-in from our sales team. Reply here and I will continue right away.`;
+  }, [selectedContact?.lead?.name]);
+
+  const aiPanelDisableReason = useMemo(() => {
+    if (!selectedPhone) return 'Select a lead conversation to use AI actions.';
+    if (!leadLinked) return 'AI suggestions are available after this number is linked to a lead.';
+    return '';
+  }, [leadLinked, selectedPhone]);
+
+  const aiMemory = useMemo(() => {
+    const lastInbound = [...conversation].reverse().find((message) => message.direction === 'inbound');
+    const messageIntent = (lastInbound?.content || selectedContact?.lastMessage || '').trim();
+    const issues = selectedContact?.failedCount
+      ? `${selectedContact.failedCount} failed sends need review.`
+      : 'No delivery issues detected.';
+    const tone = messageIntent.includes('?')
+      ? 'Question-driven'
+      : messageIntent.length > 90
+        ? 'Detailed'
+        : 'Brief';
+
+    return {
+      intent: messageIntent || 'Awaiting clear customer intent.',
+      status: selectedContact?.lead?.status?.replace(/_/g, ' ') || 'Unknown',
+      issues,
+      tone,
+      nextStep: outside24hWindow
+        ? 'Send an approved template to reopen the window.'
+        : 'Use AI suggestion to send a concise next-step message.',
+    };
+  }, [conversation, selectedContact, outside24hWindow]);
+
   const scrollConversationToLatest = () => {
     if (conversationBodyRef.current) {
       conversationBodyRef.current.scrollTop = conversationBodyRef.current.scrollHeight;
@@ -404,9 +456,7 @@ const WhatsApp = () => {
     setSelectedPhone(phone);
     setSelectedByUser(true);
     setTestData((prev) => ({ ...prev, toPhone: phone }));
-    if (isMobile) {
-      setMobileThreadOpen(true);
-    }
+    if (isTablet) setAiDrawerOpen(false);
     requestAnimationFrame(() => {
       composerTextareaRef.current?.focus();
     });
@@ -691,7 +741,11 @@ const WhatsApp = () => {
       setError('');
       const preflight = await whatsappApi.getPreflight(selectedPhone, composerText.trim());
       if (!preflight.success || !preflight.data || !preflight.data.send_ready) {
-        setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
+        if (preflight.data?.reasonCode === 'WHATSAPP_TEMPLATE_REQUIRED') {
+          setError('Outside 24h window. Send a template message first.');
+        } else {
+          setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
+        }
         return;
       }
       const clientMessageId = `web-${Date.now()}`;
@@ -799,6 +853,94 @@ const WhatsApp = () => {
       setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setSendingMedia(false);
+    }
+  };
+
+  const handleGenerateAiSuggestion = async (instruction?: string) => {
+    if (!selectedContact?.lead?.id) {
+      setAiPanelError('Link this conversation to a lead to unlock AI suggestions.');
+      return;
+    }
+
+    try {
+      setAiLoading(true);
+      setAiPanelError('');
+      const leadName = selectedContact.lead.name || selectedPhone;
+      const contextSnippet = conversation
+        .slice(-10)
+        .map((message) => `${message.direction || 'outbound'}: ${message.content}`)
+        .join('\n')
+        .slice(0, 2400);
+      const goal = instruction || 'Write a concise WhatsApp sales follow-up with one clear next step.';
+
+      const response = instruction?.toLowerCase().includes('payment')
+        ? await aiApi.generatePayment({
+            leadId: selectedContact.lead.id,
+            leadName,
+            goal,
+            objective: goal,
+            context: contextSnippet || undefined,
+            channel: 'whatsapp',
+            style: 'standard',
+            emojiIntensity: 'medium',
+            language: user?.defaultLanguage || 'en',
+          })
+        : await aiApi.generateFollowUp({
+            leadId: selectedContact.lead.id,
+            leadName,
+            goal,
+            objective: goal,
+            context: contextSnippet || undefined,
+            status: selectedContact.lead.status,
+            channel: 'whatsapp',
+            style: 'standard',
+            emojiIntensity: 'medium',
+            language: user?.defaultLanguage || 'en',
+          });
+
+      if (!response.success || !response.data?.text) {
+        setAiPanelError(response.error?.message || 'Failed to generate AI suggestion.');
+        return;
+      }
+      setAiSuggestion(response.data.text);
+    } catch (_err) {
+      setAiPanelError('Failed to generate AI suggestion.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleSendTemplateMessage = async (continueThread: boolean) => {
+    if (!selectedPhone) {
+      setError(t.whatsapp.selectContact);
+      return;
+    }
+
+    try {
+      setSending(true);
+      setError('');
+      const response = await whatsappApi.sendText({
+        toPhone: selectedPhone,
+        conversationPhone: selectedPhone,
+        content: suggestedTemplateMessage,
+        clientMessageId: `wa-template-${Date.now()}`,
+      });
+
+      if (!response.success) {
+        setError('Template send did not complete. Please verify an approved template and try again.');
+        return;
+      }
+
+      await loadConversation(selectedPhone);
+      await loadContacts(contactQuery, contactsPage);
+      if (continueThread) {
+        setComposerText(aiSuggestion || composerText);
+      }
+      setSuccess(continueThread ? 'Template sent. You can continue the conversation now.' : 'Template sent.');
+    } catch (_err) {
+      setError('Template send did not complete. Please verify an approved template and try again.');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -1012,249 +1154,334 @@ const WhatsApp = () => {
     })()
   );
 
-  const renderInboxView = () => (
-    (() => {
-      const readinessUiState = mapSendReadinessState(inboxReadiness, inboxReadinessLoading, Boolean(inboxReadinessError));
-      const sendBlocked = readinessUiState !== 'READY_TO_SEND';
-      const recoveryCta = readinessUiState === 'BLOCKED_TEMPLATE_REQUIRED'
-        ? { label: t.whatsapp.recoveryBackToInbox, href: '/whatsapp?view=inbox' }
-        : { label: t.whatsapp.recoveryCompleteSetup, href: '/whatsapp?view=setup#verify' };
-      const blockerMessage = inboxReadinessError
-        ? inboxReadinessError
-        : inboxReadiness?.reasonMessage || t.common.error;
-      const selectedContactHasUnread = prioritizedContacts.find((contact) => contact.phone === selectedPhone)?.unreadCount || 0;
-      const firstUnreadContact = prioritizedContacts.find((contact) => contact.unreadCount > 0);
+  const renderInboxView = () => {
+    const readinessUiState = mapSendReadinessState(inboxReadiness, inboxReadinessLoading, Boolean(inboxReadinessError));
+    const sendBlocked = readinessUiState !== 'READY_TO_SEND';
+    const selectedContactHasUnread = prioritizedContacts.find((contact) => contact.phone === selectedPhone)?.unreadCount || 0;
+    const firstUnreadContact = prioritizedContacts.find((contact) => contact.unreadCount > 0);
+    const blockerMessage = outside24hWindow
+      ? 'Outside 24h window. Send a template message first.'
+      : (inboxReadinessError || inboxReadiness?.reasonMessage || t.common.error);
 
-      return (
-    <section className="card whatsapp-panel">
-      <div className="section-heading">
-        <h2>{t.whatsapp.chatView}</h2>
-        <p>{t.whatsapp.inboxSubtitle}</p>
-      </div>
-      <div className="whatsapp-chat-layout">
-        <aside className={`whatsapp-contact-pane ${isMobile && mobileThreadOpen ? 'whatsapp-mobile-hidden' : ''}`}>
-          <div className="whatsapp-pane-header">
-            <div>
-              <strong>{t.whatsapp.step1Title}</strong>
-              <p>{t.whatsapp.step1Body}</p>
+    return (
+      <section className="grid gap-4 overflow-x-hidden">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+          <aside className="hidden min-w-0 rounded-xl bg-white p-3 shadow-sm md:flex md:flex-col">
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-slate-900">Leads</p>
+              <p className="text-xs text-slate-500">Select a conversation to continue.</p>
             </div>
-          </div>
-          {firstUnreadContact && selectedPhone !== firstUnreadContact.phone ? (
-            <div className="whatsapp-priority-banner">
-              <p>{t.whatsapp.unreadPriorityHint}</p>
-              <button type="button" className="btn btn-primary" onClick={() => handleSelectContact(firstUnreadContact.phone)}>
-                {t.whatsapp.openFirstUnread}
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+              {loadingContacts ? (
+                <p className="text-sm text-slate-500">{t.whatsapp.loadingContacts}</p>
+              ) : prioritizedContacts.length === 0 ? (
+                <p className="text-sm text-slate-500">{t.whatsapp.noContacts}</p>
+              ) : (
+                prioritizedContacts.map((contact) => (
+                  <LeadListItem
+                    key={`lead-${contact.phone}`}
+                    contact={contact}
+                    active={selectedPhone === contact.phone}
+                    onSelect={handleSelectContact}
+                  />
+                ))
+              )}
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+              <button
+                className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                disabled={loadingContacts || contactsPage <= 1}
+                onClick={() => setContactsPage((prev) => Math.max(1, prev - 1))}
+              >
+                {t.whatsapp.prevPage}
+              </button>
+              <span className="text-xs text-slate-500">{contactsPage}/{contactsTotalPages}</span>
+              <button
+                className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                disabled={loadingContacts || contactsPage >= contactsTotalPages}
+                onClick={() => setContactsPage((prev) => Math.min(contactsTotalPages, prev + 1))}
+              >
+                {t.whatsapp.nextPage}
               </button>
             </div>
-          ) : null}
-          <div className="whatsapp-contact-list">
-            {loadingContacts ? (
-              <div className="whatsapp-empty-state">{t.whatsapp.loadingContacts}</div>
-            ) : prioritizedContacts.length === 0 ? (
-              <div className="whatsapp-empty-state">{t.whatsapp.noContacts}</div>
-            ) : (
-              prioritizedContacts.map((contact) => (
-                <button
-                  key={`chat-${contact.phone}`}
-                  type="button"
-                  onClick={() => handleSelectContact(contact.phone)}
-                  className={`whatsapp-contact-button ${selectedPhone === contact.phone ? 'whatsapp-contact-button-active' : ''} ${contact.unreadCount > 0 ? 'whatsapp-contact-button-unread' : ''}`}
-                >
-                  <div className="whatsapp-contact-title-row">
-                    <strong>{contact.lead?.name || contact.phone}</strong>
-                    {contact.unreadCount > 0 && (
-                      <span className="unread-dot" aria-label={t.whatsapp.unreadMessagesLabel}></span>
-                    )}
-                  </div>
-                  <div>
-                    <p>{contact.phone}</p>
-                  </div>
-                  <div className="whatsapp-contact-preview">{contact.lastMessage}</div>
-                </button>
-              ))
-            )}
-          </div>
-          <div className="whatsapp-pagination">
-            <button
-              className="btn btn-secondary"
-              disabled={loadingContacts || contactsPage <= 1}
-              onClick={() => setContactsPage((prev) => Math.max(1, prev - 1))}
-            >
-              {t.whatsapp.prevPage}
-            </button>
-            <span>
-              {t.whatsapp.pageLabel}: {contactsPage}/{contactsTotalPages}
-            </span>
-            <button
-              className="btn btn-secondary"
-              disabled={loadingContacts || contactsPage >= contactsTotalPages}
-              onClick={() => setContactsPage((prev) => Math.min(contactsTotalPages, prev + 1))}
-            >
-              {t.whatsapp.nextPage}
-            </button>
-          </div>
-        </aside>
+          </aside>
 
-        <section className={`whatsapp-conversation-pane ${isMobile && !mobileThreadOpen ? 'whatsapp-mobile-hidden' : ''}`}>
-          <div className="whatsapp-pane-header">
-            <div>
-              {isMobile && mobileThreadOpen ? (
-                <button className="btn btn-secondary" onClick={() => setMobileThreadOpen(false)}>{t.common.back}</button>
-              ) : null}
-              <strong>{t.whatsapp.step2Title}</strong>
-              <p>
-                {selectedPhone
-                  ? `${selectedContact?.lead?.name || selectedPhone}${selectedContactHasUnread > 0 ? ` • ${selectedContactHasUnread} ${t.whatsapp.unreadMessagesLabel.toLowerCase()}` : ''}`
-                  : t.whatsapp.step2Body
-                }
-              </p>
-            </div>
-            <button className="btn btn-secondary whatsapp-secondary-action" onClick={() => loadConversation(selectedPhone)} disabled={!selectedPhone || loadingConversation}>
-              {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
-            </button>
-          </div>
-          <div className="whatsapp-chat-body" ref={conversationBodyRef}>
-            {!selectedPhone ? (
-              <div className="whatsapp-empty-state">{t.whatsapp.selectContact}</div>
-            ) : loadingConversation ? (
-              <div className="whatsapp-empty-state">{t.whatsapp.loadingConversation}</div>
-            ) : conversation.length === 0 ? (
-              <div className="whatsapp-empty-state">{t.whatsapp.noMessages}</div>
-            ) : (
-              conversation.map((msg) => {
-                const outbound = msg.direction !== 'inbound';
-                const voiceTranscribed = msg.messageType === 'audio' && msg.transcriptionStatus === 'success';
-                const voiceUnavailable = msg.messageType === 'audio' && msg.transcriptionStatus === 'failed';
-                return (
-                  <div
-                    key={msg.id}
-                    className={`whatsapp-message-bubble ${outbound ? 'whatsapp-message-outbound' : 'whatsapp-message-inbound'}`}
-                  >
-                    {(voiceTranscribed || voiceUnavailable) && (
-                      <div
-                        className={`whatsapp-message-badge ${voiceTranscribed ? 'whatsapp-message-badge-success' : 'whatsapp-message-badge-failed'}`}
-                      >
-                        {voiceTranscribed ? t.whatsapp.voiceTranscribed : t.whatsapp.voiceUnavailable}
-                      </div>
-                    )}
-                    <div className="whatsapp-message-content">{msg.content}</div>
-                    <div className="whatsapp-message-meta">
-                      {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
-                    </div>
-                    {(msg.error || msg.transcriptionError) && (
-                      <div className="whatsapp-message-error">{msg.error || msg.transcriptionError}</div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-          <div className="whatsapp-form-actions whatsapp-inbox-composer">
-            <div className="whatsapp-reply-heading">
-              <strong>{t.whatsapp.step3Title}</strong>
-              <p>{t.whatsapp.step3Body}</p>
-            </div>
-            <textarea
-              ref={composerTextareaRef}
-              className="input"
-              rows={3}
-              value={composerText}
-              onChange={(e) => setComposerText(e.target.value)}
-              placeholder={t.whatsapp.composerPlaceholder}
-              disabled={!selectedPhone || sending}
-            />
-            <button className="btn btn-primary whatsapp-reply-primary" onClick={handleSendFromInbox} disabled={!selectedPhone || sending || !composerText.trim() || sendBlocked}>
-              {sending ? t.common.loading : t.whatsapp.replyNow}
-            </button>
-            {sendBlocked ? (
-              <div className="alert alert-error whatsapp-send-blocker">
-                <span>{blockerMessage}</span>
-                <div className="whatsapp-form-actions">
+          <section className="min-w-0 rounded-xl bg-white shadow-sm">
+            <div className="border-b border-slate-100 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{selectedContact?.lead?.name || selectedPhone || 'Conversation'}</p>
+                  <p className="text-xs text-slate-500">
+                    {selectedPhone
+                      ? `${selectedPhone}${selectedContactHasUnread > 0 ? ` • ${selectedContactHasUnread} unread` : ''}`
+                      : t.whatsapp.step2Body}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isTablet ? (
+                    <button
+                      type="button"
+                      onClick={() => setAiDrawerOpen((current) => !current)}
+                      className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      {aiDrawerOpen ? 'Hide AI' : 'Show AI'}
+                    </button>
+                  ) : null}
                   <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setInboxReadinessError('');
-                      setInboxReadinessLoading(true);
-                      whatsappApi.getPreflight(selectedPhone, composerText.trim())
-                        .then((response) => {
-                          if (response.success && response.data) {
-                            setInboxReadiness(response.data);
-                            setInboxReadinessError('');
-                            return;
-                          }
-                          setInboxReadinessError(response.error?.message || t.common.error);
-                        })
-                        .catch((err) => {
-                          setInboxReadinessError(getApiErrorMessage(err, t.common.error));
-                        })
-                        .finally(() => setInboxReadinessLoading(false));
-                    }}
+                    className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                    onClick={() => loadConversation(selectedPhone)}
+                    disabled={!selectedPhone || loadingConversation}
                   >
-                    {inboxReadinessLoading ? t.common.loading : t.whatsapp.refreshSendStatus}
+                    {loadingConversation ? t.common.loading : t.whatsapp.refreshChat}
                   </button>
-                  <a className="btn btn-secondary" href={recoveryCta.href}>
-                    {recoveryCta.label}
-                  </a>
                 </div>
               </div>
-            ) : null}
-            <details className="whatsapp-secondary-actions">
-              <summary>{t.whatsapp.secondaryActionsSummary}</summary>
-              <div className="whatsapp-form-actions">
+            </div>
+
+            <div className="p-4 md:hidden">
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Lead selector</label>
               <select
-                className="input whatsapp-page-size"
-                value={mediaType}
-                onChange={(e) => setMediaType(e.target.value as 'image' | 'document')}
-                disabled={!selectedPhone || sendingMedia}
+                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700"
+                value={selectedPhone}
+                onChange={(event) => handleSelectContact(event.target.value)}
               >
-                <option value="image">{t.whatsapp.mediaTypeImage}</option>
-                <option value="document">{t.whatsapp.mediaTypeDocument}</option>
+                {prioritizedContacts.map((contact) => (
+                  <option key={`option-${contact.phone}`} value={contact.phone}>
+                    {contact.lead?.name || contact.phone}
+                  </option>
+                ))}
               </select>
-              <input
-                ref={mediaInputRef}
-                type="file"
-                className="hidden-file-input"
-                accept={mediaType === 'image' ? 'image/*' : '.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.ppt,.pptx,application/*'}
-                onChange={handleMediaFileInput}
-              />
-              <div
-                className={`whatsapp-upload-dropzone ${isMediaDragActive ? 'whatsapp-upload-dropzone-active' : ''}`}
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  setIsMediaDragActive(true);
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDragLeave={(event) => {
-                  event.preventDefault();
-                  setIsMediaDragActive(false);
-                }}
-                onDrop={handleMediaDrop}
-                onClick={() => mediaInputRef.current?.click()}
-              >
-                {mediaFile
-                  ? `${t.whatsapp.fileSelected}: ${mediaFile.name}`
-                  : t.whatsapp.dropOrUpload}
+            </div>
+
+            {firstUnreadContact && selectedPhone !== firstUnreadContact.phone ? (
+              <div className="mx-4 rounded-xl bg-blue-50 p-3 text-sm text-slate-700">
+                <p className="mb-2">{t.whatsapp.unreadPriorityHint}</p>
+                <button
+                  type="button"
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white"
+                  onClick={() => handleSelectContact(firstUnreadContact.phone)}
+                >
+                  {t.whatsapp.openFirstUnread}
+                </button>
               </div>
-              <input
-                className="input"
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                placeholder={t.whatsapp.mediaUrlPlaceholder}
-                disabled={!selectedPhone || sendingMedia}
+            ) : null}
+
+            <div className="flex min-h-[58vh] flex-col p-4 pt-3 md:min-h-[62vh]">
+              <MemoryPanel
+                intent={aiMemory.intent}
+                status={aiMemory.status}
+                issues={aiMemory.issues}
+                tone={aiMemory.tone}
+                nextStep={aiMemory.nextStep}
               />
-              <button className="btn btn-secondary" onClick={handleSendMediaFromInbox} disabled={!selectedPhone || sendingMedia || (!mediaFile && !mediaUrl.trim())}>
-                {sendingMedia ? t.common.loading : t.whatsapp.sendMedia}
-              </button>
+
+              <div ref={conversationBodyRef} className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-3">
+                {!selectedPhone ? (
+                  <div className="text-sm text-slate-500">{t.whatsapp.selectContact}</div>
+                ) : loadingConversation ? (
+                  <div className="text-sm text-slate-500">{t.whatsapp.loadingConversation}</div>
+                ) : conversation.length === 0 ? (
+                  <div className="text-sm text-slate-500">{t.whatsapp.noMessages}</div>
+                ) : (
+                  conversation.map((msg) => {
+                    const outbound = msg.direction !== 'inbound';
+                    const voiceTranscribed = msg.messageType === 'audio' && msg.transcriptionStatus === 'success';
+                    const voiceUnavailable = msg.messageType === 'audio' && msg.transcriptionStatus === 'failed';
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`whatsapp-message-bubble ${outbound ? 'whatsapp-message-outbound' : 'whatsapp-message-inbound'}`}
+                      >
+                        {(voiceTranscribed || voiceUnavailable) && (
+                          <div
+                            className={`whatsapp-message-badge ${voiceTranscribed ? 'whatsapp-message-badge-success' : 'whatsapp-message-badge-failed'}`}
+                          >
+                            {voiceTranscribed ? t.whatsapp.voiceTranscribed : t.whatsapp.voiceUnavailable}
+                          </div>
+                        )}
+                        <div className="whatsapp-message-content">{msg.content}</div>
+                        <div className="whatsapp-message-meta">
+                          {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
+                        </div>
+                        {(msg.error || msg.transcriptionError) && (
+                          <div className="whatsapp-message-error">{msg.error || msg.transcriptionError}</div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            </details>
+
+              <div className="sticky bottom-0 mt-3 rounded-xl bg-white/95 p-3 shadow-sm">
+                <div className="relative">
+                  <textarea
+                    ref={composerTextareaRef}
+                    className="w-full rounded-xl border border-slate-200 bg-white p-3 pr-16 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"
+                    rows={3}
+                    value={composerText}
+                    onChange={(e) => setComposerText(e.target.value)}
+                    placeholder={t.whatsapp.composerPlaceholder}
+                    disabled={!selectedPhone || sending}
+                  />
+                  <button
+                    type="button"
+                    className="absolute bottom-2 right-2 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                    disabled={!leadLinked || aiLoading}
+                    onClick={() => handleGenerateAiSuggestion()}
+                  >
+                    AI
+                  </button>
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    onClick={handleSendFromInbox}
+                    disabled={!selectedPhone || sending || !composerText.trim() || sendBlocked}
+                  >
+                    {sending ? t.common.loading : t.whatsapp.replyNow}
+                  </button>
+                  {aiSuggestion ? (
+                    <button
+                      className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+                      onClick={() => setComposerText(aiSuggestion)}
+                    >
+                      Use AI Suggestion
+                    </button>
+                  ) : null}
+                </div>
+
+                {sendBlocked ? (
+                  <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    {blockerMessage}
+                  </div>
+                ) : null}
+
+                <details className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-slate-700">{t.whatsapp.secondaryActionsSummary}</summary>
+                  <div className="mt-2 grid gap-2">
+                    <select
+                      className="w-full rounded-xl border border-slate-200 bg-white p-2 text-sm text-slate-700"
+                      value={mediaType}
+                      onChange={(e) => setMediaType(e.target.value as 'image' | 'document')}
+                      disabled={!selectedPhone || sendingMedia}
+                    >
+                      <option value="image">{t.whatsapp.mediaTypeImage}</option>
+                      <option value="document">{t.whatsapp.mediaTypeDocument}</option>
+                    </select>
+                    <input
+                      ref={mediaInputRef}
+                      type="file"
+                      className="hidden-file-input"
+                      accept={mediaType === 'image' ? 'image/*' : '.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.ppt,.pptx,application/*'}
+                      onChange={handleMediaFileInput}
+                    />
+                    <div
+                      className={`whatsapp-upload-dropzone ${isMediaDragActive ? 'whatsapp-upload-dropzone-active' : ''}`}
+                      onDragEnter={(event) => {
+                        event.preventDefault();
+                        setIsMediaDragActive(true);
+                      }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragLeave={(event) => {
+                        event.preventDefault();
+                        setIsMediaDragActive(false);
+                      }}
+                      onDrop={handleMediaDrop}
+                      onClick={() => mediaInputRef.current?.click()}
+                    >
+                      {mediaFile ? `${t.whatsapp.fileSelected}: ${mediaFile.name}` : t.whatsapp.dropOrUpload}
+                    </div>
+                    <input
+                      className="w-full rounded-xl border border-slate-200 bg-white p-2 text-sm text-slate-700"
+                      value={mediaUrl}
+                      onChange={(e) => setMediaUrl(e.target.value)}
+                      placeholder={t.whatsapp.mediaUrlPlaceholder}
+                      disabled={!selectedPhone || sendingMedia}
+                    />
+                    <button
+                      className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                      onClick={handleSendMediaFromInbox}
+                      disabled={!selectedPhone || sendingMedia || (!mediaFile && !mediaUrl.trim())}
+                    >
+                      {sendingMedia ? t.common.loading : t.whatsapp.sendMedia}
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </section>
+
+          <aside className="hidden min-w-0 lg:block">
+            <AIPanel
+              suggestion={aiSuggestion}
+              loading={aiLoading}
+              disabled={!leadLinked}
+              disableReason={aiPanelDisableReason || aiPanelError}
+              showOutside24h={outside24hWindow}
+              templateSuggestion={suggestedTemplateMessage}
+              onUse={() => setComposerText(aiSuggestion)}
+              onEdit={() => composerTextareaRef.current?.focus()}
+              onRegenerate={() => void handleGenerateAiSuggestion()}
+              onQuickAction={(instruction) => void handleGenerateAiSuggestion(instruction)}
+              onSendTemplate={() => void handleSendTemplateMessage(false)}
+              onSendAndContinue={() => void handleSendTemplateMessage(true)}
+            />
+          </aside>
+        </div>
+
+        {isTablet && aiDrawerOpen ? (
+          <div className="fixed inset-0 z-40 bg-slate-900/30" onClick={() => setAiDrawerOpen(false)}>
+            <div
+              className="absolute right-0 top-0 h-full w-[340px] max-w-[92vw] overflow-y-auto bg-slate-50 p-4"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <AIPanel
+                suggestion={aiSuggestion}
+                loading={aiLoading}
+                disabled={!leadLinked}
+                disableReason={aiPanelDisableReason || aiPanelError}
+                showOutside24h={outside24hWindow}
+                templateSuggestion={suggestedTemplateMessage}
+                onUse={() => setComposerText(aiSuggestion)}
+                onEdit={() => composerTextareaRef.current?.focus()}
+                onRegenerate={() => void handleGenerateAiSuggestion()}
+                onQuickAction={(instruction) => void handleGenerateAiSuggestion(instruction)}
+                onSendTemplate={() => void handleSendTemplateMessage(false)}
+                onSendAndContinue={() => void handleSendTemplateMessage(true)}
+              />
+            </div>
           </div>
-        </section>
-      </div>
-    </section>
-      );
-    })()
-  );
+        ) : null}
+
+        {isMobile ? (
+          <details
+            open={aiAccordionOpen}
+            onToggle={(event) => setAiAccordionOpen((event.currentTarget as HTMLDetailsElement).open)}
+            className="rounded-xl bg-slate-50 p-3 shadow-sm"
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800">AI panel</summary>
+            <div className="mt-3">
+              <AIPanel
+                suggestion={aiSuggestion}
+                loading={aiLoading}
+                disabled={!leadLinked}
+                disableReason={aiPanelDisableReason || aiPanelError}
+                showOutside24h={outside24hWindow}
+                templateSuggestion={suggestedTemplateMessage}
+                onUse={() => setComposerText(aiSuggestion)}
+                onEdit={() => composerTextareaRef.current?.focus()}
+                onRegenerate={() => void handleGenerateAiSuggestion()}
+                onQuickAction={(instruction) => void handleGenerateAiSuggestion(instruction)}
+                onSendTemplate={() => void handleSendTemplateMessage(false)}
+                onSendAndContinue={() => void handleSendTemplateMessage(true)}
+              />
+            </div>
+          </details>
+        ) : null}
+      </section>
+    );
+  };
 
   const renderContactsView = () => (
     <section className="card whatsapp-panel">
