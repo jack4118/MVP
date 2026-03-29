@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { buildGenerationDebugInfo, generateFollowUpText, generatePaymentText, getAiHistory } from '../services/aiService';
-import { aiFollowUpSchema, aiPaymentSchema } from '../utils/validation';
+import { buildGenerationDebugInfo, generateFollowUpText, generatePaymentText, generateRefinedText, getAiHistory } from '../services/aiService';
+import { aiFollowUpSchema, aiPaymentSchema, aiRefineSchema } from '../utils/validation';
 import { getLeadById } from '../services/leadService';
 import { getUserPlan, checkAiUsageLimit, getUsageInfo } from '../services/planService';
 import { trackEvent } from '../services/eventService';
@@ -196,6 +196,84 @@ router.post('/payment', async (req: AuthRequest, res: Response, next: NextFuncti
     res.json({
         success: true,
         data: {
+        text: generatedResult.text,
+        variants: generatedResult.variants,
+        cutoffSummary: generatedResult.cutoffSummary,
+        debug,
+      },
+      usage: usageInfo,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Lead not found') {
+      return res.status(404).json({
+        success: false,
+        error: { message: error.message },
+      });
+    }
+    next(error);
+  }
+});
+
+router.post('/refine', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'Unauthorized' },
+      });
+    }
+
+    const validatedData = aiRefineSchema.parse(req.body);
+    const { leadId } = validatedData;
+
+    const plan = await getUserPlan(req.userId);
+    const canUseAi = await checkAiUsageLimit(req.userId, plan);
+    if (!canUseAi) {
+      const usageInfo = await getUsageInfo(req.userId);
+      await trackEvent(req.userId, {
+        event: 'ai_generate_failed_limit',
+        props: { purpose: validatedData.purpose || 'follow_up', mode: 'refine' },
+      }).catch(() => undefined);
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'AI usage limit reached. Please upgrade to Pro for unlimited AI messages.',
+          code: 'AI_LIMIT_REACHED',
+        },
+        usage: usageInfo,
+      });
+    }
+
+    await getLeadById(req.userId, leadId);
+    const generatedResult = await generateRefinedText(req.userId, leadId, validatedData);
+    const refineStyle = validatedData.style || 'standard';
+    const refineEmoji = validatedData.emojiIntensity || 'medium';
+    const refineLanguage = validatedData.language || 'en';
+    const refineChannel = validatedData.channel || 'chat';
+    const refineGoal = validatedData.instruction.trim();
+    const debug = buildGenerationDebugInfo(generatedResult.text, {
+      goal: refineGoal,
+      context: validatedData.originalText,
+      language: refineLanguage,
+      channel: refineChannel,
+      style: refineStyle,
+      daysPassed: 0,
+      outputFormat: refineChannel,
+      purpose: validatedData.purpose || 'follow_up',
+      tone: 'polite',
+      conversationMode: refineStyle,
+      emojiPreference: refineEmoji,
+    }, refineGoal, 'refine');
+
+    await trackEvent(req.userId, {
+      event: 'ai_generate_success',
+      props: { purpose: validatedData.purpose || 'follow_up', style: refineStyle, mode: 'refine' },
+    }).catch(() => undefined);
+    const usageInfo = await getUsageInfo(req.userId);
+
+    return res.json({
+      success: true,
+      data: {
         text: generatedResult.text,
         variants: generatedResult.variants,
         cutoffSummary: generatedResult.cutoffSummary,

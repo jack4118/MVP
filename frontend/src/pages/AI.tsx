@@ -39,10 +39,10 @@ const AI = () => {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
-  const [generatedVariants, setGeneratedVariants] = useState<string[]>([]);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [refineInstruction, setRefineInstruction] = useState('');
   const [cutoffSummary, setCutoffSummary] = useState('');
   const [loading, setLoading] = useState(false);
+  const [refining, setRefining] = useState(false);
   const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
   const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [error, setError] = useState('');
@@ -170,8 +170,7 @@ const AI = () => {
     setGenerationDebug(null);
     setError('');
     setGeneratedText('');
-    setGeneratedVariants([]);
-    setSelectedVariantIndex(0);
+    setRefineInstruction('');
     setCutoffSummary('');
     setWhatsAppPhone(selectedLead.contact || '');
 
@@ -180,10 +179,7 @@ const AI = () => {
 
       if (response.success && response.data) {
         const data = response.data;
-        const variants = data.variants?.length ? data.variants : [data.text];
-        setGeneratedVariants(variants);
-        setSelectedVariantIndex(0);
-        setGeneratedText(variants[0] || data.text);
+        setGeneratedText(data.text);
         setCutoffSummary(data.cutoffSummary || '');
         setMemorySummary(data.memorySummary || memorySummary);
         if (data.memoryGoal) {
@@ -230,6 +226,58 @@ const AI = () => {
       setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefine = async () => {
+    if (!selectedLead) {
+      setError(t.ai.pleaseSelectLead);
+      return;
+    }
+    if (!generatedText.trim()) {
+      setError(t.ai.generatedTextPlaceholder);
+      return;
+    }
+    if (!refineInstruction.trim()) {
+      setError(t.ai.refineInstructionRequired);
+      return;
+    }
+
+    setRefining(true);
+    setGenerationStage('thinking');
+    setError('');
+    try {
+      const response = await aiApi.refineMessage({
+        leadId: selectedLead.id,
+        originalText: generatedText.trim(),
+        instruction: refineInstruction.trim(),
+        style: config.style,
+        channel: config.channel,
+        emojiIntensity: config.emojiIntensity,
+        language,
+        purpose: getEventPurpose(getDefaultPurposeFromLeadStatus(selectedLead.status)),
+      });
+
+      if (response.success && response.data) {
+        setGeneratedText(response.data.text);
+        setGenerationDebug(response.data.debug || null);
+        setGenerationStage('done');
+        if (response.usage) {
+          setUsageInfo(response.usage);
+        }
+        return;
+      }
+
+      setGenerationStage('ready');
+      if (response.error?.code === 'AI_LIMIT_REACHED') {
+        openUpgradeModal('ai_limit');
+      }
+      setError(response.error?.message || t.ai.failedToGenerate);
+    } catch (err) {
+      setGenerationStage('ready');
+      setError(getApiErrorMessage(err, t.common.error));
+    } finally {
+      setRefining(false);
     }
   };
 
@@ -377,7 +425,7 @@ const AI = () => {
             {generatedText && (
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={handleGenerate} className="btn btn-secondary" disabled={loading}>
-                  {t.ai.regenerateVariant}
+                  {t.ai.regenerate}
                 </button>
                 <button onClick={handleCopy} className="btn btn-success">
                   {copied ? `✓ ${t.common.copied}` : `📋 ${t.common.copy}`}
@@ -393,24 +441,6 @@ const AI = () => {
             </div>
           )}
 
-          {generatedVariants.length > 1 && (
-            <div className="ai-variant-row">
-              {generatedVariants.map((_, index) => (
-                <button
-                  key={`variant-${index}`}
-                  type="button"
-                  className={`btn ${selectedVariantIndex === index ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => {
-                    setSelectedVariantIndex(index);
-                    setGeneratedText(generatedVariants[index] || '');
-                  }}
-                >
-                  {translate(t.ai.variantOption, { index: index + 1 })}
-                </button>
-              ))}
-            </div>
-          )}
-
           {generatedText && usageInfo?.plan === 'free' && (
             <div className="post-success-card">
               <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
@@ -423,18 +453,30 @@ const AI = () => {
           <textarea
             value={generatedText}
             onChange={(e) => {
-              const next = e.target.value;
-              setGeneratedText(next);
-              setGeneratedVariants((current) =>
-                current.length === 0
-                  ? [next]
-                  : current.map((item, index) => (index === selectedVariantIndex ? next : item))
-              );
+              setGeneratedText(e.target.value);
             }}
             className="input generated-textarea"
             placeholder={t.ai.generatedTextPlaceholder}
             rows={15}
           />
+
+          <div className="form-group" style={{ marginTop: '12px' }}>
+            <label className="form-label">{t.ai.refinementInstruction}</label>
+            <input
+              className="input"
+              value={refineInstruction}
+              onChange={(e) => setRefineInstruction(e.target.value)}
+              placeholder={t.ai.refinementPlaceholder}
+            />
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <button className="btn btn-secondary" onClick={handleGenerate} disabled={loading}>
+                {t.ai.regenerate}
+              </button>
+              <button className="btn btn-primary" onClick={handleRefine} disabled={refining || !generatedText.trim()}>
+                {refining ? t.ai.refining : t.ai.refine}
+              </button>
+            </div>
+          </div>
 
           {generatedText && (
             <div className="whatsapp-send-panel">

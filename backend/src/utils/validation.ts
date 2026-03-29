@@ -148,7 +148,7 @@ export const aiFollowUpSchema = z.object({
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
-  variantCount: z.number().int().min(1).max(5).optional().default(3),
+  variantCount: z.number().int().min(1).max(5).optional().default(1),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
@@ -171,10 +171,21 @@ export const aiPaymentSchema = z.object({
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
-  variantCount: z.number().int().min(1).max(5).optional().default(3),
+  variantCount: z.number().int().min(1).max(5).optional().default(1),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
+});
+
+export const aiRefineSchema = z.object({
+  leadId: z.string().min(1, 'leadId is required'),
+  originalText: z.string().min(1, 'originalText is required').max(5000, 'originalText is too long'),
+  instruction: z.string().min(1, 'instruction is required').max(500, 'instruction is too long'),
+  style: aiStyleSchema.optional(),
+  channel: outputFormatSchema.optional(),
+  emojiIntensity: emojiDensitySchema.optional(),
+  language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
+  purpose: z.enum(['follow_up', 'payment']).optional(),
 });
 
 export const eventLogSchema = z.object({

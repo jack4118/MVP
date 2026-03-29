@@ -276,7 +276,7 @@ export const generateAiMessage = async ({
     emojiDensity: config.emojiIntensity,
     outputFormat: config.channel,
     language,
-    variantCount: 3,
+    variantCount: 1,
   };
 
   if (purpose === 'follow-up') {

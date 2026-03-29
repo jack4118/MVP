@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getApiErrorMessage, Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
+import { aiApi, getApiErrorMessage, Lead, LeadStatus, UsageInfo, leadsApi, usageApi, whatsappApi } from '../services/api';
 import { translate, useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../hooks/useAuth';
 import UpgradeModal from '../components/UpgradeModal';
@@ -51,12 +51,12 @@ const Leads = () => {
   const [currentLead, setCurrentLead] = useState<Lead | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
-  const [generatedVariants, setGeneratedVariants] = useState<string[]>([]);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [refineInstruction, setRefineInstruction] = useState('');
   const [cutoffSummary, setCutoffSummary] = useState('');
   const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
   const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [refining, setRefining] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sendingViaWhatsapp, setSendingViaWhatsapp] = useState(false);
   const [aiModalError, setAiModalError] = useState('');
@@ -296,8 +296,7 @@ const Leads = () => {
     setCurrentLead(null);
     setConfig(createInitialAiConfig());
     setGeneratedText('');
-    setGeneratedVariants([]);
-    setSelectedVariantIndex(0);
+    setRefineInstruction('');
     setCutoffSummary('');
     setMemorySummary('');
     setGenerationDebug(null);
@@ -345,8 +344,7 @@ const Leads = () => {
       ...overrides,
     });
     setGeneratedText('');
-    setGeneratedVariants([]);
-    setSelectedVariantIndex(0);
+    setRefineInstruction('');
     setCutoffSummary('');
     setMemorySummary(lead.memorySummary || '');
     setGenerationDebug(null);
@@ -372,6 +370,7 @@ const Leads = () => {
     setError('');
     setGenerationStage('thinking');
     setGeneratedText('');
+    setRefineInstruction('');
     setGenerationDebug(null);
     trackProductEvent('ai_generate_clicked', {
       purpose: eventPurpose,
@@ -382,10 +381,7 @@ const Leads = () => {
       const response = await generateAiMessage({ config, lead: currentLead, language });
       if (response.success && response.data) {
         const data = response.data;
-        const variants = data.variants?.length ? data.variants : [data.text];
-        setGeneratedVariants(variants);
-        setSelectedVariantIndex(0);
-        setGeneratedText(variants[0] || data.text);
+        setGeneratedText(data.text);
         setCutoffSummary(data.cutoffSummary || '');
         setMemorySummary(data.memorySummary || memorySummary);
         if (data.memoryGoal) {
@@ -431,6 +427,46 @@ const Leads = () => {
       setError(getApiErrorMessage(err, t.common.error));
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleRefine = async () => {
+    if (!currentLead || !generatedText.trim() || !refineInstruction.trim()) {
+      return;
+    }
+
+    setRefining(true);
+    setGenerationStage('thinking');
+    setError('');
+    try {
+      const response = await aiApi.refineMessage({
+        leadId: currentLead.id,
+        originalText: generatedText.trim(),
+        instruction: refineInstruction.trim(),
+        style: config.style,
+        channel: config.channel,
+        emojiIntensity: config.emojiIntensity,
+        language,
+        purpose: getEventPurpose(getDefaultPurposeFromLeadStatus(currentLead.status)),
+      });
+
+      if (response.success && response.data) {
+        setGeneratedText(response.data.text);
+        setGenerationDebug(response.data.debug || null);
+        setGenerationStage('done');
+        if (response.usage) {
+          setUsageInfo(response.usage);
+        }
+        return;
+      }
+
+      setGenerationStage('ready');
+      setError(response.error?.message || t.ai.failedToGenerate);
+    } catch (err) {
+      setGenerationStage('ready');
+      setError(getApiErrorMessage(err, t.common.error));
+    } finally {
+      setRefining(false);
     }
   };
 
@@ -891,7 +927,7 @@ const Leads = () => {
                       <span>{t.ai.generating}</span>
                     </>
                   ) : generatedText ? (
-                    <span>{t.ai.regenerateVariant}</span>
+                    <span>{t.ai.regenerate}</span>
                   ) : (
                     <span>{t.ai.generateText}</span>
                   )}
@@ -921,24 +957,6 @@ const Leads = () => {
                   </div>
                 )}
 
-                {generatedVariants.length > 1 && (
-                  <div className="ai-variant-row">
-                    {generatedVariants.map((_, index) => (
-                      <button
-                        key={`leads-variant-${index}`}
-                        type="button"
-                        className={`btn ${selectedVariantIndex === index ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => {
-                          setSelectedVariantIndex(index);
-                          setGeneratedText(generatedVariants[index] || '');
-                        }}
-                      >
-                        {translate(t.ai.variantOption, { index: index + 1 })}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 {generatedText && usageInfo?.plan === 'free' && (
                   <div className="post-success-card post-success-card-compact">
                     <div>{translate(t.pricing.valueMessagesCreated, { count: usageInfo.aiUsageThisMonth })}</div>
@@ -956,21 +974,29 @@ const Leads = () => {
 
                 <textarea
                   value={generatedText}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setGeneratedText(next);
-                    setGeneratedVariants((current) =>
-                      current.length === 0
-                        ? [next]
-                        : current.map((item, index) => (index === selectedVariantIndex ? next : item))
-                    );
-                  }}
+                  onChange={(e) => setGeneratedText(e.target.value)}
                   className="input generated-textarea quick-ai-textarea"
                   placeholder={t.ai.generatedTextPlaceholder}
                   rows={12}
                 />
 
+                <div className="form-group" style={{ marginTop: '12px' }}>
+                  <label className="form-label">{t.ai.refinementInstruction}</label>
+                  <input
+                    className="input"
+                    value={refineInstruction}
+                    onChange={(e) => setRefineInstruction(e.target.value)}
+                    placeholder={t.ai.refinementPlaceholder}
+                  />
+                </div>
+
                 <div className="quick-ai-actions">
+                  <button onClick={handleGenerate} className="btn btn-secondary" disabled={aiLoading}>
+                    {t.ai.regenerate}
+                  </button>
+                  <button onClick={handleRefine} className="btn btn-primary" disabled={!generatedText || refining || !refineInstruction.trim()}>
+                    {refining ? t.ai.refining : t.ai.refine}
+                  </button>
                   <button onClick={handleCopyText} className="btn btn-success" disabled={!generatedText}>
                     {copied ? `✓ ${t.common.copied}` : `📋 ${t.leads.copyMessage}`}
                   </button>

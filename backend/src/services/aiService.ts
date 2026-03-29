@@ -55,6 +55,16 @@ export interface PaymentData {
   language?: Language;
 }
 
+export interface RefineData {
+  originalText: string;
+  instruction: string;
+  style?: AiStyle;
+  channel?: OutputFormat;
+  emojiIntensity?: EmojiPreference;
+  language?: Language;
+  purpose?: 'follow_up' | 'payment';
+}
+
 type AiErrorKind = 'quota' | 'auth' | 'timeout' | 'unknown';
 type EmojiPreference = 'low' | 'medium' | 'high';
 
@@ -109,6 +119,13 @@ export interface GenerationDebugInfo {
     styleSignalDetected: boolean;
     goalCoverageRatio: number;
     goalCoveragePass: boolean;
+  };
+  mode?: 'initial' | 'refine';
+  emojiRule?: string;
+  tokenEstimate?: {
+    promptChars: number;
+    promptTokensApprox: number;
+    responseTokenBudget: number;
   };
 }
 
@@ -528,7 +545,117 @@ const createPaymentFallback = (
   return `Hi ${data.leadName},\n\nFriendly reminder regarding ${amountText ? `${amountText} ` : 'the pending '}payment for the completed work on ${data.objective}.\n\nIf already paid, please disregard this note. If still pending, could you share an estimated payment date?`;
 };
 
-const generateCompletion = async (systemPrompt: string, userPrompt: string) => {
+const estimateTokenCount = (text: string): number => Math.max(1, Math.ceil(text.length / 4));
+
+const getEmojiRuleText = (emojiPreference: EmojiPreference, language: Language): string => {
+  if (language === 'zh-CN') {
+    if (emojiPreference === 'low') return 'emoji 规则：严格使用 0 个。';
+    if (emojiPreference === 'high') return 'emoji 规则：严格使用 1-2 个，不可超过 2 个。';
+    return 'emoji 规则：可用 0-1 个，不可超过 1 个。';
+  }
+  if (language === 'ms') {
+    if (emojiPreference === 'low') return 'Peraturan emoji: guna 0 emoji sahaja.';
+    if (emojiPreference === 'high') return 'Peraturan emoji: guna 1-2 emoji sahaja, maksimum 2.';
+    return 'Peraturan emoji: guna 0-1 emoji sahaja, maksimum 1.';
+  }
+  if (emojiPreference === 'low') return 'Emoji rule: use exactly 0 emojis.';
+  if (emojiPreference === 'high') return 'Emoji rule: use 1-2 emojis only (max 2).';
+  return 'Emoji rule: use 0-1 emoji only (max 1).';
+};
+
+const buildPromptDebugPayload = (args: {
+  id: string;
+  purpose: 'follow_up' | 'payment';
+  mode: 'initial' | 'refine';
+  normalizedConfig: Record<string, unknown>;
+  system: string;
+  user: string;
+  emojiRule: string;
+  responseTokenBudget: number;
+}) => {
+  const promptChars = args.system.length + args.user.length;
+  const promptTokensApprox = estimateTokenCount(args.system) + estimateTokenCount(args.user);
+  return {
+    id: args.id,
+    purpose: args.purpose,
+    mode: args.mode,
+    normalizedConfig: args.normalizedConfig,
+    emojiRule: args.emojiRule,
+    tokenEstimate: {
+      promptChars,
+      promptTokensApprox,
+      responseTokenBudget: args.responseTokenBudget,
+    },
+    prompt: {
+      system: args.system,
+      user: args.user,
+    },
+  };
+};
+
+const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference): string => {
+  const emojiRules =
+    emojiIntensity === 'low'
+      ? [
+          '- low -> max 1 emoji, only at the end',
+        ]
+      : emojiIntensity === 'high'
+        ? [
+            '- high -> max 3 emojis, do NOT put emoji in every sentence',
+          ]
+        : [
+            '- medium -> 1-2 emojis, natural placement',
+          ];
+
+  return [
+    'You are a real human sending WhatsApp messages to customers.',
+    '',
+    'Your job is to write messages that feel:',
+    '- Natural',
+    '- Conversational',
+    '- Polite but not overly formal',
+    '- Slightly persuasive when needed',
+    '',
+    'Never sound like:',
+    '- A template',
+    '- A corporate email',
+    '- A robotic assistant',
+    '',
+    'WRITING STYLE RULES:',
+    '- Write like a real person typing on WhatsApp',
+    '- Use short to medium sentences',
+    '- It should feel like a quick message, not an essay',
+    '- Avoid repeating the same sentence or idea',
+    '- Avoid being overly structured or perfect',
+    '- Do NOT over-explain',
+    '- Do NOT sound like you are writing a report',
+    '- Do NOT sound too salesy or pushy',
+    '',
+    'TONE GUIDELINES:',
+    '- Friendly and respectful',
+    '- Slight urgency is okay, but never aggressive',
+    '- If asking for action, make it feel easy and reasonable',
+    '',
+    'EMOJI RULES (STRICT):',
+    '- none -> no emoji at all',
+    ...emojiRules,
+    '- Never spam emoji',
+    '- Never use emoji in every line',
+    '- If unsure, use fewer emoji',
+    '',
+    'OUTPUT RULES:',
+    '- Return ONLY the message',
+    '- No explanations',
+    '- No labels',
+    '- No multiple options',
+  ].join('\n');
+};
+
+const generateCompletion = async (
+  systemPrompt: string,
+  userPrompt: string,
+  options?: { maxTokens?: number }
+) => {
   return openai.chat.completions.create({
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     messages: [
@@ -536,7 +663,7 @@ const generateCompletion = async (systemPrompt: string, userPrompt: string) => {
       { role: 'user', content: userPrompt },
     ],
     temperature: 0.6,
-    max_tokens: 350,
+    max_tokens: options?.maxTokens ?? 120,
   });
 };
 
@@ -682,55 +809,11 @@ const getFormatInstruction = (outputFormat: OutputFormat, language: Language): s
 };
 
 const getEmojiInstruction = (
-  outputFormat: OutputFormat,
+  _outputFormat: OutputFormat,
   language: Language,
   emojiPreference: EmojiPreference
 ): string => {
-  if (outputFormat !== 'whatsapp') {
-    if (emojiPreference === 'low') {
-      return language === 'zh-CN'
-        ? 'emoji 使用：不要使用，除非没有 emoji 会明显不自然。'
-        : language === 'ms'
-          ? 'Penggunaan emoji: jangan guna, kecuali benar-benar perlu untuk bunyi natural.'
-          : 'Emoji usage: do not use emojis unless the line would feel unnatural without one.';
-    }
-
-    if (emojiPreference === 'high') {
-      return language === 'zh-CN'
-        ? 'emoji 使用：最多 1 个，点到为止。'
-        : language === 'ms'
-          ? 'Penggunaan emoji: maksimum 1 sahaja.'
-          : 'Emoji usage: use at most 1 emoji.';
-    }
-
-    return language === 'zh-CN'
-      ? 'emoji 使用：可选，最多 1 个。'
-      : language === 'ms'
-        ? 'Penggunaan emoji: pilihan, maksimum 1.'
-        : 'Emoji usage: optional, max 1.';
-  }
-
-  if (emojiPreference === 'low') {
-    return language === 'zh-CN'
-      ? 'emoji 使用：0-1 个，尽量少，不要每段都带 emoji。'
-      : language === 'ms'
-        ? 'Penggunaan emoji: 0-1 sahaja, sangat minimum.'
-        : 'Emoji usage: 0-1 only, very minimal.';
-  }
-
-  if (emojiPreference === 'high') {
-    return language === 'zh-CN'
-      ? 'emoji 使用：严格使用 3-5 个，自然分散在不同句子里，不要连续堆叠同一个 emoji。'
-      : language === 'ms'
-        ? 'Penggunaan emoji: gunakan 3-5 secara semula jadi dan berjarak, jangan bertindih.'
-        : 'Emoji usage: use 3-5 emojis naturally across different lines, with no repetitive stacking.';
-  }
-
-  return language === 'zh-CN'
-    ? 'emoji 使用：使用 1-2 个，增强亲和感，但不要太满。'
-    : language === 'ms'
-      ? 'Penggunaan emoji: guna 1-2 secara semula jadi.'
-      : 'Emoji usage: use 1-2 emojis naturally for warmth.';
+  return getEmojiRuleText(emojiPreference, language);
 };
 
 const getHardConstraints = (language: Language, outputFormat: OutputFormat): string => {
@@ -1023,23 +1106,16 @@ const countEmojis = (text: string): number => {
 };
 
 const getEmojiRange = (
-  outputFormat: OutputFormat,
+  _outputFormat: OutputFormat,
   emojiPreference: EmojiPreference
 ): { min: number; max: number } => {
-  if (outputFormat !== 'whatsapp') {
-    if (emojiPreference === 'low') {
-      return { min: 0, max: 0 };
-    }
-    return { min: 0, max: 1 };
-  }
-
   if (emojiPreference === 'low') {
     return { min: 0, max: 0 };
   }
   if (emojiPreference === 'high') {
-    return { min: 3, max: 5 };
+    return { min: 1, max: 2 };
   }
-  return { min: 1, max: 2 };
+  return { min: 0, max: 1 };
 };
 
 const needsEmojiRewrite = (text: string, outputFormat: OutputFormat, emojiPreference: EmojiPreference): boolean => {
@@ -1342,7 +1418,8 @@ const enforceObjectiveCoverage = async (
 export const buildGenerationDebugInfo = (
   text: string,
   config: DraftConfig,
-  goal: string
+  goal: string,
+  mode: 'initial' | 'refine' = 'initial'
 ): GenerationDebugInfo => {
   const objectiveItems = splitObjectives(goal);
   const objectiveCoverageRatio = getObjectiveCoverageRatio(text, objectiveItems);
@@ -1367,6 +1444,13 @@ export const buildGenerationDebugInfo = (
       styleSignalDetected: hasModeSignal(text, config.language, config.conversationMode),
       goalCoverageRatio: Number(objectiveCoverageRatio.toFixed(3)),
       goalCoveragePass: objectiveCoveragePass,
+    },
+    mode,
+    emojiRule: getEmojiRuleText(config.emojiPreference, config.language),
+    tokenEstimate: {
+      promptChars: 0,
+      promptTokensApprox: 0,
+      responseTokenBudget: 120,
     },
   };
 };
@@ -2071,34 +2155,67 @@ const getPromptTaskInstruction = (
 };
 
 const buildPrompt = (input: PromptBuildInput): string => {
-  const contextMap: Record<string, string> = {
-    Goal: input.goal || 'n/a',
-    'Additional context': input.context || 'none',
-    Channel: input.channel,
-    'Days since last contact': String(input.daysPassed),
-  };
-  const styleMap: Record<string, string> = {
-    Tone: input.style,
-    'Emoji intensity': input.emojiIntensity,
-  };
-  const contextBlock = Object.entries(contextMap)
-    .map(([key, value]) => `- ${key}: ${value}`)
-    .join('\n');
-  const styleBlock = Object.entries(styleMap)
-    .map(([key, value]) => `- ${key}: ${value}`)
-    .join('\n');
-
+  const purposeLabel = input.purpose === 'payment' ? 'payment' : 'follow-up';
   return [
-    'You are a sales assistant.',
+    `${purposeLabel}`,
     '',
-    'Context:',
-    contextBlock,
+    `Customer name: ${input.leadName}`,
+    `Goal: ${input.goal || 'n/a'}`,
+    `Channel: ${input.channel === 'whatsapp' ? 'WhatsApp' : input.channel}`,
+    `Days since last contact: ${input.daysPassed}`,
+    `Emoji intensity: ${input.emojiIntensity}`,
     '',
-    'Style:',
-    styleBlock,
+    'Extra context:',
+    input.context || 'none',
     '',
     'Task:',
-    getPromptTaskInstruction(input.language, input.purpose, input.leadName),
+    'Write one WhatsApp message for this customer based on the goal and context.',
+    '',
+    'Requirements:',
+    '- Keep it natural and human',
+    '- Keep it concise',
+    '- Match the requested emoji intensity',
+    '- Do not sound robotic',
+    '- Do not return multiple versions',
+    '- Return ONLY the message',
+  ].join('\n');
+};
+
+const buildRefinePrompt = (input: {
+  language: Language;
+  purpose: 'follow_up' | 'payment';
+  originalText: string;
+  instruction: string;
+  style: AiStyle;
+  channel: OutputFormat;
+  emojiIntensity: EmojiPreference;
+}): string => {
+  return [
+    'refine user prompt',
+    '',
+    'Context:',
+    `- Channel: ${input.channel}`,
+    `- Style: ${input.style}`,
+    `- Emoji intensity: ${input.emojiIntensity}`,
+    '',
+    'Original message:',
+    input.originalText.trim(),
+    '',
+    'Refinement instruction:',
+    input.instruction.trim(),
+    '',
+    'Emoji intensity:',
+    input.emojiIntensity,
+    '',
+    'Task:',
+    'Rewrite this into a better WhatsApp message.',
+    '',
+    'Requirements:',
+    '- Preserve the original meaning unless the instruction says otherwise',
+    '- Keep it natural and conversational',
+    '- Keep it concise unless the instruction asks for more detail',
+    '- Match the requested emoji intensity',
+    '- Return ONLY the rewritten message',
   ].join('\n');
 };
 
@@ -2746,18 +2863,11 @@ export const generateFollowUpText = async (
   const additionalContext = (data.context || '').trim();
   const daysPassed = data.daysPassed || 0;
   const language = data.language || 'en';
-  const isChinese = language === 'zh-CN';
-  const isMalay = language === 'ms';
-  const objectiveItems = splitObjectives(goal);
-  const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
-  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
-  const effectiveMemory = userContext.memoryEnabled ? memory : null;
-  const effectiveCutoffSummary = userContext.recordHistoryEnabled ? cutoffSummary : null;
-  const effectiveTranscript = userContext.recordHistoryEnabled ? transcript : '';
+  const memorySnapshot = userContext.memoryEnabled ? await getLeadMemorySnapshot(userId, leadId) : null;
   const style: AiStyle =
     normalizeStyleValue(data.style) ||
     normalizeConversationModePreference(data.conversationMode) ||
-    effectiveMemory?.conversationMode ||
+    memorySnapshot?.conversationMode ||
     userContext.defaultConversationMode ||
     'standard';
   const selectedPreset: FollowUpStylePreset = presetsEnabled
@@ -2766,7 +2876,7 @@ export const generateFollowUpText = async (
   const tone =
     normalizeTonePreference(data.tone) ||
     mapStyleToTonePreference(style) ||
-    effectiveMemory?.tone ||
+    memorySnapshot?.tone ||
     userContext.defaultTone ||
     'polite';
   const conversationMode: ConversationMode =
@@ -2774,64 +2884,32 @@ export const generateFollowUpText = async (
   const emojiPreference =
     normalizeEmojiPreferenceValue(data.emojiIntensity) ||
     normalizeEmojiPreferenceValue(data.emojiDensity) ||
-    effectiveMemory?.emojiDensity ||
+    memorySnapshot?.emojiDensity ||
     userContext.defaultEmojiDensity ||
     detectEmojiPreference(goal);
   const outputFormat =
     normalizeOutputFormatValue(data.channel) ||
     normalizeOutputFormatValue(data.outputFormat) ||
-    effectiveMemory?.outputFormat ||
+    memorySnapshot?.outputFormat ||
     userContext.defaultOutputFormat ||
     'chat';
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
-  const localTimeContext = getCurrentLocalContext(language);
-
-  const systemPrompt = `${getAdvisorPersona(language)}\n\n${getConversationContinuitySystemPrompt()}`;
-  const promptCore = buildPrompt({
+  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference);
+  const trimmedMemorySummary = memorySnapshot?.summary ? trimSnippet(memorySnapshot.summary, 220) : '';
+  const mergedContext = [additionalContext, trimmedMemorySummary ? `Lead memory: ${trimmedMemorySummary}` : '']
+    .filter(Boolean)
+    .join('\n');
+  const userPrompt = buildPrompt({
     purpose: 'follow_up',
     language,
     leadName: data.leadName,
     goal,
-    context: additionalContext,
+    context: mergedContext,
     channel: outputFormat,
     daysPassed,
     style,
     emojiIntensity: emojiPreference,
   });
-  const formatInstruction = getFormatInstruction(outputFormat, language);
-  const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
-  const modeInstruction = getConversationModeInstruction(language, conversationMode, 'follow_up');
-  const toneInstruction = getToneInstruction(language, tone, 'follow_up');
-  const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
-  const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
-  const turnPolicyInstruction = getTurnPolicyInstruction(language, greetingPolicy);
-  const industryInstruction = getIndustryInstruction(userContext.industry, language);
-  const objectiveDirective = getObjectiveDirective(goal, language, objectiveItems, 'follow_up');
-  const hardConstraints = getHardConstraints(language, outputFormat);
-  const personalizationInstruction = getPersonalizationInstruction(userContext, language);
-  const humanStyleBlock =
-    isChinese && outputFormat === 'whatsapp'
-      ? `\n\n${getChineseWhatsappHumanStyle('follow_up')}`
-      : isMalay && outputFormat === 'whatsapp'
-        ? `\n\n${getMalayWhatsappHumanStyle('follow_up')}`
-        : '';
-  const priorityInstruction = isChinese
-    ? '如果 objective 与模板风格冲突，优先满足 objective。'
-    : isMalay
-      ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
-      : 'If objective conflicts with style preset, prioritize objective.';
-  const replyPolicyInstruction = isChinese
-    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须且仅能有1个上下文锚点；禁止黑名单短语和模糊词（如 details/option）。'
-    : isMalay
-      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib tepat 1 context anchor; dilarang frasa blacklist dan perkataan kabur.'
-      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include exactly 1 context anchor, and avoid banned or vague phrases.';
-  const sellerContext = [
-    userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
-    userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
-  ].filter(Boolean).join('\n');
-  const styleRequirement = getFollowUpPresetFragment(selectedPreset, isChinese);
-  const promptWithFormat = `${promptCore}\n\nStyle requirement:\n${styleRequirement}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
-  const bundlePrompt = buildVariantPrompt(promptWithFormat, effectiveCutoffSummary, effectiveTranscript, effectiveMemory, language, 'follow_up', variantCount);
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -2842,9 +2920,10 @@ export const generateFollowUpText = async (
     console.log(
       '[AI_PROMPT_DEBUG]',
       JSON.stringify(
-        {
+        buildPromptDebugPayload({
           id: promptDebugId,
           purpose: 'follow_up',
+          mode: 'initial',
           normalizedConfig: {
             goal,
             context: additionalContext,
@@ -2853,52 +2932,25 @@ export const generateFollowUpText = async (
             daysPassed,
             emojiIntensity: emojiPreference,
             language,
+            tone,
+            conversationMode,
           },
-          prompt: {
-            system: systemPrompt,
-            user: bundlePrompt,
-          },
-        },
+          emojiRule: getEmojiRuleText(emojiPreference, language),
+          responseTokenBudget: 120,
+          system: systemPrompt,
+          user: userPrompt,
+        }),
         null,
         2
       )
     );
 
-    const completion = await generateCompletion(systemPrompt, bundlePrompt);
-    const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
-    const enforcedVariants = await Promise.all(
-      parsed.variants.slice(0, variantCount).map(async (variant) => {
-        let next = await enforceObjectiveCoverage(systemPrompt, variant, language, 'follow_up', objectiveItems);
-        next = await enforceDraftConfig(systemPrompt, next, {
-          language,
-          outputFormat,
-          purpose: 'follow_up',
-          tone,
-          conversationMode,
-          emojiPreference,
-        });
-        next = await validateBusinessDraft(
-          systemPrompt,
-          next,
-          {
-            language,
-            outputFormat,
-            purpose: 'follow_up',
-            tone,
-            conversationMode,
-            emojiPreference,
-          },
-          goal,
-          localTimeContext.hour,
-          greetingPolicy
-        );
-        next = await enforceReplyPolicy(systemPrompt, next, language);
-        next = enforceGreetingPolicy(next, greetingPolicy);
-        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, goal);
-      })
-    );
-    let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
-    generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
+    const completion = await generateCompletion(systemPrompt, userPrompt, { maxTokens: 120 });
+    let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    generatedText = sanitizePolicyBannedPhrases(generatedText, language);
+    generatedText = enforceOutputFormatConsistency(generatedText, outputFormat);
+    generatedText = ensureEmojiRange(generatedText, outputFormat, emojiPreference);
+    generatedText = enforceGreetingPolicy(generatedText, greetingPolicy);
     generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, goal);
 
     if (!generatedText.trim()) {
@@ -2925,7 +2977,7 @@ export const generateFollowUpText = async (
         ...(userContext.memoryEnabled
           ? {
               memoryGoal: goal,
-              memorySummary: parsed.cutoffSummary || effectiveMemory?.summary || effectiveCutoffSummary,
+              memorySummary: memorySnapshot?.summary || null,
               memoryLanguage: language,
               memoryUpdatedAt: new Date(),
             }
@@ -2935,18 +2987,19 @@ export const generateFollowUpText = async (
 
     return {
       text: generatedText,
-      variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
-      cutoffSummary: parsed.cutoffSummary || effectiveCutoffSummary,
-      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || parsed.cutoffSummary || effectiveCutoffSummary : null,
+      variants: [generatedText],
+      cutoffSummary: null,
+      memorySummary: userContext.memoryEnabled ? memorySnapshot?.summary || null : null,
       memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
     console.error(`[AI] Follow-up generation failed (${errorKind})`, error?.message || error);
 
-    const objectiveSummary = objectiveItems.length > 1
-      ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n')
-      : goal;
+    const objectiveItems = splitObjectives(goal);
+    const objectiveSummary = objectiveItems.length > 1 ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n') : goal;
+    const isChinese = language === 'zh-CN';
+    const isMalay = language === 'ms';
     const baseFallbackText = isMalay
       ? `Hai ${data.leadName},\n\nSaya nak follow-up ringkas tentang perkara berikut:\n${objectiveSummary}\n${daysPassed > 0 ? `\nSudah ${daysPassed} hari sejak mesej terakhir.` : ''}\n\nBoleh kongsi anggaran masa untuk setiap perkara di atas?`
       : isChinese
@@ -2959,7 +3012,8 @@ export const generateFollowUpText = async (
       data.leadName,
       isChinese ? '跟进确认' : isMalay ? 'Susulan Ringkas' : 'Quick Follow-up'
     ), greetingPolicy);
-    let fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
+    let fallbackText = sanitizePolicyBannedPhrases(fallbackBase, language);
+    fallbackText = ensureEmojiRange(fallbackText, outputFormat, emojiPreference);
     fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, goal);
 
     await prisma.aiLog.create({
@@ -2975,8 +3029,8 @@ export const generateFollowUpText = async (
     return {
       text: fallbackText,
       variants: [fallbackText],
-      cutoffSummary: effectiveCutoffSummary,
-      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || effectiveCutoffSummary : null,
+      cutoffSummary: null,
+      memorySummary: userContext.memoryEnabled ? memorySnapshot?.summary || null : null,
       memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   }
@@ -2993,18 +3047,11 @@ export const generatePaymentText = async (
   const amount = data.amount;
   const dueDate = data.dueDate;
   const language = data.language || 'en';
-  const isChinese = language === 'zh-CN';
-  const isMalay = language === 'ms';
-  const objectiveItems = splitObjectives(goal);
-  const variantCount = Math.min(Math.max(data.variantCount || 3, 1), 5);
-  const { cutoffSummary, transcript, memory } = await getConversationCutoffContext(userId, leadId, language);
-  const effectiveMemory = userContext.memoryEnabled ? memory : null;
-  const effectiveCutoffSummary = userContext.recordHistoryEnabled ? cutoffSummary : null;
-  const effectiveTranscript = userContext.recordHistoryEnabled ? transcript : '';
+  const memorySnapshot = userContext.memoryEnabled ? await getLeadMemorySnapshot(userId, leadId) : null;
   const style: AiStyle =
     normalizeStyleValue(data.style) ||
     normalizeConversationModePreference(data.conversationMode) ||
-    effectiveMemory?.conversationMode ||
+    memorySnapshot?.conversationMode ||
     userContext.defaultConversationMode ||
     'standard';
   const selectedPreset: PaymentStylePreset = presetsEnabled
@@ -3013,7 +3060,7 @@ export const generatePaymentText = async (
   const tone =
     normalizeTonePreference(data.tone) ||
     mapStyleToTonePreference(style) ||
-    effectiveMemory?.tone ||
+    memorySnapshot?.tone ||
     userContext.defaultTone ||
     'polite';
   const conversationMode: ConversationMode =
@@ -3021,17 +3068,16 @@ export const generatePaymentText = async (
   const emojiPreference =
     normalizeEmojiPreferenceValue(data.emojiIntensity) ||
     normalizeEmojiPreferenceValue(data.emojiDensity) ||
-    effectiveMemory?.emojiDensity ||
+    memorySnapshot?.emojiDensity ||
     userContext.defaultEmojiDensity ||
     detectEmojiPreference(goal);
   const outputFormat =
     normalizeOutputFormatValue(data.channel) ||
     normalizeOutputFormatValue(data.outputFormat) ||
-    effectiveMemory?.outputFormat ||
+    memorySnapshot?.outputFormat ||
     userContext.defaultOutputFormat ||
     'chat';
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
-  const localTimeContext = getCurrentLocalContext(language);
 
   let daysOverdue = 0;
   if (dueDate) {
@@ -3040,54 +3086,27 @@ export const generatePaymentText = async (
     daysOverdue = Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
   }
 
-  const systemPrompt = `${getAdvisorPersona(language)}\n\n${getConversationContinuitySystemPrompt()}`;
-  const promptCore = buildPrompt({
+  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference);
+  const trimmedMemorySummary = memorySnapshot?.summary ? trimSnippet(memorySnapshot.summary, 220) : '';
+  const mergedContext = [additionalContext, trimmedMemorySummary ? `Lead memory: ${trimmedMemorySummary}` : '']
+    .filter(Boolean)
+    .join('\n');
+  const userPrompt = buildPrompt({
     purpose: 'payment',
     language,
     leadName: data.leadName,
     goal,
-    context: additionalContext,
+    context: mergedContext,
     channel: outputFormat,
     daysPassed: daysOverdue,
     style,
     emojiIntensity: emojiPreference,
   });
-  const formatInstruction = getFormatInstruction(outputFormat, language);
-  const emojiInstruction = getEmojiInstruction(outputFormat, language, emojiPreference);
-  const modeInstruction = getConversationModeInstruction(language, conversationMode, 'payment');
-  const toneInstruction = getToneInstruction(language, tone, 'payment');
-  const malaysiaVoiceInstruction = getMalaysiaVoiceInstruction(language);
-  const greetingPolicyInstruction = getGreetingPolicyInstruction(language, greetingPolicy);
-  const turnPolicyInstruction = getTurnPolicyInstruction(language, greetingPolicy);
-  const industryInstruction = getIndustryInstruction(userContext.industry, language);
-  const objectiveDirective = getObjectiveDirective(goal, language, objectiveItems, 'payment');
-  const hardConstraints = getHardConstraints(language, outputFormat);
-  const personalizationInstruction = getPersonalizationInstruction(userContext, language);
-  const humanStyleBlock =
-    isChinese && outputFormat === 'whatsapp'
-      ? `\n\n${getChineseWhatsappHumanStyle('payment')}`
-      : isMalay && outputFormat === 'whatsapp'
-        ? `\n\n${getMalayWhatsappHumanStyle('payment')}`
-        : '';
-  const priorityInstruction = isChinese
-    ? '如果 objective 与模板风格冲突，优先满足 objective。'
-    : isMalay
-      ? 'Jika objektif bercanggah dengan gaya template, utamakan objektif.'
-      : 'If objective conflicts with style preset, prioritize objective.';
-  const replyPolicyInstruction = isChinese
-    ? '回复政策：最多30词；最多1个软化词；最多1个CTA；必须且仅能有1个上下文锚点；禁止黑名单短语和模糊词（如 details/option）。'
-    : isMalay
-      ? 'Polisi balasan: maksimum 30 perkataan; maksimum 1 softener; maksimum 1 CTA; wajib tepat 1 context anchor; dilarang frasa blacklist dan perkataan kabur.'
-      : 'Reply policy: max 30 words, max 1 softener, max 1 CTA, include exactly 1 context anchor, and avoid banned or vague phrases.';
-  const sellerContext = [
-    userContext.companyName ? (language === 'zh-CN' ? `商家名称：${userContext.companyName}` : language === 'ms' ? `Nama bisnes: ${userContext.companyName}` : `Business name: ${userContext.companyName}`) : null,
-    userContext.displayName ? (language === 'zh-CN' ? `发送者常用称呼：${userContext.displayName}` : language === 'ms' ? `Nama penghantar: ${userContext.displayName}` : `Sender name: ${userContext.displayName}`) : null,
+  const paymentMeta = [
+    amount ? `- Payment amount: ${amount.toFixed(2)}` : null,
+    `- Days overdue: ${daysOverdue}`,
   ].filter(Boolean).join('\n');
-  const styleRequirement = getPaymentPresetFragment(selectedPreset, isChinese);
-  const amountLine = amount ? `\n- Payment amount: ${amount.toFixed(2)}` : '';
-  const overdueLine = `\n- Days overdue: ${daysOverdue}`;
-  const promptWithFormat = `${promptCore}${amountLine}${overdueLine}\n\nStyle requirement:\n${styleRequirement}\n\n${objectiveDirective}\n\n${sellerContext ? `${sellerContext}\n` : ''}${personalizationInstruction ? `${personalizationInstruction}\n` : ''}- Output format: ${outputFormat}\n- Formatting rule: ${formatInstruction}\n- ${toneInstruction}\n- ${emojiInstruction}\n- ${modeInstruction}\n- ${malaysiaVoiceInstruction}\n- ${greetingPolicyInstruction}\n- ${turnPolicyInstruction}\n- ${replyPolicyInstruction}\n${industryInstruction ? `- ${industryInstruction}\n` : ''}- ${localTimeContext.guidance}\n\n${hardConstraints}${humanStyleBlock}\n\n${priorityInstruction}`;
-  const bundlePrompt = buildVariantPrompt(promptWithFormat, effectiveCutoffSummary, effectiveTranscript, effectiveMemory, language, 'payment', variantCount);
+  const finalUserPrompt = `${userPrompt}\n${paymentMeta ? `\n${paymentMeta}` : ''}`;
 
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -3098,9 +3117,10 @@ export const generatePaymentText = async (
     console.log(
       '[AI_PROMPT_DEBUG]',
       JSON.stringify(
-        {
+        buildPromptDebugPayload({
           id: promptDebugId,
           purpose: 'payment',
+          mode: 'initial',
           normalizedConfig: {
             goal,
             context: additionalContext,
@@ -3109,52 +3129,26 @@ export const generatePaymentText = async (
             daysPassed: daysOverdue,
             emojiIntensity: emojiPreference,
             language,
+            tone,
+            conversationMode,
+            amount: amount || null,
           },
-          prompt: {
-            system: systemPrompt,
-            user: bundlePrompt,
-          },
-        },
+          emojiRule: getEmojiRuleText(emojiPreference, language),
+          responseTokenBudget: 120,
+          system: systemPrompt,
+          user: finalUserPrompt,
+        }),
         null,
         2
       )
     );
 
-    const completion = await generateCompletion(systemPrompt, bundlePrompt);
-    const parsed = extractVariantBundle(completion.choices[0]?.message?.content || '', language, outputFormat);
-    const enforcedVariants = await Promise.all(
-      parsed.variants.slice(0, variantCount).map(async (variant) => {
-        let next = await enforceObjectiveCoverage(systemPrompt, variant, language, 'payment', objectiveItems);
-        next = await enforceDraftConfig(systemPrompt, next, {
-          language,
-          outputFormat,
-          purpose: 'payment',
-          tone,
-          conversationMode,
-          emojiPreference,
-        });
-        next = await validateBusinessDraft(
-          systemPrompt,
-          next,
-          {
-            language,
-            outputFormat,
-            purpose: 'payment',
-            tone,
-            conversationMode,
-            emojiPreference,
-          },
-          goal,
-          localTimeContext.hour,
-          greetingPolicy
-        );
-        next = await enforceReplyPolicy(systemPrompt, next, language);
-        next = enforceGreetingPolicy(next, greetingPolicy);
-        return applyConversationalGuardrails(next, language, outputFormat, greetingPolicy, goal);
-      })
-    );
-    let generatedText = enforceGreetingPolicy(enforcedVariants[0] || parsed.variants[0] || '', greetingPolicy);
-    generatedText = await enforceReplyPolicy(systemPrompt, generatedText, language);
+    const completion = await generateCompletion(systemPrompt, finalUserPrompt, { maxTokens: 120 });
+    let generatedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+    generatedText = sanitizePolicyBannedPhrases(generatedText, language);
+    generatedText = enforceOutputFormatConsistency(generatedText, outputFormat);
+    generatedText = ensureEmojiRange(generatedText, outputFormat, emojiPreference);
+    generatedText = enforceGreetingPolicy(generatedText, greetingPolicy);
     generatedText = applyConversationalGuardrails(generatedText, language, outputFormat, greetingPolicy, goal);
 
     if (!generatedText.trim()) {
@@ -3181,7 +3175,7 @@ export const generatePaymentText = async (
         ...(userContext.memoryEnabled
           ? {
               memoryGoal: goal,
-              memorySummary: parsed.cutoffSummary || effectiveMemory?.summary || effectiveCutoffSummary,
+              memorySummary: memorySnapshot?.summary || null,
               memoryLanguage: language,
               memoryUpdatedAt: new Date(),
             }
@@ -3191,18 +3185,21 @@ export const generatePaymentText = async (
 
     return {
       text: generatedText,
-      variants: enforcedVariants.length ? enforcedVariants : parsed.variants.slice(0, variantCount),
-      cutoffSummary: parsed.cutoffSummary || effectiveCutoffSummary,
-      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || parsed.cutoffSummary || effectiveCutoffSummary : null,
+      variants: [generatedText],
+      cutoffSummary: null,
+      memorySummary: userContext.memoryEnabled ? memorySnapshot?.summary || null : null,
       memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   } catch (error: any) {
     const errorKind = classifyAiError(error);
     console.error(`[AI] Payment generation failed (${errorKind})`, error?.message || error);
 
+    const objectiveItems = splitObjectives(goal);
     const objectiveSummary = objectiveItems.length > 1
       ? objectiveItems.map((item, idx) => `${idx + 1}) ${item}`).join('\n')
       : goal;
+    const isChinese = language === 'zh-CN';
+    const isMalay = language === 'ms';
     const baseFallbackText = isMalay
       ? `Hai ${data.leadName},\n\nPeringatan mesra untuk perkara berikut:\n${objectiveSummary}${amount ? `\nJumlah bayaran semasa: ${amount.toFixed(2)}.` : ''}\n\nBoleh kongsi anggaran tarikh untuk tindakan di atas, terutamanya bayaran?`
       : isChinese
@@ -3215,7 +3212,8 @@ export const generatePaymentText = async (
       data.leadName,
       isChinese ? '付款提醒' : isMalay ? 'Peringatan Bayaran' : 'Payment Reminder'
     ), greetingPolicy);
-    let fallbackText = await enforceReplyPolicy(systemPrompt, fallbackBase, language);
+    let fallbackText = sanitizePolicyBannedPhrases(fallbackBase, language);
+    fallbackText = ensureEmojiRange(fallbackText, outputFormat, emojiPreference);
     fallbackText = applyConversationalGuardrails(fallbackText, language, outputFormat, greetingPolicy, goal);
 
     await prisma.aiLog.create({
@@ -3231,11 +3229,85 @@ export const generatePaymentText = async (
     return {
       text: fallbackText,
       variants: [fallbackText],
-      cutoffSummary: effectiveCutoffSummary,
-      memorySummary: userContext.memoryEnabled ? effectiveMemory?.summary || effectiveCutoffSummary : null,
+      cutoffSummary: null,
+      memorySummary: userContext.memoryEnabled ? memorySnapshot?.summary || null : null,
       memoryGoal: userContext.memoryEnabled ? goal : null,
     };
   }
+};
+
+export const generateRefinedText = async (
+  userId: string,
+  leadId: string,
+  data: RefineData
+): Promise<AiGenerationBundle> => {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, userId },
+    select: { id: true },
+  });
+  if (!lead) {
+    throw new Error('Lead not found');
+  }
+
+  const language = data.language || 'en';
+  const style: AiStyle = normalizeStyleValue(data.style) || 'standard';
+  const channel: OutputFormat = normalizeOutputFormatValue(data.channel) || 'chat';
+  const emojiIntensity = normalizeEmojiPreferenceValue(data.emojiIntensity) || 'medium';
+  const purpose = data.purpose || 'follow_up';
+  const systemPrompt = buildWhatsappHumanSystemPrompt(emojiIntensity);
+  const userPrompt = buildRefinePrompt({
+    language,
+    purpose,
+    originalText: data.originalText,
+    instruction: data.instruction,
+    style,
+    channel,
+    emojiIntensity,
+  });
+
+  const promptDebugId = `refine_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  console.log(
+    '[AI_PROMPT_DEBUG]',
+    JSON.stringify(
+      buildPromptDebugPayload({
+        id: promptDebugId,
+        purpose,
+        mode: 'refine',
+        normalizedConfig: {
+          leadId,
+          style,
+          channel,
+          emojiIntensity,
+          language,
+          instruction: data.instruction,
+        },
+        emojiRule: getEmojiRuleText(emojiIntensity, language),
+        responseTokenBudget: 120,
+        system: systemPrompt,
+        user: userPrompt,
+      }),
+      null,
+      2
+    )
+  );
+
+  const completion = await generateCompletion(systemPrompt, userPrompt, { maxTokens: 120 });
+  let refinedText = cleanGeneratedMessage(completion.choices[0]?.message?.content || '');
+  refinedText = sanitizePolicyBannedPhrases(refinedText, language);
+  refinedText = enforceOutputFormatConsistency(refinedText, channel);
+  refinedText = ensureEmojiRange(refinedText, channel, emojiIntensity);
+
+  if (!refinedText.trim()) {
+    refinedText = ensureEmojiRange(data.originalText.trim(), channel, emojiIntensity);
+  }
+
+  return {
+    text: refinedText,
+    variants: [refinedText],
+    cutoffSummary: null,
+    memorySummary: null,
+    memoryGoal: null,
+  };
 };
 
 export const getAiHistory = async (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  aiApi,
   dashboardApi,
   DashboardSummary,
   getApiErrorMessage,
@@ -35,13 +36,13 @@ const Dashboard = () => {
   const [activeTask, setActiveTask] = useState<DashboardSummary['todayTasks'][number] | null>(null);
   const [config, setConfig] = useState<SharedAiConfig>(createInitialAiConfig());
   const [generatedText, setGeneratedText] = useState('');
-  const [generatedVariants, setGeneratedVariants] = useState<string[]>([]);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [refineInstruction, setRefineInstruction] = useState('');
   const [cutoffSummary, setCutoffSummary] = useState('');
   const [generationStage, setGenerationStage] = useState<GenerationStage>('ready');
   const [generationDebug, setGenerationDebug] = useState<any>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [refining, setRefining] = useState(false);
   const [sending, setSending] = useState(false);
   const [creatingSampleLead, setCreatingSampleLead] = useState(false);
   const [memorySummary, setMemorySummary] = useState('');
@@ -165,8 +166,7 @@ const Dashboard = () => {
       ...(objectiveByAction[action] || objectiveByAction.send_follow_up),
     });
     setGeneratedText('');
-    setGeneratedVariants([]);
-    setSelectedVariantIndex(0);
+    setRefineInstruction('');
     setCutoffSummary('');
     setMemorySummary(refreshedLead.memorySummary || '');
     setGenerationDebug(null);
@@ -183,8 +183,7 @@ const Dashboard = () => {
     setActiveTask(null);
     setConfig(createInitialAiConfig());
     setGeneratedText('');
-    setGeneratedVariants([]);
-    setSelectedVariantIndex(0);
+    setRefineInstruction('');
     setCutoffSummary('');
     setMemorySummary('');
     setGenerationDebug(null);
@@ -215,8 +214,7 @@ const Dashboard = () => {
     setAiLoading(true);
     setGenerationStage('thinking');
     setGeneratedText('');
-    setGeneratedVariants([]);
-    setSelectedVariantIndex(0);
+    setRefineInstruction('');
     setCutoffSummary('');
     setGenerationDebug(null);
     setError('');
@@ -225,10 +223,7 @@ const Dashboard = () => {
       const response = await generateAiMessage({ config, lead, language });
       if (response.success && response.data) {
         const data = response.data;
-        const variants = data.variants?.length ? data.variants : [data.text];
-        setGeneratedVariants(variants);
-        setSelectedVariantIndex(0);
-        setGeneratedText(variants[0] || data.text);
+        setGeneratedText(data.text);
         setCutoffSummary(data.cutoffSummary || '');
         setMemorySummary(data.memorySummary || memorySummary);
         if (data.memoryGoal) {
@@ -246,6 +241,41 @@ const Dashboard = () => {
       setError(getApiErrorMessage(err, t.dashboard.generateFailed));
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleRefine = async () => {
+    if (!activeTask || !generatedText.trim() || !refineInstruction.trim()) {
+      return;
+    }
+
+    setRefining(true);
+    setGenerationStage('thinking');
+    setError('');
+    try {
+      const response = await aiApi.refineMessage({
+        leadId: activeTask.lead.id,
+        originalText: generatedText.trim(),
+        instruction: refineInstruction.trim(),
+        style: config.style,
+        channel: config.channel,
+        emojiIntensity: config.emojiIntensity,
+        language,
+        purpose: activeTask.lead.status === 'won' ? 'payment' : 'follow_up',
+      });
+      if (response.success && response.data) {
+        setGeneratedText(response.data.text);
+        setGenerationDebug(response.data.debug || null);
+        setGenerationStage('done');
+        return;
+      }
+      setGenerationStage('ready');
+      setError(response.error?.message || t.dashboard.generateFailed);
+    } catch (err) {
+      setGenerationStage('ready');
+      setError(getApiErrorMessage(err, t.dashboard.generateFailed));
+    } finally {
+      setRefining(false);
     }
   };
 
@@ -788,7 +818,7 @@ const Dashboard = () => {
                 />
 
                 <button onClick={handleGenerate} className="btn btn-primary quick-ai-generate" disabled={aiLoading}>
-                  {aiLoading ? t.ai.generating : generatedText ? t.ai.regenerateVariant : t.dashboard.generateMessage}
+                  {aiLoading ? t.ai.generating : generatedText ? t.ai.regenerate : t.dashboard.generateMessage}
                 </button>
               </div>
 
@@ -842,41 +872,31 @@ const Dashboard = () => {
                   </div>
                 )}
 
-                {generatedVariants.length > 1 && (
-                  <div className="ai-variant-row">
-                    {generatedVariants.map((_, index) => (
-                      <button
-                        key={`dashboard-variant-${index}`}
-                        type="button"
-                        className={`btn ${selectedVariantIndex === index ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => {
-                          setSelectedVariantIndex(index);
-                          setGeneratedText(generatedVariants[index] || '');
-                        }}
-                      >
-                        {translate(t.ai.variantOption, { index: index + 1 })}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 <textarea
                   value={generatedText}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setGeneratedText(next);
-                    setGeneratedVariants((current) =>
-                      current.length === 0
-                        ? [next]
-                        : current.map((item, index) => (index === selectedVariantIndex ? next : item))
-                    );
-                  }}
+                  onChange={(e) => setGeneratedText(e.target.value)}
                   className="input generated-textarea quick-ai-textarea"
                   placeholder={t.ai.generatedTextPlaceholder}
                   rows={12}
                 />
 
+                <div className="form-group" style={{ marginTop: '12px' }}>
+                  <label className="form-label">{t.ai.refinementInstruction}</label>
+                  <input
+                    className="input"
+                    value={refineInstruction}
+                    onChange={(e) => setRefineInstruction(e.target.value)}
+                    placeholder={t.ai.refinementPlaceholder}
+                  />
+                </div>
+
                 <div className="quick-ai-actions">
+                  <button onClick={handleGenerate} className="btn btn-secondary" disabled={aiLoading}>
+                    {t.ai.regenerate}
+                  </button>
+                  <button onClick={handleRefine} className="btn btn-primary" disabled={!generatedText || refining || !refineInstruction.trim()}>
+                    {refining ? t.ai.refining : t.ai.refine}
+                  </button>
                   <button
                     onClick={() => navigator.clipboard.writeText(generatedText)}
                     className="btn btn-success"

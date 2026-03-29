@@ -329,7 +329,7 @@ export interface AiGenerationDebug {
 
 export interface AiGenerationResult {
   text: string;
-  variants: string[];
+  variants?: string[];
   cutoffSummary?: string | null;
   memorySummary?: string | null;
   memoryGoal?: string | null;
@@ -732,6 +732,20 @@ export const aiApi = {
     purpose?: 'follow_up' | 'payment' | 'all';
   }): Promise<ApiResponse<AiHistoryItem[]>> => {
     const response = await api.get<ApiResponse<AiHistoryItem[]>>('/ai/history', { params });
+    return response.data;
+  },
+
+  refineMessage: async (data: {
+    leadId: string;
+    originalText: string;
+    instruction: string;
+    style?: AiStyle;
+    channel?: AiChannel;
+    emojiIntensity?: EmojiDensity;
+    language?: AppLanguage;
+    purpose?: 'follow_up' | 'payment';
+  }): Promise<ApiResponse<AiGenerationResult>> => {
+    const response = await api.post<ApiResponse<AiGenerationResult>>('/ai/refine', data);
     return response.data;
   },
 };
