@@ -19,6 +19,7 @@ export type OutputFormat = 'chat' | 'email' | 'whatsapp';
 export type AiChannel = OutputFormat;
 export type AppLanguage = 'en' | 'zh-CN' | 'ms';
 export type UrgencyLevel = 'low' | 'medium' | 'high';
+export type QuickActionIntent = 'follow_up_softly' | 'push_for_payment' | 'offer_discount' | 'close_deal';
 export type ProductEvent =
   | 'ai_generate_clicked'
   | 'ai_generate_success'
@@ -749,6 +750,7 @@ export const aiApi = {
     outputFormat?: OutputFormat;
     language?: AppLanguage;
     variantCount?: number;
+    quickActionIntent?: QuickActionIntent;
   }): Promise<ApiResponse<AiGenerationResult>> => {
     const response = await api.post<ApiResponse<AiGenerationResult>>('/ai/follow-up', data);
     return response.data;
@@ -772,6 +774,7 @@ export const aiApi = {
     outputFormat?: OutputFormat;
     language?: AppLanguage;
     variantCount?: number;
+    quickActionIntent?: QuickActionIntent;
   }): Promise<ApiResponse<AiGenerationResult>> => {
     const response = await api.post<ApiResponse<AiGenerationResult>>('/ai/payment', data);
     return response.data;
@@ -794,6 +797,7 @@ export const aiApi = {
     emojiIntensity?: EmojiDensity;
     language?: AppLanguage;
     purpose?: 'follow_up' | 'payment';
+    quickActionIntent?: QuickActionIntent;
   }): Promise<ApiResponse<AiGenerationResult>> => {
     const response = await api.post<ApiResponse<AiGenerationResult>>('/ai/refine', data);
     return response.data;

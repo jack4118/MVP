@@ -919,11 +919,11 @@ const WhatsApp = () => {
         .slice(-10)
         .map((message) => `${message.direction || 'outbound'}: ${message.content}`)
         .join('\n')
-        .slice(0, 2400);
+        .slice(0, 460);
       const intentConfig = quickActionIntent ? quickActionIntentMap[quickActionIntent] : null;
-      const goal = intentConfig
+      const goal = (intentConfig
         ? `${intentConfig.internalInstruction} ${intentConfig.promptStrategyBlock} CTA bias: ${intentConfig.defaultCtaBias}.`
-        : 'Write a concise WhatsApp sales follow-up with one clear next step.';
+        : 'Write a concise WhatsApp sales follow-up with one clear next step.').slice(0, 280);
 
       const response = (intentConfig?.purposeHint === 'payment')
         ? await aiApi.generatePayment({

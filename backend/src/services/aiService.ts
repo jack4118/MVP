@@ -10,6 +10,7 @@ type Language = 'en' | 'zh-CN' | 'ms';
 type OutputFormat = 'chat' | 'email' | 'whatsapp';
 type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultative';
 type AiStyle = ConversationMode;
+type QuickActionIntent = 'follow_up_softly' | 'push_for_payment' | 'offer_discount' | 'close_deal';
 type TurnType = 'first_turn' | 'ongoing_reply' | 'follow_up' | 'clarification' | 'topic_shift' | 'conversation_restart';
 
 type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
@@ -35,6 +36,7 @@ export interface FollowUpData {
   emojiDensity?: EmojiPreference;
   outputFormat?: OutputFormat;
   language?: Language;
+  quickActionIntent?: QuickActionIntent;
 }
 
 export interface PaymentData {
@@ -54,6 +56,7 @@ export interface PaymentData {
   emojiDensity?: EmojiPreference;
   outputFormat?: OutputFormat;
   language?: Language;
+  quickActionIntent?: QuickActionIntent;
 }
 
 export interface RefineData {
@@ -64,6 +67,7 @@ export interface RefineData {
   emojiIntensity?: EmojiPreference;
   language?: Language;
   purpose?: 'follow_up' | 'payment';
+  quickActionIntent?: QuickActionIntent;
 }
 
 type AiErrorKind = 'quota' | 'auth' | 'timeout' | 'unknown';
@@ -601,62 +605,37 @@ const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference, languag
       : language === 'ms'
         ? 'LANGUAGE LOCK: Output must be in Bahasa Melayu.'
         : 'LANGUAGE LOCK: Output must be in English.';
-  const emojiRules =
+  const emojiRule =
     emojiIntensity === 'low'
-      ? [
-          '- low -> max 1 emoji, only at the end',
-        ]
+      ? 'Use 0-1 emoji total (max 1). If used, place it near the end.'
       : emojiIntensity === 'high'
-        ? [
-            '- high -> max 3 emojis, do NOT put emoji in every sentence',
-          ]
-        : [
-            '- medium -> 1-2 emojis, natural placement',
-          ];
+        ? 'Use 1-3 emojis total (max 3). Keep them natural and not in every line.'
+        : 'Use 1-2 emojis total. Keep them natural.';
 
   return [
-    'You are a real human sending WhatsApp messages to customers.',
+    'ROLE:',
+    'You are an AI sales assistant writing one send-ready WhatsApp reply for a real seller.',
     '',
-    'Your job is to write messages that feel:',
-    '- Natural',
-    '- Conversational',
-    '- Polite but not overly formal',
-    '- Slightly persuasive when needed',
+    'WRITING PRINCIPLES:',
+    '- Sound human, concise, and context-aware.',
+    '- Prioritize conversion with a concrete next step.',
+    '- Keep pressure respectful: persuasive but never manipulative.',
+    '- End with an easy-to-answer CTA.',
     '',
-    'Never sound like:',
-    '- A template',
-    '- A corporate email',
-    '- A robotic assistant',
+    'ANTI-ROBOTIC GUARDRAILS:',
+    '- No corporate email tone, no canned template phrasing.',
+    '- No repetitive filler or generic closings.',
+    '- No multi-option output, no meta commentary.',
     '',
-    'WRITING STYLE RULES:',
-    '- Write like a real person typing on WhatsApp',
-    '- Use short to medium sentences',
-    '- It should feel like a quick message, not an essay',
-    '- Avoid repeating the same sentence or idea',
-    '- Avoid being overly structured or perfect',
-    '- Do NOT over-explain',
-    '- Do NOT sound like you are writing a report',
-    '- Do NOT sound too salesy or pushy',
-    '',
-    'TONE GUIDELINES:',
-    '- Friendly and respectful',
-    '- Slight urgency is okay, but never aggressive',
-    '- If asking for action, make it feel easy and reasonable',
+    'EMOJI GUARDRAILS:',
+    `- ${emojiRule}`,
+    '- Never spam emojis.',
     '',
     languageLock,
     '',
-    'EMOJI RULES (STRICT):',
-    '- none -> no emoji at all',
-    ...emojiRules,
-    '- Never spam emoji',
-    '- Never use emoji in every line',
-    '- If unsure, use fewer emoji',
-    '',
-    'OUTPUT RULES:',
-    '- Return ONLY the message',
-    '- No explanations',
-    '- No labels',
-    '- No multiple options',
+    'OUTPUT CONTRACT:',
+    '- Return only one final customer-facing message.',
+    '- No labels, no explanation, no markdown wrappers.',
   ].join('\n');
 };
 
@@ -2190,6 +2169,50 @@ const mapStyleToPaymentPreset = (style: AiStyle): PaymentStylePreset => {
   return 'friendly_reminder';
 };
 
+type QuickActionIntentConfig = {
+  internalInstruction: string;
+  promptStrategyBlock: string;
+  defaultToneBias: FollowUpTone | PaymentTone;
+  defaultCtaBias: string;
+  purposeHint: 'follow_up' | 'payment';
+};
+
+const QUICK_ACTION_INTENT_MAP: Record<QuickActionIntent, QuickActionIntentConfig> = {
+  follow_up_softly: {
+    internalInstruction: 'Send a low-pressure follow-up that feels warm and human.',
+    promptStrategyBlock: 'Acknowledge context, keep urgency gentle, and ask one easy reply question.',
+    defaultToneBias: 'friendly',
+    defaultCtaBias: 'light yes/no or short timing reply',
+    purposeHint: 'follow_up',
+  },
+  push_for_payment: {
+    internalInstruction: 'Move the lead toward payment confirmation with respectful clarity.',
+    promptStrategyBlock: 'Be process-oriented, request exact payment timing, and avoid threats or guilt framing.',
+    defaultToneBias: 'professional',
+    defaultCtaBias: 'confirm exact payment date/time',
+    purposeHint: 'payment',
+  },
+  offer_discount: {
+    internalInstruction: 'Use a value-focused discount nudge to reduce hesitation and close.',
+    promptStrategyBlock: 'Frame discount as decision support, add careful urgency, and ask for explicit decision.',
+    defaultToneBias: 'friendly',
+    defaultCtaBias: 'accept offer today or choose option',
+    purposeHint: 'follow_up',
+  },
+  close_deal: {
+    internalInstruction: 'Assume strong buying intent and guide to final confirmation.',
+    promptStrategyBlock: 'Keep momentum, remove ambiguity, and ask for booking/payment confirmation now.',
+    defaultToneBias: 'assertive',
+    defaultCtaBias: 'confirm now',
+    purposeHint: 'payment',
+  },
+};
+
+const getQuickActionIntentConfig = (intent?: QuickActionIntent | null) => {
+  if (!intent) return null;
+  return QUICK_ACTION_INTENT_MAP[intent] || null;
+};
+
 type PromptBuildInput = {
   purpose: 'follow_up' | 'payment';
   language: Language;
@@ -2200,6 +2223,7 @@ type PromptBuildInput = {
   daysPassed: number;
   style: AiStyle;
   emojiIntensity: EmojiPreference;
+  quickActionIntent?: QuickActionIntent;
 };
 
 const getPromptTaskInstruction = (
@@ -2223,30 +2247,52 @@ const getPromptTaskInstruction = (
 };
 
 const buildPrompt = (input: PromptBuildInput): string => {
-  const purposeLabel = input.purpose === 'payment' ? 'payment' : 'follow-up';
+  const intentConfig = getQuickActionIntentConfig(input.quickActionIntent);
+  const taskInstruction = getPromptTaskInstruction(input.language, input.purpose, input.leadName);
+  const taskRequirements = [
+    '- Write exactly one WhatsApp message.',
+    '- Keep it concise and natural.',
+    '- Include one clear next-step CTA.',
+    '- Match emoji intensity and language lock.',
+    '- Avoid robotic or overly formal tone.',
+  ];
+
+  if (intentConfig) {
+    taskRequirements.push(`- CTA bias: ${intentConfig.defaultCtaBias}.`);
+  }
+
   return [
-    `${purposeLabel}`,
+    'USER CONTEXT:',
+    `- Lead: ${input.leadName}`,
+    `- Purpose: ${input.purpose === 'payment' ? 'payment' : 'follow-up'}`,
+    `- Goal: ${input.goal || 'n/a'}`,
+    `- Channel: ${input.channel === 'whatsapp' ? 'WhatsApp' : input.channel}`,
+    `- Language: ${input.language}`,
+    `- Days since last contact: ${input.daysPassed}`,
+    `- Emoji intensity: ${input.emojiIntensity}`,
     '',
-    `Customer name: ${input.leadName}`,
-    `Goal: ${input.goal || 'n/a'}`,
-    `Channel: ${input.channel === 'whatsapp' ? 'WhatsApp' : input.channel}`,
-    `Language: ${input.language}`,
-    `Days since last contact: ${input.daysPassed}`,
-    `Emoji intensity: ${input.emojiIntensity}`,
-    '',
-    'Extra context:',
+    'Lead and conversation context:',
     input.context || 'none',
     '',
-    'Task:',
-    'Write one WhatsApp message for this customer based on the goal and context.',
+    'QUICK ACTION INTENT:',
+    input.quickActionIntent && intentConfig
+      ? [
+          `- intentId: ${input.quickActionIntent}`,
+          `- internalInstruction: ${intentConfig.internalInstruction}`,
+          `- strategy: ${intentConfig.promptStrategyBlock}`,
+          `- toneBias: ${intentConfig.defaultToneBias}`,
+          `- ctaBias: ${intentConfig.defaultCtaBias}`,
+        ].join('\n')
+      : '- intentId: none',
     '',
-    'Requirements:',
-    '- Keep it natural and human',
-    '- Keep it concise',
-    '- Match the requested emoji intensity',
-    '- Do not sound robotic',
-    '- Do not return multiple versions',
-    '- Return ONLY the message',
+    'TASK:',
+    taskInstruction,
+    '',
+    'TASK REQUIREMENTS:',
+    ...taskRequirements,
+    '',
+    'OUTPUT REQUIREMENT:',
+    '- Return only the final message text.',
   ].join('\n');
 };
 
@@ -2258,13 +2304,14 @@ const buildRefinePrompt = (input: {
   style: AiStyle;
   channel: OutputFormat;
   emojiIntensity: EmojiPreference;
+  quickActionIntent?: QuickActionIntent;
 }): string => {
+  const intentConfig = getQuickActionIntentConfig(input.quickActionIntent);
   return [
-    'refine user prompt',
-    '',
-    'Context:',
+    'REFINE CONTEXT:',
     `- Channel: ${input.channel}`,
     `- Style: ${input.style}`,
+    `- Purpose: ${input.purpose}`,
     `- Emoji intensity: ${input.emojiIntensity}`,
     '',
     'Original message:',
@@ -2273,18 +2320,26 @@ const buildRefinePrompt = (input: {
     'Refinement instruction:',
     input.instruction.trim(),
     '',
-    'Emoji intensity:',
-    input.emojiIntensity,
+    'Quick-action intent:',
+    input.quickActionIntent && intentConfig
+      ? [
+          `- intentId: ${input.quickActionIntent}`,
+          `- internalInstruction: ${intentConfig.internalInstruction}`,
+          `- strategy: ${intentConfig.promptStrategyBlock}`,
+          `- toneBias: ${intentConfig.defaultToneBias}`,
+          `- ctaBias: ${intentConfig.defaultCtaBias}`,
+        ].join('\n')
+      : '- intentId: none',
     '',
     'Task:',
-    'Rewrite this into a better WhatsApp message.',
+    'Rewrite the draft into one stronger WhatsApp message.',
     '',
-    'Requirements:',
+    'Task requirements:',
     '- Preserve the original meaning unless the instruction says otherwise',
-    '- Keep it natural and conversational',
-    '- Keep it concise unless the instruction asks for more detail',
+    '- Keep it human, concise, and conversion-oriented',
+    '- Keep one clear CTA',
     '- Match the requested emoji intensity',
-    '- Return ONLY the rewritten message',
+    '- Return only one rewritten message',
   ].join('\n');
 };
 
@@ -3201,8 +3256,10 @@ export const generateFollowUpText = async (
   const selectedPreset: FollowUpStylePreset = presetsEnabled
     ? data.stylePreset || mapStyleToFollowUpPreset(style)
     : mapStyleToFollowUpPreset(style);
+  const quickActionIntentConfig = getQuickActionIntentConfig(data.quickActionIntent);
   const tone =
     normalizeTonePreference(data.tone) ||
+    quickActionIntentConfig?.defaultToneBias ||
     mapStyleToTonePreference(style) ||
     memorySnapshot?.tone ||
     userContext.defaultTone ||
@@ -3247,6 +3304,7 @@ export const generateFollowUpText = async (
     daysPassed,
     style,
     emojiIntensity: emojiPreference,
+    quickActionIntent: data.quickActionIntent,
   });
 
   try {
@@ -3272,6 +3330,7 @@ export const generateFollowUpText = async (
             language,
             tone,
             conversationMode,
+            quickActionIntent: data.quickActionIntent || null,
           },
           emojiRule: getEmojiRuleText(emojiPreference, language),
           responseTokenBudget: 120,
@@ -3404,8 +3463,10 @@ export const generatePaymentText = async (
   const selectedPreset: PaymentStylePreset = presetsEnabled
     ? data.stylePreset || mapStyleToPaymentPreset(style)
     : mapStyleToPaymentPreset(style);
+  const quickActionIntentConfig = getQuickActionIntentConfig(data.quickActionIntent);
   const tone =
     normalizeTonePreference(data.tone) ||
+    quickActionIntentConfig?.defaultToneBias ||
     mapStyleToTonePreference(style) ||
     memorySnapshot?.tone ||
     userContext.defaultTone ||
@@ -3458,6 +3519,7 @@ export const generatePaymentText = async (
     daysPassed: daysOverdue,
     style,
     emojiIntensity: emojiPreference,
+    quickActionIntent: data.quickActionIntent,
   });
   const paymentMeta = [
     amount ? `- Payment amount: ${amount.toFixed(2)}` : null,
@@ -3489,6 +3551,7 @@ export const generatePaymentText = async (
             tone,
             conversationMode,
             amount: amount || null,
+            quickActionIntent: data.quickActionIntent || null,
           },
           emojiRule: getEmojiRuleText(emojiPreference, language),
           responseTokenBudget: 120,
@@ -3629,6 +3692,7 @@ export const generateRefinedText = async (
     style,
     channel,
     emojiIntensity,
+    quickActionIntent: data.quickActionIntent,
   });
 
   const promptDebugId = `refine_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -3646,6 +3710,7 @@ export const generateRefinedText = async (
           emojiIntensity,
           language,
           instruction: data.instruction,
+          quickActionIntent: data.quickActionIntent || null,
         },
         emojiRule: getEmojiRuleText(emojiIntensity, language),
         responseTokenBudget: 120,
