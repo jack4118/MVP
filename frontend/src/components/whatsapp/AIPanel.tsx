@@ -1,4 +1,5 @@
 import { QuickActionIntent } from '../../services/api';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export interface AIPanelProps {
   suggestion: string;
@@ -15,13 +16,6 @@ export interface AIPanelProps {
   onSendAndContinue: () => void;
 }
 
-const quickActions: Array<{ id: QuickActionIntent; label: string }> = [
-  { id: 'follow_up_softly', label: 'Follow up softly' },
-  { id: 'push_for_payment', label: 'Push for payment' },
-  { id: 'offer_discount', label: 'Offer discount' },
-  { id: 'close_deal', label: 'Close deal' },
-];
-
 const AIPanel = ({
   suggestion,
   loading,
@@ -36,12 +30,20 @@ const AIPanel = ({
   onSendTemplate,
   onSendAndContinue,
 }: AIPanelProps) => {
+  const { t } = useLanguage();
+  const quickActions = [
+    { id: 'follow_up_softly', label: t.whatsapp.quickActionFollowUpSoftly },
+    { id: 'push_for_payment', label: t.whatsapp.quickActionPushPayment },
+    { id: 'offer_discount', label: t.whatsapp.quickActionOfferDiscount },
+    { id: 'close_deal', label: t.whatsapp.quickActionCloseDeal },
+  ] as const;
+
   return (
     <div className="grid gap-4">
       <section className="rounded-xl bg-white p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-900">Suggested Reply</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t.whatsapp.aiSuggestedReplyTitle}</h3>
         <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700 whitespace-pre-wrap min-h-[120px]">
-          {loading ? 'Generating AI suggestion...' : suggestion || 'No suggestion yet. Tap Regenerate.'}
+          {loading ? t.whatsapp.aiGenerating : suggestion || t.whatsapp.aiNoSuggestion}
         </div>
 
         {disableReason ? <p className="mt-2 text-xs text-amber-700">{disableReason}</p> : null}
@@ -53,7 +55,7 @@ const AIPanel = ({
             onClick={onUse}
             disabled={disabled || !suggestion}
           >
-            Use
+            {t.whatsapp.aiUse}
           </button>
           <button
             type="button"
@@ -61,7 +63,7 @@ const AIPanel = ({
             onClick={onEdit}
             disabled={disabled || !suggestion}
           >
-            Edit
+            {t.whatsapp.aiEdit}
           </button>
           <button
             type="button"
@@ -69,13 +71,13 @@ const AIPanel = ({
             onClick={onRegenerate}
             disabled={disabled || loading}
           >
-            Regenerate
+            {t.whatsapp.aiRegenerate}
           </button>
         </div>
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-900">Quick Actions</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t.whatsapp.aiQuickActionsTitle}</h3>
         <div className="mt-3 grid gap-2">
           {quickActions.map((action) => (
             <button
@@ -93,8 +95,8 @@ const AIPanel = ({
 
       {showOutside24h ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-amber-900">⚠️ Outside 24h window</h3>
-          <p className="mt-2 text-xs text-amber-800">Use a template message first to reopen the conversation safely.</p>
+          <h3 className="text-sm font-semibold text-amber-900">{t.whatsapp.outside24hTitle}</h3>
+          <p className="mt-2 text-xs text-amber-800">{t.whatsapp.outside24hBody}</p>
           <div className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-700 whitespace-pre-wrap">{templateSuggestion}</div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -102,14 +104,14 @@ const AIPanel = ({
               className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white"
               onClick={onSendTemplate}
             >
-              Send Template
+              {t.whatsapp.sendTemplate}
             </button>
             <button
               type="button"
               className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
               onClick={onSendAndContinue}
             >
-              Send & Continue
+              {t.whatsapp.sendAndContinue}
             </button>
           </div>
         </section>

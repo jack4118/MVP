@@ -425,38 +425,50 @@ const WhatsApp = () => {
   const leadLinked = Boolean(selectedContact?.lead?.id);
   const outside24hWindow = inboxReadiness?.reasonCode === 'WHATSAPP_TEMPLATE_REQUIRED';
   const suggestedTemplateMessage = useMemo(() => {
-    const name = selectedContact?.lead?.name || 'there';
-    return `Hi ${name}, thanks for your message. This is a quick template check-in from our sales team. Reply here and I will continue right away.`;
-  }, [selectedContact?.lead?.name]);
+    const name = selectedContact?.lead?.name || t.whatsapp.templateFallbackName;
+    return t.whatsapp.templateSuggestedMessage.replace('{name}', name);
+  }, [selectedContact?.lead?.name, t.whatsapp.templateFallbackName, t.whatsapp.templateSuggestedMessage]);
 
   const aiPanelDisableReason = useMemo(() => {
-    if (!selectedPhone) return 'Select a lead conversation to use AI actions.';
-    if (!leadLinked) return 'AI suggestions are available after this number is linked to a lead.';
+    if (!selectedPhone) return t.whatsapp.aiSelectConversationFirst;
+    if (!leadLinked) return t.whatsapp.aiLeadLinkRequired;
     return '';
-  }, [leadLinked, selectedPhone]);
+  }, [leadLinked, selectedPhone, t.whatsapp.aiLeadLinkRequired, t.whatsapp.aiSelectConversationFirst]);
 
   const aiMemory = useMemo(() => {
     const lastInbound = [...conversation].reverse().find((message) => message.direction === 'inbound');
     const messageIntent = (lastInbound?.content || selectedContact?.lastMessage || '').trim();
     const issues = selectedContact?.failedCount
       ? `${selectedContact.failedCount} failed sends need review.`
-      : 'No delivery issues detected.';
+      : t.whatsapp.aiNoDeliveryIssues;
     const tone = messageIntent.includes('?')
-      ? 'Question-driven'
+      ? t.whatsapp.aiToneQuestionDriven
       : messageIntent.length > 90
-        ? 'Detailed'
-        : 'Brief';
+        ? t.whatsapp.aiToneDetailed
+        : t.whatsapp.aiToneBrief;
 
     return {
-      intent: messageIntent || 'Awaiting clear customer intent.',
-      status: selectedContact?.lead?.status?.replace(/_/g, ' ') || 'Unknown',
+      intent: messageIntent || t.whatsapp.aiAwaitingIntent,
+      status: selectedContact?.lead?.status?.replace(/_/g, ' ') || t.whatsapp.aiUnknownStatus,
       issues,
       tone,
       nextStep: outside24hWindow
-        ? 'Send an approved template to reopen the window.'
-        : 'Use AI suggestion to send a concise next-step message.',
+        ? t.whatsapp.aiNextStepTemplate
+        : t.whatsapp.aiNextStepSuggest,
     };
-  }, [conversation, selectedContact, outside24hWindow]);
+  }, [
+    conversation,
+    outside24hWindow,
+    selectedContact,
+    t.whatsapp.aiAwaitingIntent,
+    t.whatsapp.aiNextStepSuggest,
+    t.whatsapp.aiNextStepTemplate,
+    t.whatsapp.aiNoDeliveryIssues,
+    t.whatsapp.aiToneBrief,
+    t.whatsapp.aiToneDetailed,
+    t.whatsapp.aiToneQuestionDriven,
+    t.whatsapp.aiUnknownStatus,
+  ]);
 
   const scrollConversationToLatest = () => {
     if (conversationBodyRef.current) {
@@ -791,7 +803,7 @@ const WhatsApp = () => {
       const preflight = await whatsappApi.getPreflight(selectedPhone, composerText.trim());
       if (!preflight.success || !preflight.data || !preflight.data.send_ready) {
         if (preflight.data?.reasonCode === 'WHATSAPP_TEMPLATE_REQUIRED') {
-          setError('Outside 24h window. Send a template message first.');
+          setError(t.whatsapp.outside24hAction);
         } else {
           setError(preflight.error?.message || preflight.data?.reasonMessage || t.common.error);
         }
@@ -907,7 +919,7 @@ const WhatsApp = () => {
 
   const handleGenerateAiSuggestion = async (quickActionIntent?: QuickActionIntent) => {
     if (!selectedContact?.lead?.id) {
-      setAiPanelError('Link this conversation to a lead to unlock AI suggestions.');
+      setAiPanelError(t.whatsapp.aiLeadLinkRequired);
       return;
     }
 
@@ -923,7 +935,7 @@ const WhatsApp = () => {
       const intentConfig = quickActionIntent ? quickActionIntentMap[quickActionIntent] : null;
       const goal = (intentConfig
         ? `${intentConfig.internalInstruction} ${intentConfig.promptStrategyBlock} CTA bias: ${intentConfig.defaultCtaBias}.`
-        : 'Write a concise WhatsApp sales follow-up with one clear next step.').slice(0, 280);
+        : t.whatsapp.aiDefaultGoal).slice(0, 280);
 
       const response = (intentConfig?.purposeHint === 'payment')
         ? await aiApi.generatePayment({
@@ -936,7 +948,7 @@ const WhatsApp = () => {
             style: 'standard',
             emojiIntensity: 'medium',
             language: user?.defaultLanguage || 'en',
-            tone: intentConfig?.defaultToneBias || 'professional',
+            tone: (intentConfig?.defaultToneBias || 'professional') as 'professional' | 'friendly' | 'assertive',
             quickActionIntent,
           })
         : await aiApi.generateFollowUp({
@@ -950,17 +962,23 @@ const WhatsApp = () => {
             style: 'standard',
             emojiIntensity: 'medium',
             language: user?.defaultLanguage || 'en',
-            tone: intentConfig?.defaultToneBias || 'friendly',
+            tone: (intentConfig?.defaultToneBias || 'friendly') as 'professional' | 'friendly' | 'assertive',
             quickActionIntent,
           });
 
       if (!response.success || !response.data?.text) {
-        setAiPanelError(response.error?.message || 'Failed to generate AI suggestion.');
+        console.error('[WhatsApp][AI Suggestion] API returned failure', response.error || response);
+        if (response.error?.code === 'AI_LIMIT_REACHED') {
+          setAiPanelError(t.pricing.aiLimitReached);
+          return;
+        }
+        setAiPanelError(response.error?.message || t.whatsapp.aiSuggestFailed);
         return;
       }
       setAiSuggestion(response.data.text);
-    } catch (_err) {
-      setAiPanelError('Failed to generate AI suggestion.');
+    } catch (err) {
+      setAiPanelError(getApiErrorMessage(err, t.whatsapp.aiSuggestFailed));
+      console.error('[WhatsApp][AI Suggestion] generation failed', err);
     } finally {
       setAiLoading(false);
     }
@@ -983,7 +1001,7 @@ const WhatsApp = () => {
       });
 
       if (!response.success) {
-        setError('Template send did not complete. Please verify an approved template and try again.');
+        setError(t.whatsapp.templateSendFailed);
         return;
       }
 
@@ -992,9 +1010,9 @@ const WhatsApp = () => {
       if (continueThread) {
         setComposerText(aiSuggestion || composerText);
       }
-      setSuccess(continueThread ? 'Template sent. You can continue the conversation now.' : 'Template sent.');
+      setSuccess(continueThread ? t.whatsapp.templateSentAndContinue : t.whatsapp.templateSent);
     } catch (_err) {
-      setError('Template send did not complete. Please verify an approved template and try again.');
+      setError(t.whatsapp.templateSendFailed);
     } finally {
       setSending(false);
     }
@@ -1216,7 +1234,7 @@ const WhatsApp = () => {
     const selectedContactHasUnread = prioritizedContacts.find((contact) => contact.phone === selectedPhone)?.unreadCount || 0;
     const firstUnreadContact = prioritizedContacts.find((contact) => contact.unreadCount > 0);
     const blockerMessage = outside24hWindow
-      ? 'Outside 24h window. Send a template message first.'
+      ? t.whatsapp.outside24hAction
       : (inboxReadinessError || inboxReadiness?.reasonMessage || t.common.error);
 
     return (
@@ -1224,8 +1242,8 @@ const WhatsApp = () => {
         <div className="whatsapp-inbox-grid grid grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_320px]">
           <aside className="whatsapp-inbox-leads-pane hidden min-w-0 rounded-xl bg-white p-3 shadow-sm md:flex md:flex-col">
             <div className="mb-3">
-              <p className="text-sm font-semibold text-slate-900">Leads</p>
-              <p className="text-xs text-slate-500">Select a conversation to continue.</p>
+              <p className="text-sm font-semibold text-slate-900">{t.whatsapp.inboxLeadsTitle}</p>
+              <p className="text-xs text-slate-500">{t.whatsapp.inboxLeadsSubtitle}</p>
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               {loadingContacts ? (
@@ -1262,14 +1280,14 @@ const WhatsApp = () => {
             </div>
           </aside>
 
-          <section className="whatsapp-inbox-conversation-shell min-w-0 rounded-xl bg-white shadow-sm">
+          <section className="whatsapp-inbox-center-pane min-w-0 rounded-xl bg-white shadow-sm">
             <div className="border-b border-slate-100 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">{selectedContact?.lead?.name || selectedPhone || 'Conversation'}</p>
+                  <p className="text-sm font-semibold text-slate-900">{selectedContact?.lead?.name || selectedPhone || t.whatsapp.conversationFallbackTitle}</p>
                   <p className="text-xs text-slate-500">
                     {selectedPhone
-                      ? `${selectedPhone}${selectedContactHasUnread > 0 ? ` • ${selectedContactHasUnread} unread` : ''}`
+                      ? `${selectedPhone}${selectedContactHasUnread > 0 ? ` • ${selectedContactHasUnread} ${t.whatsapp.unreadSuffix}` : ''}`
                       : t.whatsapp.step2Body}
                   </p>
                 </div>
@@ -1280,7 +1298,7 @@ const WhatsApp = () => {
                       onClick={() => setAiDrawerOpen((current) => !current)}
                       className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
                     >
-                      {aiDrawerOpen ? 'Hide AI' : 'Show AI'}
+                      {aiDrawerOpen ? t.whatsapp.hideAi : t.whatsapp.showAi}
                     </button>
                   ) : null}
                   <button
@@ -1295,7 +1313,7 @@ const WhatsApp = () => {
             </div>
 
             <div className="p-4 md:hidden">
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Lead selector</label>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">{t.whatsapp.leadSelectorLabel}</label>
               <select
                 className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700"
                 value={selectedPhone}
@@ -1402,7 +1420,7 @@ const WhatsApp = () => {
                       className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
                       onClick={() => setComposerText(aiSuggestion)}
                     >
-                      Use AI Suggestion
+                      {t.whatsapp.useAiSuggestion}
                     </button>
                   ) : null}
                 </div>
@@ -1516,7 +1534,7 @@ const WhatsApp = () => {
             onToggle={(event) => setAiAccordionOpen((event.currentTarget as HTMLDetailsElement).open)}
             className="rounded-xl bg-slate-50 p-3 shadow-sm"
           >
-            <summary className="cursor-pointer text-sm font-semibold text-slate-800">AI panel</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800">{t.whatsapp.aiPanelSummary}</summary>
             <div className="mt-3">
               <AIPanel
                 suggestion={aiSuggestion}
@@ -1664,10 +1682,10 @@ const WhatsApp = () => {
               </div>
               <div className="whatsapp-status-pill-stack">
                 <span className={`task-pill ${workspaceReadiness?.verified ? '' : 'task-pill-overdue'}`}>
-                  Verified: {workspaceReadiness?.verified ? 'Yes' : 'No'}
+                  {t.whatsapp.verifiedLabel}: {workspaceReadiness?.verified ? t.whatsapp.yes : t.whatsapp.no}
                 </span>
                 <span className={`task-pill ${workspaceReadiness?.send_ready ? '' : 'task-pill-overdue'}`}>
-                  Send-ready: {workspaceReadiness?.send_ready ? 'Yes' : 'Action required'}
+                  {t.whatsapp.sendReadyLabel}: {workspaceReadiness?.send_ready ? t.whatsapp.yes : t.whatsapp.actionRequired}
                 </span>
               </div>
             </div>
@@ -1730,7 +1748,7 @@ const WhatsApp = () => {
       )}
       {activeView === 'inbox' && selectedPhone && conversation.length > 0 && !isConversationNearTop && (
         <button type="button" className="whatsapp-scroll-top" onClick={scrollConversationToTop}>
-          Back to top
+          {t.whatsapp.backToTop}
         </button>
       )}
     </div>
