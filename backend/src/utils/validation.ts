@@ -167,6 +167,10 @@ export const aiFollowUpSchema = z.object({
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
   quickActionIntent: quickActionIntentSchema.optional(),
+  conversationStage: z.enum(['fresh_inbound_inquiry', 'active_discussion', 'follow_up', 'quotation_payment_stage']).optional(),
+  latestCustomerMessage: z.string().max(500, 'latestCustomerMessage is too long').optional(),
+  businessFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
+  unknownFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
@@ -191,6 +195,10 @@ export const aiPaymentSchema = z.object({
   language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
   quickActionIntent: quickActionIntentSchema.optional(),
+  conversationStage: z.enum(['fresh_inbound_inquiry', 'active_discussion', 'follow_up', 'quotation_payment_stage']).optional(),
+  latestCustomerMessage: z.string().max(500, 'latestCustomerMessage is too long').optional(),
+  businessFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
+  unknownFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],

@@ -12,6 +12,7 @@ type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultati
 type AiStyle = ConversationMode;
 type QuickActionIntent = 'follow_up_softly' | 'push_for_payment' | 'offer_discount' | 'close_deal';
 type TurnType = 'first_turn' | 'ongoing_reply' | 'follow_up' | 'clarification' | 'topic_shift' | 'conversation_restart';
+type ConversationStage = 'fresh_inbound_inquiry' | 'active_discussion' | 'follow_up' | 'quotation_payment_stage';
 
 type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
 type PaymentTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
@@ -37,6 +38,10 @@ export interface FollowUpData {
   outputFormat?: OutputFormat;
   language?: Language;
   quickActionIntent?: QuickActionIntent;
+  conversationStage?: ConversationStage;
+  latestCustomerMessage?: string;
+  businessFacts?: string[];
+  unknownFacts?: string[];
 }
 
 export interface PaymentData {
@@ -57,6 +62,10 @@ export interface PaymentData {
   outputFormat?: OutputFormat;
   language?: Language;
   quickActionIntent?: QuickActionIntent;
+  conversationStage?: ConversationStage;
+  latestCustomerMessage?: string;
+  businessFacts?: string[];
+  unknownFacts?: string[];
 }
 
 export interface RefineData {
@@ -601,9 +610,9 @@ const buildPromptDebugPayload = (args: {
 const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference, language: Language): string => {
   const languageLock =
     language === 'zh-CN'
-      ? 'LANGUAGE LOCK: 输出必须是简体中文。'
+      ? 'LANGUAGE LOCK: 必须用简体中文输出。'
       : language === 'ms'
-        ? 'LANGUAGE LOCK: Output must be in Bahasa Melayu.'
+        ? 'LANGUAGE LOCK: Mesti output dalam Bahasa Melayu.'
         : 'LANGUAGE LOCK: Output must be in English.';
   const emojiRule =
     emojiIntensity === 'low'
@@ -611,31 +620,45 @@ const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference, languag
       : emojiIntensity === 'high'
         ? 'Use 1-3 emojis total (max 3). Keep them natural and not in every line.'
         : 'Use 1-2 emojis total. Keep them natural.';
+  const mixedLanguageRule =
+    language === 'zh-CN'
+      ? 'Mixed-language handling: 默认中文；仅保留客户已使用且必要的英文术语（如产品名、套餐名、金额单位）。'
+      : language === 'ms'
+        ? 'Mixed-language handling: Kekalkan Bahasa Melayu sebagai bahasa utama. Kekalkan hanya istilah produk/jenama yang perlu.'
+        : 'Mixed-language handling: Keep English as primary language. Preserve only necessary foreign terms from customer or business facts.';
 
   return [
-    'ROLE:',
-    'You are an AI sales assistant writing one send-ready WhatsApp reply for a real seller.',
+    'ROLE: You write exactly one send-ready WhatsApp sales reply.',
     '',
-    'WRITING PRINCIPLES:',
-    '- Sound human, concise, and context-aware.',
-    '- Prioritize conversion with a concrete next step.',
-    '- Keep pressure respectful: persuasive but never manipulative.',
-    '- End with an easy-to-answer CTA.',
+    'MESSAGE PRIORITY RULES (MANDATORY):',
+    '- If the latest customer message asks a direct question, answer that question first.',
+    '- Do not switch into follow-up language before answering that latest direct question.',
+    '- Do not use re-engagement wording like "just checking", "still interested", or equivalents unless stage is follow-up and latest customer message is not a fresh inquiry.',
     '',
-    'ANTI-ROBOTIC GUARDRAILS:',
-    '- No corporate email tone, no canned template phrasing.',
-    '- No repetitive filler or generic closings.',
-    '- No multi-option output, no meta commentary.',
+    'TRI-LANGUAGE RULES:',
+    `- ${languageLock}`,
+    `- ${mixedLanguageRule}`,
+    '- Keep natural WhatsApp chat tone (not formal email tone).',
     '',
-    'EMOJI GUARDRAILS:',
+    'ANTI-HALLUCINATION RULES:',
+    '- Never invent availability, pricing, package details, timelines, or policy terms.',
+    '- If key fact is unknown, ask a short clarifying question instead of guessing.',
+    '- Use only provided business facts and explicit conversation facts.',
+    '',
+    'STYLE RULES:',
+    '- Keep message concise, human, and conversion-oriented.',
+    '- Keep persuasion respectful and practical.',
+    '- End with one easy next-step CTA when appropriate.',
+    '- No canned template phrasing, no repetitive filler, no meta commentary.',
+    '- No multi-option output.',
+    '',
+    'EMOJI RULES:',
     `- ${emojiRule}`,
     '- Never spam emojis.',
     '',
-    languageLock,
-    '',
     'OUTPUT CONTRACT:',
-    '- Return only one final customer-facing message.',
-    '- No labels, no explanation, no markdown wrappers.',
+    '- Output exactly one customer-facing message ready to send.',
+    '- No labels, no explanation, no markdown, no JSON.',
   ].join('\n');
 };
 
@@ -2224,6 +2247,46 @@ type PromptBuildInput = {
   style: AiStyle;
   emojiIntensity: EmojiPreference;
   quickActionIntent?: QuickActionIntent;
+  conversationStage: ConversationStage;
+  latestCustomerMessage: string;
+  businessFacts: string[];
+  unknownFacts: string[];
+};
+
+const STAGE_LABELS: Record<ConversationStage, string> = {
+  fresh_inbound_inquiry: 'fresh inbound inquiry',
+  active_discussion: 'active discussion',
+  follow_up: 'follow-up',
+  quotation_payment_stage: 'quotation/payment stage',
+};
+
+const sanitizePromptList = (items: string[] | undefined, maxItems: number): string[] => {
+  if (!items || items.length === 0) return [];
+  return items
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, maxItems);
+};
+
+const inferConversationStage = (args: {
+  provided?: ConversationStage;
+  purpose: 'follow_up' | 'payment';
+  daysSinceLastContact: number;
+  latestCustomerMessage: string;
+  hasInboundReplyInLast24h: boolean;
+  hasHistory: boolean;
+}): ConversationStage => {
+  if (args.provided) return args.provided;
+  if (args.purpose === 'payment') return 'quotation_payment_stage';
+  if (!args.latestCustomerMessage.trim() && args.daysSinceLastContact >= 3) return 'follow_up';
+  if (/[?？]/.test(args.latestCustomerMessage) && args.hasInboundReplyInLast24h && !args.hasHistory) {
+    return 'fresh_inbound_inquiry';
+  }
+  if (/[?？]/.test(args.latestCustomerMessage) && args.hasInboundReplyInLast24h) {
+    return 'active_discussion';
+  }
+  if (!args.latestCustomerMessage.trim() && args.daysSinceLastContact >= 2) return 'follow_up';
+  return 'active_discussion';
 };
 
 const getPromptTaskInstruction = (
@@ -2249,12 +2312,21 @@ const getPromptTaskInstruction = (
 const buildPrompt = (input: PromptBuildInput): string => {
   const intentConfig = getQuickActionIntentConfig(input.quickActionIntent);
   const taskInstruction = getPromptTaskInstruction(input.language, input.purpose, input.leadName);
+  const latestMessage = input.latestCustomerMessage.trim() || 'n/a';
+  const businessFacts = input.businessFacts.length > 0
+    ? input.businessFacts.map((fact) => `- ${fact}`).join('\n')
+    : '- none';
+  const unknownFacts = input.unknownFacts.length > 0
+    ? input.unknownFacts.map((fact) => `- ${fact}`).join('\n')
+    : '- none';
   const taskRequirements = [
     '- Write exactly one WhatsApp message.',
-    '- Keep it concise and natural.',
-    '- Include one clear next-step CTA.',
-    '- Match emoji intensity and language lock.',
-    '- Avoid robotic or overly formal tone.',
+    '- First priority: handle the latest customer message.',
+    '- If latest customer message includes a direct question, answer it first before any follow-up ask.',
+    '- Keep it concise, natural, and WhatsApp-native.',
+    '- Include one clear next-step CTA when appropriate.',
+    '- Never assume unknown pricing/availability/package facts.',
+    '- Match language lock and emoji rules.',
   ];
 
   if (intentConfig) {
@@ -2265,11 +2337,25 @@ const buildPrompt = (input: PromptBuildInput): string => {
     'USER CONTEXT:',
     `- Lead: ${input.leadName}`,
     `- Purpose: ${input.purpose === 'payment' ? 'payment' : 'follow-up'}`,
+    `- Conversation stage: ${STAGE_LABELS[input.conversationStage]}`,
     `- Goal: ${input.goal || 'n/a'}`,
     `- Channel: ${input.channel === 'whatsapp' ? 'WhatsApp' : input.channel}`,
     `- Language: ${input.language}`,
     `- Days since last contact: ${input.daysPassed}`,
     `- Emoji intensity: ${input.emojiIntensity}`,
+    `- Latest customer message: ${latestMessage}`,
+    '',
+    'BUSINESS FACTS (can use):',
+    businessFacts,
+    '',
+    'UNKNOWN FACTS (do not guess):',
+    unknownFacts,
+    '',
+    'DECISION PRIORITY FRAMEWORK:',
+    '1) Latest customer message (highest priority)',
+    '2) Conversation stage',
+    '3) Business facts and unknown-facts constraints',
+    '4) Goal and quick-action strategy',
     '',
     'Lead and conversation context:',
     input.context || 'none',
@@ -2313,6 +2399,11 @@ const buildRefinePrompt = (input: {
     `- Style: ${input.style}`,
     `- Purpose: ${input.purpose}`,
     `- Emoji intensity: ${input.emojiIntensity}`,
+    '',
+    'Message priority rules:',
+    '- Keep customer-question-first behavior.',
+    '- Remove re-engagement language ("just checking", "still interested", etc.) unless explicitly justified by inactive follow-up context.',
+    '- Do not introduce unverified pricing/availability/package facts.',
     '',
     'Original message:',
     input.originalText.trim(),
@@ -3279,6 +3370,17 @@ export const generateFollowUpText = async (
     userContext.defaultOutputFormat ||
     'chat';
   const greetingPolicy = await getGreetingPolicyContext(userId, leadId);
+  const latestCustomerMessage = (data.latestCustomerMessage || greetingPolicy.lastInboundSnippet || '').trim();
+  const conversationStage = inferConversationStage({
+    provided: data.conversationStage,
+    purpose: 'follow_up',
+    daysSinceLastContact: daysPassed,
+    latestCustomerMessage,
+    hasInboundReplyInLast24h: greetingPolicy.hasInboundReplyInLast24h,
+    hasHistory: greetingPolicy.hasHistory,
+  });
+  const businessFacts = sanitizePromptList(data.businessFacts, 12);
+  const unknownFacts = sanitizePromptList(data.unknownFacts, 12);
   const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
   const memoryCompact = memorySnapshot?.structured
     ? [
@@ -3305,6 +3407,10 @@ export const generateFollowUpText = async (
     style,
     emojiIntensity: emojiPreference,
     quickActionIntent: data.quickActionIntent,
+    conversationStage,
+    latestCustomerMessage,
+    businessFacts,
+    unknownFacts,
   });
 
   try {
@@ -3331,6 +3437,10 @@ export const generateFollowUpText = async (
             tone,
             conversationMode,
             quickActionIntent: data.quickActionIntent || null,
+            conversationStage,
+            latestCustomerMessage,
+            businessFacts,
+            unknownFacts,
           },
           emojiRule: getEmojiRuleText(emojiPreference, language),
           responseTokenBudget: 120,
@@ -3494,6 +3604,18 @@ export const generatePaymentText = async (
     daysOverdue = Math.max(0, Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)));
   }
 
+  const latestCustomerMessage = (data.latestCustomerMessage || greetingPolicy.lastInboundSnippet || '').trim();
+  const conversationStage = inferConversationStage({
+    provided: data.conversationStage,
+    purpose: 'payment',
+    daysSinceLastContact: daysOverdue,
+    latestCustomerMessage,
+    hasInboundReplyInLast24h: greetingPolicy.hasInboundReplyInLast24h,
+    hasHistory: greetingPolicy.hasHistory,
+  });
+  const businessFacts = sanitizePromptList(data.businessFacts, 12);
+  const unknownFacts = sanitizePromptList(data.unknownFacts, 12);
+
   const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
   const memoryCompact = memorySnapshot?.structured
     ? [
@@ -3520,6 +3642,10 @@ export const generatePaymentText = async (
     style,
     emojiIntensity: emojiPreference,
     quickActionIntent: data.quickActionIntent,
+    conversationStage,
+    latestCustomerMessage,
+    businessFacts,
+    unknownFacts,
   });
   const paymentMeta = [
     amount ? `- Payment amount: ${amount.toFixed(2)}` : null,
@@ -3552,6 +3678,10 @@ export const generatePaymentText = async (
             conversationMode,
             amount: amount || null,
             quickActionIntent: data.quickActionIntent || null,
+            conversationStage,
+            latestCustomerMessage,
+            businessFacts,
+            unknownFacts,
           },
           emojiRule: getEmojiRuleText(emojiPreference, language),
           responseTokenBudget: 120,
