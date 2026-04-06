@@ -1752,6 +1752,40 @@ code {
   word-break: break-word;
 }
 
+.whatsapp-message-image-wrap {
+  display: grid;
+  gap: 8px;
+}
+
+.whatsapp-message-image {
+  display: block;
+  width: min(320px, 100%);
+  max-height: 280px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.whatsapp-message-image-placeholder {
+  width: min(320px, 100%);
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px dashed var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 10px;
+}
+
+.whatsapp-message-caption {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .whatsapp-scroll-latest {
   position: absolute;
   right: 18px;

@@ -6,6 +6,7 @@ import {
   getWhatsappConnection,
   getWhatsAppContactSummariesPaged,
   getWhatsAppConversationMessages,
+  getWhatsAppMediaBinary,
   getWhatsAppMessageLogs,
   getWhatsAppSendPreflight,
   markWhatsAppConversationRead,
@@ -376,6 +377,41 @@ router.get('/messages', async (req: AuthRequest, res: Response, next: NextFuncti
 
     return res.json({ success: true, data: messages });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/media/:mediaId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({ success: false, error: { message: 'Unauthorized' } });
+    }
+
+    const mediaId = String(req.params.mediaId || '').trim();
+    if (!mediaId) {
+      return res.status(400).json({ success: false, error: { message: 'mediaId is required' } });
+    }
+
+    const media = await getWhatsAppMediaBinary(req.userId, mediaId);
+    const safeFilename = media.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', media.contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).send(media.data);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'WhatsApp connection not found') {
+      return res.status(404).json({ success: false, error: { message: 'Please connect WhatsApp first', code: 'WHATSAPP_NOT_CONNECTED' } });
+    }
+    if (isWhatsAppTokenExpiredError(error)) {
+      await markTemplateTokenExpiredAndNotify(error instanceof Error ? error.message : 'unknown token expiry');
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'WhatsApp access token expired. Please reconnect in Setup and verify again.',
+          code: 'WHATSAPP_TOKEN_EXPIRED',
+        },
+      });
+    }
     next(error);
   }
 });

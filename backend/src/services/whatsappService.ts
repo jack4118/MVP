@@ -1094,6 +1094,45 @@ export const getWhatsAppConversationMessages = async (userId: string, phone: str
   return latestBatch.reverse();
 };
 
+export const getWhatsAppMediaBinary = async (userId: string, mediaId: string) => {
+  const connection = await prisma.whatsAppConnection.findUnique({ where: { userId } });
+  if (!connection) {
+    throw new Error('WhatsApp connection not found');
+  }
+
+  const mediaMetaResponse = await fetch(getGraphUrl(String(mediaId)), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${connection.accessToken}`,
+    },
+  });
+  const mediaMetaPayload: any = await mediaMetaResponse.json();
+  if (!mediaMetaResponse.ok || !mediaMetaPayload?.url) {
+    const message = mediaMetaPayload?.error?.message || 'Failed to fetch WhatsApp media metadata';
+    throw new Error(message);
+  }
+
+  const mediaResponse = await fetch(mediaMetaPayload.url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${connection.accessToken}`,
+    },
+  });
+  if (!mediaResponse.ok) {
+    throw new Error(`Failed to fetch WhatsApp media binary (${mediaResponse.status})`);
+  }
+
+  const data = Buffer.from(await mediaResponse.arrayBuffer());
+  const contentType = mediaResponse.headers.get('content-type') || mediaMetaPayload?.mime_type || 'application/octet-stream';
+  const filename = mediaMetaPayload?.id ? `whatsapp-media-${mediaMetaPayload.id}` : `whatsapp-media-${mediaId}`;
+
+  return {
+    data,
+    contentType,
+    filename,
+  };
+};
+
 export const processWhatsAppWebhook = async (body: any) => {
   const entries = Array.isArray(body?.entry) ? body.entry : [];
   let processed = 0;

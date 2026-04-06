@@ -379,6 +379,7 @@ export interface WhatsAppLogItem {
     id: string;
     name: string;
   } | null;
+  rawPayload?: Record<string, unknown> | null;
 }
 
 export interface WhatsAppContactSummary {
@@ -929,6 +930,13 @@ export const whatsappApi = {
   getMessages: async (phone: string, limit: number = 100): Promise<ApiResponse<WhatsAppLogItem[]>> => {
     const response = await api.get<ApiResponse<WhatsAppLogItem[]>>('/whatsapp/messages', { params: { phone, limit } });
     return response.data;
+  },
+
+  getMediaBlob: async (mediaId: string): Promise<Blob> => {
+    const response = await api.get(`/whatsapp/media/${encodeURIComponent(mediaId)}`, {
+      responseType: 'blob',
+    });
+    return response.data as Blob;
   },
 
   markConversationRead: async (phone: string): Promise<ApiResponse<{ id: string; unreadCount: number }>> => {

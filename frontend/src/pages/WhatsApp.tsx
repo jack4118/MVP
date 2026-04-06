@@ -90,6 +90,111 @@ const quickActionIntentMap: Record<
   },
 };
 
+const normalizeInlineImageUrl = (value: string): string | null => {
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+  return /^https?:\/\//i.test(text) ? text : null;
+};
+
+const extractImageUrlFromLog = (msg: WhatsAppLogItem): string | null => {
+  const rawPayload = msg.rawPayload as Record<string, unknown> | null | undefined;
+  const mediaUrl = typeof rawPayload?.mediaUrl === 'string' ? normalizeInlineImageUrl(rawPayload.mediaUrl) : null;
+  if (mediaUrl) {
+    return mediaUrl;
+  }
+
+  const contentMatch = msg.content.match(/^\[image\]\s+(https?:\/\/\S+)/i);
+  if (contentMatch?.[1]) {
+    return normalizeInlineImageUrl(contentMatch[1]);
+  }
+
+  return null;
+};
+
+const extractMediaIdFromLog = (msg: WhatsAppLogItem): string | null => {
+  const rawPayload = msg.rawPayload as Record<string, any> | null | undefined;
+  const candidates = [
+    rawPayload?.mediaId,
+    rawPayload?.image?.id,
+    rawPayload?.document?.id,
+    rawPayload?.video?.id,
+    rawPayload?.audio?.id,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+};
+
+const extractImageLabel = (content: string): string | null => {
+  const text = content.replace(/^\[image\]\s*/i, '').trim();
+  if (!text || /^https?:\/\//i.test(text)) {
+    return null;
+  }
+  return text;
+};
+
+const WhatsAppImageMessage = ({ message }: { message: WhatsAppLogItem }) => {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const directUrl = extractImageUrlFromLog(message);
+  const mediaId = directUrl ? null : extractMediaIdFromLog(message);
+  const caption = extractImageLabel(message.content);
+  const imageSrc = directUrl || blobUrl;
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    if (directUrl || !mediaId) {
+      setBlobUrl(null);
+      setLoadError('');
+      return;
+    }
+
+    let cancelled = false;
+    setLoadError('');
+
+    whatsappApi.getMediaBlob(mediaId)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadError('Image preview unavailable');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [directUrl, mediaId]);
+
+  return (
+    <div className="whatsapp-message-image-wrap">
+      {imageSrc ? (
+        <a href={imageSrc} target="_blank" rel="noreferrer">
+          <img className="whatsapp-message-image" src={imageSrc} alt={caption || 'WhatsApp image'} loading="lazy" />
+        </a>
+      ) : (
+        <div className="whatsapp-message-image-placeholder">
+          {loadError || 'Loading image preview...'}
+        </div>
+      )}
+      {caption ? <div className="whatsapp-message-caption">{caption}</div> : null}
+    </div>
+  );
+};
+
 const WhatsApp = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -726,17 +831,19 @@ const WhatsApp = () => {
       setError('');
       setSuccess('');
       const hasExistingConnection = !!connection;
-      const hasFilledForm =
+      const hasCompleteCredentialInput =
         formData.businessAccountId.trim() &&
         formData.phoneNumberId.trim() &&
         formData.accessToken.trim();
 
-      if (!hasExistingConnection && !hasFilledForm) {
+      if (!hasExistingConnection && !hasCompleteCredentialInput) {
         setError(t.whatsapp.fillConnectionFirst);
         return;
       }
 
-      if (!hasExistingConnection && hasFilledForm) {
+      // If a full token payload is present, persist it before verify.
+      // This ensures re-verify uses the newly pasted token instead of a stale stored one.
+      if (hasCompleteCredentialInput) {
         const saveResp = await whatsappApi.saveConnection(formData);
         if (!saveResp.success) {
           setError(saveResp.error?.message || t.common.error);
@@ -1236,10 +1343,35 @@ const WhatsApp = () => {
     const blockerMessage = outside24hWindow
       ? t.whatsapp.outside24hAction
       : (inboxReadinessError || inboxReadiness?.reasonMessage || t.common.error);
+    const renderAssistantStack = () => (
+      <div className="grid gap-3">
+        <MemoryPanel
+          intent={aiMemory.intent}
+          status={aiMemory.status}
+          issues={aiMemory.issues}
+          tone={aiMemory.tone}
+          nextStep={aiMemory.nextStep}
+        />
+        <AIPanel
+          suggestion={aiSuggestion}
+          loading={aiLoading}
+          disabled={!leadLinked}
+          disableReason={aiPanelDisableReason || aiPanelError}
+          showOutside24h={outside24hWindow}
+          templateSuggestion={suggestedTemplateMessage}
+          onUse={() => setComposerText(aiSuggestion)}
+          onEdit={() => composerTextareaRef.current?.focus()}
+          onRegenerate={() => void handleGenerateAiSuggestion()}
+          onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
+          onSendTemplate={() => void handleSendTemplateMessage(false)}
+          onSendAndContinue={() => void handleSendTemplateMessage(true)}
+        />
+      </div>
+    );
 
     return (
       <section className="whatsapp-inbox-view">
-        <div className="whatsapp-inbox-grid grid grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <div className="whatsapp-inbox-grid grid grid-cols-1 gap-4 md:grid-cols-[260px_minmax(0,1fr)] lg:grid-cols-[260px_minmax(0,1fr)_300px] xl:grid-cols-[280px_minmax(0,1fr)_320px]">
           <aside className="whatsapp-inbox-leads-pane hidden min-w-0 rounded-xl bg-white p-3 shadow-sm md:flex md:flex-col">
             <div className="mb-3">
               <p className="text-sm font-semibold text-slate-900">{t.whatsapp.inboxLeadsTitle}</p>
@@ -1341,15 +1473,7 @@ const WhatsApp = () => {
             ) : null}
 
             <div className="whatsapp-inbox-body">
-              <MemoryPanel
-                intent={aiMemory.intent}
-                status={aiMemory.status}
-                issues={aiMemory.issues}
-                tone={aiMemory.tone}
-                nextStep={aiMemory.nextStep}
-              />
-
-              <div ref={conversationBodyRef} className="whatsapp-inbox-conversation-scroll mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-3">
+              <div ref={conversationBodyRef} className="whatsapp-inbox-conversation-scroll min-h-0 flex-1 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-3">
                 {!selectedPhone ? (
                   <div className="text-sm text-slate-500">{t.whatsapp.selectContact}</div>
                 ) : loadingConversation ? (
@@ -1361,6 +1485,7 @@ const WhatsApp = () => {
                     const outbound = msg.direction !== 'inbound';
                     const voiceTranscribed = msg.messageType === 'audio' && msg.transcriptionStatus === 'success';
                     const voiceUnavailable = msg.messageType === 'audio' && msg.transcriptionStatus === 'failed';
+                    const isImageMessage = msg.messageType === 'image';
                     return (
                       <div
                         key={msg.id}
@@ -1373,7 +1498,11 @@ const WhatsApp = () => {
                             {voiceTranscribed ? t.whatsapp.voiceTranscribed : t.whatsapp.voiceUnavailable}
                           </div>
                         )}
-                        <div className="whatsapp-message-content">{msg.content}</div>
+                        {isImageMessage ? (
+                          <WhatsAppImageMessage message={msg} />
+                        ) : (
+                          <div className="whatsapp-message-content">{msg.content}</div>
+                        )}
                         <div className="whatsapp-message-meta">
                           {(msg.direction || 'outbound')} • {msg.status} • {new Date(msg.createdAt).toLocaleString()}
                         </div>
@@ -1487,20 +1616,7 @@ const WhatsApp = () => {
           </section>
 
           <aside className="whatsapp-inbox-ai-pane hidden min-w-0 lg:block">
-            <AIPanel
-              suggestion={aiSuggestion}
-              loading={aiLoading}
-              disabled={!leadLinked}
-              disableReason={aiPanelDisableReason || aiPanelError}
-              showOutside24h={outside24hWindow}
-              templateSuggestion={suggestedTemplateMessage}
-              onUse={() => setComposerText(aiSuggestion)}
-              onEdit={() => composerTextareaRef.current?.focus()}
-              onRegenerate={() => void handleGenerateAiSuggestion()}
-              onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
-              onSendTemplate={() => void handleSendTemplateMessage(false)}
-              onSendAndContinue={() => void handleSendTemplateMessage(true)}
-            />
+            {renderAssistantStack()}
           </aside>
         </div>
 
@@ -1510,20 +1626,7 @@ const WhatsApp = () => {
               className="absolute right-0 top-0 h-full w-[340px] max-w-[92vw] overflow-y-auto bg-slate-50 p-4"
               onClick={(event) => event.stopPropagation()}
             >
-              <AIPanel
-                suggestion={aiSuggestion}
-                loading={aiLoading}
-                disabled={!leadLinked}
-                disableReason={aiPanelDisableReason || aiPanelError}
-                showOutside24h={outside24hWindow}
-                templateSuggestion={suggestedTemplateMessage}
-                onUse={() => setComposerText(aiSuggestion)}
-                onEdit={() => composerTextareaRef.current?.focus()}
-                onRegenerate={() => void handleGenerateAiSuggestion()}
-                onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
-                onSendTemplate={() => void handleSendTemplateMessage(false)}
-                onSendAndContinue={() => void handleSendTemplateMessage(true)}
-              />
+              {renderAssistantStack()}
             </div>
           </div>
         ) : null}
@@ -1536,20 +1639,7 @@ const WhatsApp = () => {
           >
             <summary className="cursor-pointer text-sm font-semibold text-slate-800">{t.whatsapp.aiPanelSummary}</summary>
             <div className="mt-3">
-              <AIPanel
-                suggestion={aiSuggestion}
-                loading={aiLoading}
-                disabled={!leadLinked}
-                disableReason={aiPanelDisableReason || aiPanelError}
-                showOutside24h={outside24hWindow}
-                templateSuggestion={suggestedTemplateMessage}
-                onUse={() => setComposerText(aiSuggestion)}
-                onEdit={() => composerTextareaRef.current?.focus()}
-                onRegenerate={() => void handleGenerateAiSuggestion()}
-                onQuickAction={(intent) => void handleGenerateAiSuggestion(intent)}
-                onSendTemplate={() => void handleSendTemplateMessage(false)}
-                onSendAndContinue={() => void handleSendTemplateMessage(true)}
-              />
+              {renderAssistantStack()}
             </div>
           </details>
         ) : null}
