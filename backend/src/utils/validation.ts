@@ -43,6 +43,8 @@ export const reminderTypeValues = ['follow_up', 'payment', 'meeting', 'custom'] 
 export const reminderTypeSchema = z.enum(reminderTypeValues);
 export const quickActionIntentValues = ['follow_up_softly', 'push_for_payment', 'offer_discount', 'close_deal'] as const;
 export const quickActionIntentSchema = z.enum(quickActionIntentValues);
+export const ctaModeValues = ['soft', 'qualify', 'push'] as const;
+export const ctaModeSchema = z.enum(ctaModeValues);
 
 export const productEventValues = [
   'ai_generate_clicked',
@@ -194,6 +196,7 @@ export const aiFollowUpSchema = z.object({
   language: aiLanguageSchema.optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
   quickActionIntent: quickActionIntentSchema.optional(),
+  ctaMode: ctaModeSchema.optional(),
   conversationStage: aiConversationStageSchema.optional(),
   intentType: z.string().max(80, 'intentType is too long').optional(),
   latestCustomerMessage: z.string().max(500, 'latestCustomerMessage is too long').optional(),
@@ -223,6 +226,7 @@ export const aiPaymentSchema = z.object({
   language: aiLanguageSchema.optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
   quickActionIntent: quickActionIntentSchema.optional(),
+  ctaMode: ctaModeSchema.optional(),
   conversationStage: aiConversationStageSchema.optional(),
   intentType: z.string().max(80, 'intentType is too long').optional(),
   latestCustomerMessage: z.string().max(500, 'latestCustomerMessage is too long').optional(),

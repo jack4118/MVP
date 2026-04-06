@@ -12,6 +12,7 @@ type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultati
 type AiStyle = ConversationMode;
 type QuickActionIntent = 'follow_up_softly' | 'push_for_payment' | 'offer_discount' | 'close_deal';
 type TurnType = 'first_turn' | 'ongoing_reply' | 'follow_up' | 'clarification' | 'topic_shift' | 'conversation_restart';
+type CtaMode = 'soft' | 'qualify' | 'push';
 type ConversationStage =
   | 'new_inbound'
   | 'fresh_inbound_inquiry'
@@ -45,6 +46,7 @@ export interface FollowUpData {
   language?: Language;
   quickActionIntent?: QuickActionIntent;
   intentType?: string;
+  ctaMode?: CtaMode;
   conversationStage?: ConversationStage;
   latestCustomerMessage?: string;
   businessFacts?: unknown;
@@ -70,6 +72,7 @@ export interface PaymentData {
   language?: Language;
   quickActionIntent?: QuickActionIntent;
   intentType?: string;
+  ctaMode?: CtaMode;
   conversationStage?: ConversationStage;
   latestCustomerMessage?: string;
   businessFacts?: unknown;
@@ -2301,6 +2304,7 @@ type PromptBuildInput = {
   emojiIntensity: EmojiPreference;
   quickActionIntent?: QuickActionIntent;
   intentType?: string;
+  ctaMode?: CtaMode;
   conversationStage: ConversationStage;
   latestCustomerMessage: string;
   businessFacts: string[];
@@ -2314,6 +2318,21 @@ const STAGE_LABELS: Record<ConversationStage, string> = {
   follow_up: 'follow-up',
   quotation_payment: 'quotation/payment stage',
   quotation_payment_stage: 'quotation/payment stage',
+};
+
+const CTA_MODE_HINTS: Record<CtaMode, string> = {
+  soft: 'Keep CTA light and low-pressure (chat/explore).',
+  qualify: 'Use CTA to collect one key qualification detail (收信息).',
+  push: 'Use CTA to drive concrete commitment/closure (促成交).',
+};
+
+const normalizeCtaMode = (value?: string | null): CtaMode | null => {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'soft') return 'soft';
+  if (normalized === 'qualify') return 'qualify';
+  if (normalized === 'push') return 'push';
+  return null;
 };
 
 const normalizeFactsInput = (value: unknown, maxItems: number): string[] => {
@@ -2427,6 +2446,7 @@ const buildPrompt = (input: PromptBuildInput): string => {
       : 'English only';
   const taskInstruction = getPromptTaskInstruction(input.language, input.purpose, input.leadName);
   const intentType = (input.intentType || (input.purpose === 'payment' ? 'payment_reply' : 'sales_reply')).trim();
+  const ctaMode = normalizeCtaMode(input.ctaMode) || (input.purpose === 'payment' ? 'push' : 'soft');
 
   const quickIntentBlock = input.quickActionIntent && intentConfig
     ? [
@@ -2453,6 +2473,7 @@ const buildPrompt = (input: PromptBuildInput): string => {
     `- Emoji intensity: ${input.emojiIntensity}`,
     `- Conversation stage: ${STAGE_LABELS[input.conversationStage]}`,
     `- Seller intent type: ${intentType}`,
+    `- CTA mode: ${ctaMode}`,
     `- Seller goal: ${input.goal || 'n/a'}`,
     `- Days since last contact: ${input.daysPassed}`,
     '',
@@ -2482,6 +2503,7 @@ const buildPrompt = (input: PromptBuildInput): string => {
     '- Use only known facts and supported context.',
     '- Do not invent business details.',
     '- Keep the reply concise, natural, and conversion-oriented.',
+    `- CTA guidance: ${CTA_MODE_HINTS[ctaMode]}`,
     `- Purpose hint: ${taskInstruction}`,
     '',
     'OUTPUT REQUIREMENT:',
@@ -3515,6 +3537,7 @@ export const generateFollowUpText = async (
     emojiIntensity: emojiPreference,
     quickActionIntent: data.quickActionIntent,
     intentType: data.intentType,
+    ctaMode: data.ctaMode,
     conversationStage,
     latestCustomerMessage,
     businessFacts,
@@ -3545,6 +3568,7 @@ export const generateFollowUpText = async (
             tone,
             conversationMode,
             quickActionIntent: data.quickActionIntent || null,
+            ctaMode: normalizeCtaMode(data.ctaMode),
             conversationStage,
             latestCustomerMessage,
             businessFacts,
@@ -3751,6 +3775,7 @@ export const generatePaymentText = async (
     emojiIntensity: emojiPreference,
     quickActionIntent: data.quickActionIntent,
     intentType: data.intentType,
+    ctaMode: data.ctaMode,
     conversationStage,
     latestCustomerMessage,
     businessFacts,
@@ -3787,6 +3812,7 @@ export const generatePaymentText = async (
             conversationMode,
             amount: amount || null,
             quickActionIntent: data.quickActionIntent || null,
+            ctaMode: normalizeCtaMode(data.ctaMode),
             conversationStage,
             latestCustomerMessage,
             businessFacts,
