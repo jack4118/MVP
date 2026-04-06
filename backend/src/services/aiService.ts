@@ -12,7 +12,13 @@ type ConversationMode = 'standard' | 'humor' | 'banter' | 'direct' | 'consultati
 type AiStyle = ConversationMode;
 type QuickActionIntent = 'follow_up_softly' | 'push_for_payment' | 'offer_discount' | 'close_deal';
 type TurnType = 'first_turn' | 'ongoing_reply' | 'follow_up' | 'clarification' | 'topic_shift' | 'conversation_restart';
-type ConversationStage = 'fresh_inbound_inquiry' | 'active_discussion' | 'follow_up' | 'quotation_payment_stage';
+type ConversationStage =
+  | 'new_inbound'
+  | 'fresh_inbound_inquiry'
+  | 'active_discussion'
+  | 'follow_up'
+  | 'quotation_payment'
+  | 'quotation_payment_stage';
 
 type FollowUpTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
 type PaymentTone = 'polite' | 'friendly' | 'professional' | 'casual' | 'assertive' | 'empathetic' | 'urgent';
@@ -38,10 +44,11 @@ export interface FollowUpData {
   outputFormat?: OutputFormat;
   language?: Language;
   quickActionIntent?: QuickActionIntent;
+  intentType?: string;
   conversationStage?: ConversationStage;
   latestCustomerMessage?: string;
-  businessFacts?: string[];
-  unknownFacts?: string[];
+  businessFacts?: unknown;
+  unknownFacts?: unknown;
 }
 
 export interface PaymentData {
@@ -62,10 +69,11 @@ export interface PaymentData {
   outputFormat?: OutputFormat;
   language?: Language;
   quickActionIntent?: QuickActionIntent;
+  intentType?: string;
   conversationStage?: ConversationStage;
   latestCustomerMessage?: string;
-  businessFacts?: string[];
-  unknownFacts?: string[];
+  businessFacts?: unknown;
+  unknownFacts?: unknown;
 }
 
 export interface RefineData {
@@ -610,55 +618,100 @@ const buildPromptDebugPayload = (args: {
 const buildWhatsappHumanSystemPrompt = (emojiIntensity: EmojiPreference, language: Language): string => {
   const languageLock =
     language === 'zh-CN'
-      ? 'LANGUAGE LOCK: 必须用简体中文输出。'
+      ? 'Chinese only'
       : language === 'ms'
-        ? 'LANGUAGE LOCK: Mesti output dalam Bahasa Melayu.'
-        : 'LANGUAGE LOCK: Output must be in English.';
+        ? 'Bahasa Melayu only'
+        : 'English only';
   const emojiRule =
     emojiIntensity === 'low'
       ? 'Use 0-1 emoji total (max 1). If used, place it near the end.'
       : emojiIntensity === 'high'
         ? 'Use 1-3 emojis total (max 3). Keep them natural and not in every line.'
         : 'Use 1-2 emojis total. Keep them natural.';
-  const mixedLanguageRule =
-    language === 'zh-CN'
-      ? 'Mixed-language handling: 默认中文；仅保留客户已使用且必要的英文术语（如产品名、套餐名、金额单位）。'
-      : language === 'ms'
-        ? 'Mixed-language handling: Kekalkan Bahasa Melayu sebagai bahasa utama. Kekalkan hanya istilah produk/jenama yang perlu.'
-        : 'Mixed-language handling: Keep English as primary language. Preserve only necessary foreign terms from customer or business facts.';
 
   return [
-    'ROLE: You write exactly one send-ready WhatsApp sales reply.',
+    'ROLE:',
+    'You are an AI sales assistant writing exactly one send-ready WhatsApp reply for a real seller.',
     '',
-    'MESSAGE PRIORITY RULES (MANDATORY):',
+    'CORE OBJECTIVE:',
+    'Write a natural, human-sounding WhatsApp reply that:',
+    '1. responds to the customer\'s latest message correctly,',
+    '2. fits the conversation stage,',
+    '3. helps move the chat toward conversion,',
+    '4. stays concise and easy to reply to.',
+    '',
+    'CHANNEL:',
+    'WhatsApp',
+    '',
+    'MESSAGE PRIORITY:',
+    'Follow this order strictly:',
+    '1. Respond to the customer\'s latest message first.',
+    '2. If the latest message includes a direct question, answer that question before anything else.',
+    '3. Briefly acknowledge the customer\'s intent or situation.',
+    '4. Move the chat forward with one clear next step.',
+    '5. Keep the message concise and easy to answer.',
+    '',
+    'DECISION RULES:',
+    '- The latest customer message is the highest-priority signal.',
+    '- Never write a follow-up or re-engagement style reply if the customer has just sent a fresh inbound inquiry.',
+    '- If the customer asks about availability, price, package, location, timing, payment, delivery, booking, or any other direct issue, address it first.',
+    '- If exact information is missing, do not invent facts. Give a safe reply and ask only for the minimum detail needed.',
+    '- Use follow-up language only when the chat is actually inactive and the latest customer message is not a fresh inquiry.',
+    '- If the customer shows buying intent, reduce friction and suggest one concrete next step.',
+    '- If the customer sounds hesitant, lower pressure and keep the CTA light.',
+    '',
+    'ANTI-HALLUCINATION RULES:',
+    '- Do not invent availability, pricing, package details, delivery time, discounts, payment status, or promises.',
+    '- Use only facts supported by conversation context, latest customer message, and known business facts.',
+    '- If a key fact is unknown, say so naturally or ask one simple clarification.',
+    '',
+    'WHATSAPP STYLE RULES:',
+    '- Sound like a real person texting, not an email or scripted bot.',
+    '- Be concise, warm, natural, and context-aware.',
+    '- Use short, clear sentences.',
+    '- Avoid corporate phrasing, canned templates, and generic closings.',
+    '- Avoid sounding overly polished or robotic.',
+    '',
+    'CTA RULES:',
+    '- Include only one clear next-step CTA.',
+    '- CTA must be easy to answer.',
+    '- Do not stack multiple unrelated questions.',
+    '- Do not pressure, guilt, or manipulate.',
+    '',
+    'FOLLOW-UP GUARDRAILS:',
     '- If the latest customer message asks a direct question, answer that question first.',
     '- Do not switch into follow-up language before answering that latest direct question.',
     '- Do not use re-engagement wording like "just checking", "still interested", or equivalents unless stage is follow-up and latest customer message is not a fresh inquiry.',
     '',
-    'TRI-LANGUAGE RULES:',
-    `- ${languageLock}`,
-    `- ${mixedLanguageRule}`,
-    '- Keep natural WhatsApp chat tone (not formal email tone).',
-    '',
-    'ANTI-HALLUCINATION RULES:',
-    '- Never invent availability, pricing, package details, timelines, or policy terms.',
-    '- If key fact is unknown, ask a short clarifying question instead of guessing.',
-    '- Use only provided business facts and explicit conversation facts.',
-    '',
-    'STYLE RULES:',
-    '- Keep message concise, human, and conversion-oriented.',
-    '- Keep persuasion respectful and practical.',
-    '- End with one easy next-step CTA when appropriate.',
-    '- No canned template phrasing, no repetitive filler, no meta commentary.',
-    '- No multi-option output.',
-    '',
     'EMOJI RULES:',
     `- ${emojiRule}`,
     '- Never spam emojis.',
+    '- Keep emojis natural for WhatsApp.',
+    '- If emoji intensity is low, use none or at most one emoji.',
+    '',
+    'TRILINGUAL LANGUAGE RULES:',
+    `- Output must follow LANGUAGE LOCK: ${languageLock} strictly.`,
+    '- Supported languages: English, Chinese, Bahasa Melayu.',
+    '- Match the customer\'s dominant language in the latest customer message unless language lock overrides it.',
+    '- If customer uses mixed language, keep the reply mainly in the locked language, using only common mixed terms if natural.',
+    '- Never translate names, brands, package names, dates, times, currencies, addresses, or quoted customer wording unless necessary.',
+    '',
+    'CHINESE STYLE RULES:',
+    '- Prefer natural chat phrasing over formal service language.',
+    '- Keep sentence flow smooth and easy to reply to.',
+    '',
+    'BAHASA MELAYU STYLE RULES:',
+    '- Use simple, conversational Malay.',
+    '- Avoid textbook or overly official tone.',
+    '',
+    'ENGLISH STYLE RULES:',
+    '- Use natural spoken business-chat English.',
+    '- Avoid email-like openings and closings.',
     '',
     'OUTPUT CONTRACT:',
-    '- Output exactly one customer-facing message ready to send.',
-    '- No labels, no explanation, no markdown, no JSON.',
+    '- Return exactly one final customer-facing WhatsApp message.',
+    '- Return only the message text.',
+    '- No labels, no explanation, no markdown, no multiple versions, no meta commentary.',
   ].join('\n');
 };
 
@@ -2247,6 +2300,7 @@ type PromptBuildInput = {
   style: AiStyle;
   emojiIntensity: EmojiPreference;
   quickActionIntent?: QuickActionIntent;
+  intentType?: string;
   conversationStage: ConversationStage;
   latestCustomerMessage: string;
   businessFacts: string[];
@@ -2254,18 +2308,65 @@ type PromptBuildInput = {
 };
 
 const STAGE_LABELS: Record<ConversationStage, string> = {
+  new_inbound: 'new inbound inquiry',
   fresh_inbound_inquiry: 'fresh inbound inquiry',
   active_discussion: 'active discussion',
   follow_up: 'follow-up',
+  quotation_payment: 'quotation/payment stage',
   quotation_payment_stage: 'quotation/payment stage',
 };
 
-const sanitizePromptList = (items: string[] | undefined, maxItems: number): string[] => {
-  if (!items || items.length === 0) return [];
-  return items
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, maxItems);
+const normalizeFactsInput = (value: unknown, maxItems: number): string[] => {
+  const pushSafe = (bucket: string[], raw: unknown) => {
+    if (typeof raw !== 'string') return;
+    const cleaned = raw.trim();
+    if (cleaned) bucket.push(cleaned);
+  };
+
+  const out: string[] = [];
+  if (!value) return out;
+
+  if (typeof value === 'string') {
+    pushSafe(out, value);
+    return out.slice(0, maxItems);
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => pushSafe(out, item));
+    return out.slice(0, maxItems);
+  }
+
+  if (typeof value === 'object') {
+    Object.entries(value as Record<string, unknown>).forEach(([key, raw]) => {
+      if (typeof raw === 'boolean') {
+        out.push(`${key}: ${raw ? 'unknown' : 'known'}`);
+        return;
+      }
+      if (Array.isArray(raw)) {
+        const joined = raw.map((x) => String(x).trim()).filter(Boolean).join(', ');
+        if (joined) out.push(`${key}: ${joined}`);
+        return;
+      }
+      if (raw !== null && raw !== undefined) {
+        const cleaned = String(raw).trim();
+        if (cleaned) out.push(`${key}: ${cleaned}`);
+      }
+    });
+  }
+
+  return out.slice(0, maxItems);
+};
+
+const normalizeConversationStage = (value?: ConversationStage | null): ConversationStage | null => {
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (normalized === 'new_inbound') return 'new_inbound';
+  if (normalized === 'fresh_inbound_inquiry') return 'fresh_inbound_inquiry';
+  if (normalized === 'active_discussion') return 'active_discussion';
+  if (normalized === 'follow_up') return 'follow_up';
+  if (normalized === 'quotation_payment') return 'quotation_payment';
+  if (normalized === 'quotation_payment_stage') return 'quotation_payment_stage';
+  return null;
 };
 
 const inferConversationStage = (args: {
@@ -2276,11 +2377,12 @@ const inferConversationStage = (args: {
   hasInboundReplyInLast24h: boolean;
   hasHistory: boolean;
 }): ConversationStage => {
-  if (args.provided) return args.provided;
-  if (args.purpose === 'payment') return 'quotation_payment_stage';
+  const provided = normalizeConversationStage(args.provided);
+  if (provided) return provided;
+  if (args.purpose === 'payment') return 'quotation_payment';
   if (!args.latestCustomerMessage.trim() && args.daysSinceLastContact >= 3) return 'follow_up';
   if (/[?？]/.test(args.latestCustomerMessage) && args.hasInboundReplyInLast24h && !args.hasHistory) {
-    return 'fresh_inbound_inquiry';
+    return 'new_inbound';
   }
   if (/[?？]/.test(args.latestCustomerMessage) && args.hasInboundReplyInLast24h) {
     return 'active_discussion';
@@ -2311,7 +2413,6 @@ const getPromptTaskInstruction = (
 
 const buildPrompt = (input: PromptBuildInput): string => {
   const intentConfig = getQuickActionIntentConfig(input.quickActionIntent);
-  const taskInstruction = getPromptTaskInstruction(input.language, input.purpose, input.leadName);
   const latestMessage = input.latestCustomerMessage.trim() || 'n/a';
   const businessFacts = input.businessFacts.length > 0
     ? input.businessFacts.map((fact) => `- ${fact}`).join('\n')
@@ -2319,66 +2420,72 @@ const buildPrompt = (input: PromptBuildInput): string => {
   const unknownFacts = input.unknownFacts.length > 0
     ? input.unknownFacts.map((fact) => `- ${fact}`).join('\n')
     : '- none';
-  const taskRequirements = [
-    '- Write exactly one WhatsApp message.',
-    '- First priority: handle the latest customer message.',
-    '- If latest customer message includes a direct question, answer it first before any follow-up ask.',
-    '- Keep it concise, natural, and WhatsApp-native.',
-    '- Include one clear next-step CTA when appropriate.',
-    '- Never assume unknown pricing/availability/package facts.',
-    '- Match language lock and emoji rules.',
-  ];
+  const languageLock = input.language === 'zh-CN'
+    ? 'Chinese only'
+    : input.language === 'ms'
+      ? 'Bahasa Melayu only'
+      : 'English only';
+  const taskInstruction = getPromptTaskInstruction(input.language, input.purpose, input.leadName);
+  const intentType = (input.intentType || (input.purpose === 'payment' ? 'payment_reply' : 'sales_reply')).trim();
 
-  if (intentConfig) {
-    taskRequirements.push(`- CTA bias: ${intentConfig.defaultCtaBias}.`);
-  }
+  const quickIntentBlock = input.quickActionIntent && intentConfig
+    ? [
+        `- intentId: ${input.quickActionIntent}`,
+        `- internalInstruction: ${intentConfig.internalInstruction}`,
+        `- strategy: ${intentConfig.promptStrategyBlock}`,
+        `- toneBias: ${intentConfig.defaultToneBias}`,
+        `- ctaBias: ${intentConfig.defaultCtaBias}`,
+      ].join('\n')
+    : [
+        '- intentId: none',
+        '- internalInstruction: none',
+        '- strategy: answer first, then move to one clear next step',
+        '- toneBias: polite',
+        '- ctaBias: single-question CTA',
+      ].join('\n');
 
   return [
     'USER CONTEXT:',
-    `- Lead: ${input.leadName}`,
-    `- Purpose: ${input.purpose === 'payment' ? 'payment' : 'follow-up'}`,
-    `- Conversation stage: ${STAGE_LABELS[input.conversationStage]}`,
-    `- Goal: ${input.goal || 'n/a'}`,
-    `- Channel: ${input.channel === 'whatsapp' ? 'WhatsApp' : input.channel}`,
-    `- Language: ${input.language}`,
-    `- Days since last contact: ${input.daysPassed}`,
+    `- Lead name: ${input.leadName}`,
+    '- Channel: WhatsApp',
+    `- Target language: ${input.language}`,
+    `- Language lock: ${languageLock}`,
     `- Emoji intensity: ${input.emojiIntensity}`,
-    `- Latest customer message: ${latestMessage}`,
+    `- Conversation stage: ${STAGE_LABELS[input.conversationStage]}`,
+    `- Seller intent type: ${intentType}`,
+    `- Seller goal: ${input.goal || 'n/a'}`,
+    `- Days since last contact: ${input.daysPassed}`,
     '',
-    'BUSINESS FACTS (can use):',
+    'KNOWN BUSINESS FACTS:',
     businessFacts,
     '',
-    'UNKNOWN FACTS (do not guess):',
+    'UNKNOWN FACTS NOT TO INVENT:',
     unknownFacts,
     '',
-    'DECISION PRIORITY FRAMEWORK:',
-    '1) Latest customer message (highest priority)',
-    '2) Conversation stage',
-    '3) Business facts and unknown-facts constraints',
-    '4) Goal and quick-action strategy',
-    '',
-    'Lead and conversation context:',
+    'CONVERSATION CONTEXT:',
     input.context || 'none',
     '',
+    'LATEST CUSTOMER MESSAGE:',
+    latestMessage,
+    '',
     'QUICK ACTION INTENT:',
-    input.quickActionIntent && intentConfig
-      ? [
-          `- intentId: ${input.quickActionIntent}`,
-          `- internalInstruction: ${intentConfig.internalInstruction}`,
-          `- strategy: ${intentConfig.promptStrategyBlock}`,
-          `- toneBias: ${intentConfig.defaultToneBias}`,
-          `- ctaBias: ${intentConfig.defaultCtaBias}`,
-        ].join('\n')
-      : '- intentId: none',
+    quickIntentBlock,
     '',
     'TASK:',
-    taskInstruction,
+    'Write exactly one send-ready WhatsApp reply for the seller.',
     '',
-    'TASK REQUIREMENTS:',
-    ...taskRequirements,
+    'REPLY LOGIC:',
+    '- Base the reply mainly on the latest customer message.',
+    '- If the latest customer message contains a direct question, answer it first.',
+    '- If the latest customer message is a fresh inquiry, do not use re-engagement or follow-up phrasing.',
+    '- If information is missing, ask only the single most useful next question.',
+    '- Use only known facts and supported context.',
+    '- Do not invent business details.',
+    '- Keep the reply concise, natural, and conversion-oriented.',
+    `- Purpose hint: ${taskInstruction}`,
     '',
     'OUTPUT REQUIREMENT:',
-    '- Return only the final message text.',
+    'Return only the final message text.',
   ].join('\n');
 };
 
@@ -3379,8 +3486,8 @@ export const generateFollowUpText = async (
     hasInboundReplyInLast24h: greetingPolicy.hasInboundReplyInLast24h,
     hasHistory: greetingPolicy.hasHistory,
   });
-  const businessFacts = sanitizePromptList(data.businessFacts, 12);
-  const unknownFacts = sanitizePromptList(data.unknownFacts, 12);
+  const businessFacts = normalizeFactsInput(data.businessFacts, 12);
+  const unknownFacts = normalizeFactsInput(data.unknownFacts, 12);
   const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
   const memoryCompact = memorySnapshot?.structured
     ? [
@@ -3407,6 +3514,7 @@ export const generateFollowUpText = async (
     style,
     emojiIntensity: emojiPreference,
     quickActionIntent: data.quickActionIntent,
+    intentType: data.intentType,
     conversationStage,
     latestCustomerMessage,
     businessFacts,
@@ -3613,8 +3721,8 @@ export const generatePaymentText = async (
     hasInboundReplyInLast24h: greetingPolicy.hasInboundReplyInLast24h,
     hasHistory: greetingPolicy.hasHistory,
   });
-  const businessFacts = sanitizePromptList(data.businessFacts, 12);
-  const unknownFacts = sanitizePromptList(data.unknownFacts, 12);
+  const businessFacts = normalizeFactsInput(data.businessFacts, 12);
+  const unknownFacts = normalizeFactsInput(data.unknownFacts, 12);
 
   const systemPrompt = buildWhatsappHumanSystemPrompt(emojiPreference, language);
   const memoryCompact = memorySnapshot?.structured
@@ -3642,6 +3750,7 @@ export const generatePaymentText = async (
     style,
     emojiIntensity: emojiPreference,
     quickActionIntent: data.quickActionIntent,
+    intentType: data.intentType,
     conversationStage,
     latestCustomerMessage,
     businessFacts,

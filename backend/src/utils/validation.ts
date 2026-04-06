@@ -149,6 +149,33 @@ export const analyzeConversationSchema = z.object({
   notes: z.string().max(4000, 'notes is too long').optional(),
 });
 
+const aiLanguageSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'english' || normalized === 'en') return 'en';
+  if (normalized === 'chinese' || normalized === 'zh-cn' || normalized === 'zh_cn' || normalized === 'zh') return 'zh-CN';
+  if (normalized === 'bahasa melayu' || normalized === 'malay' || normalized === 'ms') return 'ms';
+  return value;
+}, z.enum(['en', 'zh-CN', 'ms']));
+
+const aiConversationStageSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'new_inbound') return 'new_inbound';
+  if (normalized === 'fresh_inbound_inquiry') return 'fresh_inbound_inquiry';
+  if (normalized === 'active_discussion') return 'active_discussion';
+  if (normalized === 'follow_up') return 'follow_up';
+  if (normalized === 'quotation_payment') return 'quotation_payment';
+  if (normalized === 'quotation_payment_stage') return 'quotation_payment_stage';
+  return value;
+}, z.enum(['new_inbound', 'fresh_inbound_inquiry', 'active_discussion', 'follow_up', 'quotation_payment', 'quotation_payment_stage']));
+
+const factInputSchema = z.union([
+  z.string().max(2000),
+  z.array(z.string().min(1).max(200)).max(30),
+  z.record(z.union([z.string().max(500), z.boolean(), z.array(z.string().max(120)).max(15)])),
+]);
+
 export const aiFollowUpSchema = z.object({
   leadName: z.string().min(1, 'Lead name is required'),
   goal: z.string().min(3, 'Goal is required').max(300, 'Goal is too long').optional(),
@@ -164,13 +191,14 @@ export const aiFollowUpSchema = z.object({
   emojiIntensity: emojiDensitySchema.optional(),
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
-  language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
+  language: aiLanguageSchema.optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
   quickActionIntent: quickActionIntentSchema.optional(),
-  conversationStage: z.enum(['fresh_inbound_inquiry', 'active_discussion', 'follow_up', 'quotation_payment_stage']).optional(),
+  conversationStage: aiConversationStageSchema.optional(),
+  intentType: z.string().max(80, 'intentType is too long').optional(),
   latestCustomerMessage: z.string().max(500, 'latestCustomerMessage is too long').optional(),
-  businessFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
-  unknownFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
+  businessFacts: factInputSchema.optional(),
+  unknownFacts: factInputSchema.optional(),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
@@ -192,13 +220,14 @@ export const aiPaymentSchema = z.object({
   emojiIntensity: emojiDensitySchema.optional(),
   emojiDensity: emojiDensitySchema.optional(),
   outputFormat: outputFormatSchema.optional(),
-  language: z.enum(['en', 'zh-CN', 'ms']).optional().default('en'),
+  language: aiLanguageSchema.optional().default('en'),
   variantCount: z.number().int().min(1).max(5).optional().default(1),
   quickActionIntent: quickActionIntentSchema.optional(),
-  conversationStage: z.enum(['fresh_inbound_inquiry', 'active_discussion', 'follow_up', 'quotation_payment_stage']).optional(),
+  conversationStage: aiConversationStageSchema.optional(),
+  intentType: z.string().max(80, 'intentType is too long').optional(),
   latestCustomerMessage: z.string().max(500, 'latestCustomerMessage is too long').optional(),
-  businessFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
-  unknownFacts: z.array(z.string().min(1).max(200)).max(20).optional(),
+  businessFacts: factInputSchema.optional(),
+  unknownFacts: factInputSchema.optional(),
 }).refine((value) => Boolean((value.goal || value.objective || '').trim()), {
   message: 'Goal is required',
   path: ['goal'],
